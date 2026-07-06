@@ -124,7 +124,7 @@ function SourcePanel({
           title="model source not found"
           detail={
             file.path
-              ? `Couldn't read the model at ${file.path} — it may have moved since the fit.`
+              ? `Couldn't read the model at ${file.path} — this fit predates source archiving and the file has moved since.`
               : 'No model path was recorded for this fit.'
           }
         />
@@ -139,11 +139,20 @@ function basename(path: string | null | undefined): string | null {
   return parts[parts.length - 1] || path
 }
 
+/** Provenance blurb for a source panel's subline, keyed by where the bytes
+ * came from: the self-contained fit run leaf, or a live read of the checkout. */
+function originNote(origin: SourceFile['origin']): string {
+  if (origin === 'leaf') return 'archived in the run leaf'
+  if (origin === 'live') return 'read live from its recorded path'
+  return ''
+}
+
 /**
- * The fit's sources, stacked: the `.camdl` model on top (read live from its
- * recorded path, not the CAS) and the mirrored `fit.toml` below. Pygments-
- * highlighted HTML is rendered verbatim; the token stylesheet is injected once.
- * A comfortable reading width — this is text, not a figure.
+ * The fit's sources, stacked: the `.camdl` model on top (the copy archived in
+ * the run leaf when present, else read live from its recorded path) and the
+ * `fit.toml` below (always archived in the leaf). Pygments-highlighted HTML is
+ * rendered verbatim; the token stylesheet is injected once. A comfortable
+ * reading width — this is text, not a figure.
  */
 export function SourceTab({ runId }: { runId: string }) {
   const { data, isPending, isError } = useSource(runId)
@@ -181,7 +190,7 @@ export function SourceTab({ runId }: { runId: string }) {
             {data.model.path ?? 'no recorded path'}
             <span className="text-neutral-300">
               {' '}
-              · read live from source (not in the CAS)
+              · {originNote(data.model.origin)}
             </span>
           </>
         }
@@ -193,7 +202,10 @@ export function SourceTab({ runId }: { runId: string }) {
         subline={
           <>
             {basename(data.fit_toml.path) ?? 'fit.toml'}
-            <span className="text-neutral-300"> · mirrored in the run store</span>
+            <span className="text-neutral-300">
+              {' '}
+              · {originNote(data.fit_toml.origin)}
+            </span>
           </>
         }
         file={data.fit_toml}

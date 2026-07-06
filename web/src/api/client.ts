@@ -105,9 +105,10 @@ export function getDraws(
 }
 
 /**
- * The fit's sources: the `.camdl` model (read live from its recorded path) and
- * the mirrored `fit.toml`, both Pygments-highlighted server-side. Carries the
- * token stylesheet to inject once.
+ * The fit's sources: the `.camdl` model (the copy archived in the run leaf when
+ * present, else read live from its recorded path) and the leaf-archived
+ * `fit.toml`, both Pygments-highlighted server-side. Carries the token
+ * stylesheet to inject once.
  */
 export function getSource(runId: string): Promise<SourceResponse> {
   const id = encodeURIComponent(runId)

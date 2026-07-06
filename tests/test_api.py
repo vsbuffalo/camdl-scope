@@ -123,3 +123,46 @@ def test_posterior_doc_labelled_params(client):
 def test_posterior_404(client):
     r = client.get("/api/runs/nope/posterior")
     assert r.status_code == 404
+
+
+# --- Source tab: leaf-archived model source (gh#353) -------------------------
+
+
+def test_source_prefers_the_leaf_archived_model(client, tmp_path):
+    """When the fit leaf carries ``model.camdl.original`` (gh#353), the Source
+    tab serves that self-contained copy — not a checkout-relative live read —
+    and marks its origin ``leaf``. The golden fit's recorded ``model_path`` is a
+    non-existent ``.ir.json``, so a live read would miss; the leaf copy wins."""
+    model_src = "compartments { S, I, R }\nparameters { beta ~ log_normal() }\n"
+    (tmp_path / RUN_DIR / "model.camdl.original").write_text(model_src)
+
+    r = client.get(f"/api/runs/{RUN_DIR}/source")
+    assert r.status_code == 200
+    body = r.json()
+
+    model = body["model"]
+    assert model["present"] is True
+    assert model["origin"] == "leaf"
+    assert model["text"] == model_src
+    assert model["html"]  # highlighted, non-empty
+
+    # fit.toml is always leaf-archived.
+    assert body["fit_toml"]["present"] is True
+    assert body["fit_toml"]["origin"] == "leaf"
+
+
+def test_source_falls_back_to_live_when_no_leaf_copy(client):
+    """Older fits predate source archiving: with no ``model.camdl.original`` in
+    the leaf, the model falls back to a live read of the recorded path. The
+    golden fit points at a missing ``.ir.json``, so it reads ``present: false``
+    with origin ``live`` — never a leaf hit."""
+    r = client.get(f"/api/runs/{RUN_DIR}/source")
+    assert r.status_code == 200
+    model = r.json()["model"]
+    assert model["origin"] == "live"
+    assert model["present"] is False
+
+
+def test_source_404(client):
+    r = client.get("/api/runs/nope/source")
+    assert r.status_code == 404

@@ -14,6 +14,8 @@ arrive as ``None`` (not ``NaN``) because Starlette serializes with
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -224,18 +226,22 @@ class RunDetail(BaseModel):
 class SourceFile(BaseModel):
     """One source artifact: syntax-highlighted ``html`` to render and raw
     ``text`` for the copy button. ``present`` is false when the file couldn't be
-    read (e.g. the model moved since the fit)."""
+    read (e.g. the model moved since the fit). ``origin`` records where the bytes
+    came from: ``leaf`` = archived in the self-contained fit run leaf,
+    ``live`` = read live from the recorded checkout path."""
 
     path: str | None = None
     present: bool
+    origin: Literal["leaf", "live"] | None = None
     html: str = ""
     text: str = ""
 
 
 class SourceResponse(BaseModel):
-    """The fit's sources: the ``.camdl`` model (read live from its recorded
-    path) and the ``fit.toml`` (mirrored in the run store). ``highlight_css`` is
-    the Pygments token stylesheet to inject once."""
+    """The fit's sources: the ``.camdl`` model (preferably the copy archived in
+    the run leaf; older fits fall back to the recorded checkout path) and the
+    ``fit.toml`` (always archived in the run leaf). ``highlight_css`` is the
+    Pygments token stylesheet to inject once."""
 
     run_id: str
     model: SourceFile

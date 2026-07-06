@@ -122,8 +122,9 @@ export interface paths {
         };
         /**
          * Get Source
-         * @description The fit's sources: the highlighted ``.camdl`` model (read live from its
-         *     recorded path) and the mirrored ``fit.toml`` (always in the run store).
+         * @description The fit's sources: the highlighted ``.camdl`` model (the copy archived in
+         *     the run leaf when present, else read live from the recorded path) and the
+         *     ``fit.toml`` (always archived in the run leaf).
          */
         get: operations["get_source_api_runs__run_id__source_get"];
         put?: never;
@@ -945,13 +946,17 @@ export interface components {
          * SourceFile
          * @description One source artifact: syntax-highlighted ``html`` to render and raw
          *     ``text`` for the copy button. ``present`` is false when the file couldn't be
-         *     read (e.g. the model moved since the fit).
+         *     read (e.g. the model moved since the fit). ``origin`` records where the bytes
+         *     came from: ``leaf`` = archived in the self-contained fit run leaf,
+         *     ``live`` = read live from the recorded checkout path.
          */
         SourceFile: {
             /** Path */
             path?: string | null;
             /** Present */
             present: boolean;
+            /** Origin */
+            origin?: ("leaf" | "live") | null;
             /**
              * Html
              * @default
@@ -965,9 +970,10 @@ export interface components {
         };
         /**
          * SourceResponse
-         * @description The fit's sources: the ``.camdl`` model (read live from its recorded
-         *     path) and the ``fit.toml`` (mirrored in the run store). ``highlight_css`` is
-         *     the Pygments token stylesheet to inject once.
+         * @description The fit's sources: the ``.camdl`` model (preferably the copy archived in
+         *     the run leaf; older fits fall back to the recorded checkout path) and the
+         *     ``fit.toml`` (always archived in the run leaf). ``highlight_css`` is the
+         *     Pygments token stylesheet to inject once.
          */
         SourceResponse: {
             /** Run Id */

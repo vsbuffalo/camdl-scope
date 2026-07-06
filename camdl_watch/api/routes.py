@@ -510,28 +510,48 @@ def _project_root(store: Path) -> Path:
     return store.parent.parent if store.name == "fits" else store.parent
 
 
-def _read_model_source(store: Path, model_path: str) -> SourceFile:
-    """The model source, syntax-highlighted. Resolves a relative recorded
-    ``model_path`` against the project root (newer fits store it relative; older
-    ones absolute). Read live from the path — the model isn't in the CAS."""
+def _read_model_source(run_dir: Path, store: Path, model_path: str) -> SourceFile:
+    """The model source, syntax-highlighted.
+
+    Prefer the copy archived in the fit run leaf (``model.camdl.original``,
+    gh#353): it's self-contained and path-independent, so it resolves from a
+    viewer launched anywhere. Older fits (and ``.ir.json`` models, which archive
+    no ``.camdl``) have no such copy — fall back to reading live from the
+    recorded ``model_path``, resolved relative to the project root (newer fits
+    store it relative; older ones absolute)."""
+    archived = run_dir / "model.camdl.original"
+    if archived.is_file():
+        try:
+            text = archived.read_text()
+        except OSError:
+            pass
+        else:
+            return SourceFile(
+                path=model_path or "model.camdl", present=True, origin="leaf",
+                html=highlight_camdl(text), text=text,
+            )
     if not model_path:
-        return SourceFile(path=None, present=False)
+        return SourceFile(path=None, present=False, origin="live")
     p = Path(model_path)
     if not p.is_absolute():
         p = _project_root(store) / p
     if not p.is_file():
-        return SourceFile(path=model_path, present=False)
+        return SourceFile(path=model_path, present=False, origin="live")
     try:
         text = p.read_text()
     except OSError:
-        return SourceFile(path=model_path, present=False)
-    return SourceFile(path=model_path, present=True, html=highlight_camdl(text), text=text)
+        return SourceFile(path=model_path, present=False, origin="live")
+    return SourceFile(
+        path=model_path, present=True, origin="live",
+        html=highlight_camdl(text), text=text,
+    )
 
 
 @router.get("/runs/{run_id}/source", response_model=SourceResponse)
 def get_source(run_id: str) -> SourceResponse:
-    """The fit's sources: the highlighted ``.camdl`` model (read live from its
-    recorded path) and the mirrored ``fit.toml`` (always in the run store)."""
+    """The fit's sources: the highlighted ``.camdl`` model (the copy archived in
+    the run leaf when present, else read live from the recorded path) and the
+    ``fit.toml`` (always archived in the run leaf)."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None:
@@ -540,19 +560,22 @@ def get_source(run_id: str) -> SourceResponse:
         meta_json = json.loads((meta.run_dir / "fit.meta.json").read_text())
     except (OSError, json.JSONDecodeError):
         meta_json = {}
-    model = _read_model_source(store, str(meta_json.get("model_path", "")))
+    model = _read_model_source(
+        meta.run_dir, store, str(meta_json.get("model_path", ""))
+    )
 
     toml_path = meta.run_dir / "fit.toml.original"
     if toml_path.is_file():
         try:
             ttext = toml_path.read_text()
             fit_toml = SourceFile(
-                path="fit.toml", present=True, html=highlight_toml(ttext), text=ttext
+                path="fit.toml", present=True, origin="leaf",
+                html=highlight_toml(ttext), text=ttext,
             )
         except OSError:
-            fit_toml = SourceFile(path="fit.toml", present=False)
+            fit_toml = SourceFile(path="fit.toml", present=False, origin="leaf")
     else:
-        fit_toml = SourceFile(path="fit.toml", present=False)
+        fit_toml = SourceFile(path="fit.toml", present=False, origin="leaf")
 
     return SourceResponse(
         run_id=run_id, model=model,
