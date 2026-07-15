@@ -44,62 +44,80 @@ function Ticker({ run }: { run: RunSummary }) {
         {run.algorithm}/{run.backend}
       </span>
       {sep}
-      <span className="tabular-nums">{run.n_chains} CHAINS</span>
+      {run.fit_kind === 'mle' ? (
+        <span className="uppercase">MLE</span>
+      ) : (
+        <span className="tabular-nums">{run.n_chains} CHAINS</span>
+      )}
       {sep}
       <span className="tabular-nums">{run.n_params} PARAMS</span>
-      <StatusBadge status={run.status} className="ml-auto" />
     </div>
   )
 }
 
 /**
- * Live progress for a running/warming/failed run, from camdl's `progress.json`
- * heartbeat: the phase + sweep counter + a thin completion bar, or — on a clean
- * failure — the reason. Nothing for a finished run (its scores speak instead).
+ * The run's status line — the single status indicator, sitting above its
+ * progress bar. Leads with the {@link StatusBadge} (swatch + status) for every
+ * run, so it's not duplicated in the ticker. For a live run it adds the
+ * heartbeat phase (burn-in vs sampling, when known), a sweep counter, and a
+ * completion bar — driven by camdl's `progress.json` when present, else the
+ * trace's `max_iter / target_sweeps`. A clean failure appends its reason.
  */
 function ProgressBlurb({ run }: { run: RunSummary }) {
   const p = run.progress
-  if (!p) return null
-
-  if (run.status === 'failed' || p.state === 'failed') {
-    return (
-      <div className="flex flex-wrap items-center gap-x-1.5 py-1 font-mono text-[11px] text-red-600">
-        <span className="uppercase tracking-wide">failed</span>
-        {p.reason && (
-          <span className="min-w-0 truncate text-red-500">· {p.reason}</span>
-        )}
-      </div>
-    )
-  }
-
+  const failed = run.status === 'failed' || p?.state === 'failed'
   const live = run.status === 'running' || run.status === 'warming'
-  if (!live) return null
 
-  const phase = p.phase ? p.phase.replace(/_/g, '-') : p.state
-  const counter =
-    p.step != null && p.total != null
-      ? `${p.step.toLocaleString()}/${p.total.toLocaleString()}`
+  // Only a real heartbeat phase (burn-in / sampling) — never fall back to the
+  // status, which would just echo the badge.
+  const phase = live && p?.phase ? p.phase.replace(/_/g, '-') : null
+
+  // Sweep-position fallback when there's no heartbeat pct: last stored sweep
+  // against the configured total (clamped — max_iter is a raw sweep index).
+  const sweepPct =
+    run.max_iter != null && run.target_sweeps
+      ? Math.min(100, Math.round((100 * run.max_iter) / run.target_sweeps))
       : null
+  const pct = live ? (p?.pct ?? sweepPct) : null
+
+  const counter =
+    live && p?.step != null && p?.total != null
+      ? `${p.step.toLocaleString()}/${p.total.toLocaleString()}`
+      : live && run.max_iter != null && run.target_sweeps
+        ? `${run.max_iter.toLocaleString()}/${run.target_sweeps.toLocaleString()}`
+        : null
 
   return (
     <div className="py-1">
-      <div className="flex flex-wrap items-center gap-x-2 font-mono text-[11px] text-neutral-500">
-        <span className="uppercase tracking-wide text-neutral-700">{phase}</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] text-neutral-500">
+        <StatusBadge status={run.status} />
+        {phase && (
+          <>
+            <span className="text-neutral-300">·</span>
+            <span className="uppercase tracking-wide">{phase}</span>
+          </>
+        )}
         {counter && (
           <>
             <span className="text-neutral-300">·</span>
             <span className="tabular-nums">{counter}</span>
           </>
         )}
-        {p.pct != null && (
-          <span className="tabular-nums text-neutral-400">{p.pct}%</span>
+        {pct != null && (
+          <span className="tabular-nums text-neutral-400">{pct}%</span>
+        )}
+        {failed && p?.reason && (
+          <>
+            <span className="text-neutral-300">·</span>
+            <span className="min-w-0 truncate text-red-500">{p.reason}</span>
+          </>
         )}
       </div>
-      {p.pct != null && (
+      {pct != null && (
         <div className="mt-1 h-1 w-full max-w-[22rem] overflow-hidden bg-neutral-100">
           <div
             className="h-full bg-blue-700 transition-[width] duration-500"
-            style={{ width: `${p.pct}%` }}
+            style={{ width: `${pct}%` }}
           />
         </div>
       )}

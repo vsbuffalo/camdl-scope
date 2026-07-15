@@ -155,8 +155,12 @@ class RunMeta:
     estimated: list[str]
     target_sweeps: int | None  # sweeps (pgas) or iterations (mh), from fit.toml
     declared_burn_in: int | None  # burn_in from fit.toml
+    thin: int = 1  # thinning factor from fit.toml — denominator for a live ESS/iter
     fit_toml_stem: str = ""  # config stem, e.g. natbc_dens_hierk_nc_pgas_long
     user_label: str | None = None  # camdl-native user-display label, if set
+    # How the fit summarizes: "posterior" (chains/draws — the default path) or
+    # "mle" (a point estimate from an optimization 'scout' stage; no draws).
+    fit_kind: str = "posterior"
     # Per-fit sidecar metadata (fit.meta.json). ``docs`` is the model's ``#'``
     # documentation dictionary (empty when undocumented); ``schema`` is the
     # observation/dimension schema (None when the sidecar carried no model).
@@ -304,6 +308,13 @@ class ChainSummary:
     map_loglik: float | None = None
     map_chain: int | None = None
     findings: list[Finding] = field(default_factory=list)
+    # Thinning factor + stage wall-clock — the two primitives (written by every
+    # sampler's ``*_summary.json`` / ``run.json``) behind the thinning-invariant
+    # efficiency metrics: ESS/iteration = min_ess / (n_samples × thin),
+    # ESS/second = min_ess / wall_time_secs. ``thin`` defaults to 1 (unthinned)
+    # on runs predating the field; ``wall_time_secs`` is None when unrecorded.
+    thin: int = 1
+    wall_time_secs: float | None = None
 
     @property
     def per_chain_acceptance(self) -> list[float] | None:

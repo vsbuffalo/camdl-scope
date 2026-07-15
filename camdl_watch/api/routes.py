@@ -23,19 +23,24 @@ from fastapi import APIRouter, HTTPException, Query
 from .. import compare as compare_mod
 from .. import diagnostics as diag_mod
 from .. import ingest
+from .. import mle as mle_mod
+from .. import model_render as model_render_mod
 from .. import predictive
+from .. import profiles as profiles_mod
 from .. import quantities as quantities_mod
 from ..assembly import build_run_state
 from ..grouping import group_params
 from ..highlight import HIGHLIGHT_CSS, highlight_camdl, highlight_toml
 from ..state import (
     AUX_COLUMNS,
+    ChainSummary,
     PriorFamily,
     PriorSpec,
     RunMeta,
     RunState,
 )
 from .models import (
+    Calendar,
     ChainMixing,
     CompareResponse,
     CompareRow,
@@ -43,6 +48,10 @@ from .models import (
     DimensionInfo,
     DrawsResponse,
     FindingGroup,
+    MleParam,
+    MleResponse,
+    MleRestart,
+    ModelRender,
     ObservedPoint,
     ParamDiagnostic,
     ParamFamily,
@@ -53,6 +62,9 @@ from .models import (
     PredictivePoint,
     PredictiveResponse,
     PriorCurve,
+    ProfilePoint,
+    ProfileResponse,
+    ProfileSummary,
     ProgressInfo,
     QuantityBandPoint,
     QuantityInfo,
@@ -92,6 +104,98 @@ def _warmup_cutoff(rs: RunState, warmup_pct: int) -> int:
     lo = rs.min_iter() or 0
     hi = rs.max_iter() or lo
     return int(lo + (hi - lo) * warmup_pct / 100.0)
+
+
+def _select_chains(rs: RunState, chains: str | None) -> bool:
+    """Restrict ``rs.chains`` to a caller-chosen subset, in place; return whether
+    a subset was actually applied.
+
+    ``chains`` is a comma-separated include-list of chain ids (e.g. ``"0,2,3"``);
+    ``None``/empty means all. Because every consumer (arviz R̂/ESS, pooled draws,
+    per-chain traces) recomputes from ``rs.chains``, dropping a stuck chain here
+    makes the whole run state — diagnostics included — reflect only the retained
+    chains. Unknown ids are ignored; a selection that would keep nothing is
+    treated as "all" so a request can never blank the run."""
+    if not chains:
+        return False
+    keep = {int(tok) for tok in chains.split(",") if tok.strip().lstrip("-").isdigit()}
+    kept = {cid: buf for cid, buf in rs.chains.items() if cid in keep}
+    if kept and len(kept) < len(rs.chains):
+        rs.chains = kept
+        return True
+    return False
+
+
+def _drop_warming_chains(rs: RunState, cutoff: int, floor: int = 4) -> int:
+    """Drop chains that have too few post-warm-up draws to diagnose, in place;
+    return how many were dropped.
+
+    A staggered fit can have chains that haven't produced draws yet (still in
+    burn-in). ``_tail_arrays`` short-circuits to ``None`` the moment *any* chain
+    is empty (arviz needs a rectangular array), so a single warming chain would
+    otherwise suppress R̂/ESS for the whole run even when the others have
+    hundreds of draws. Pruning the not-yet-ready chains here lets diagnostics
+    compute on the chains that *are* ready. ``floor`` is arviz's minimum for a
+    meaningful per-chain estimate. If no chain clears the floor we leave the run
+    untouched so the normal "no draws yet" path still applies."""
+    ready = {
+        cid: buf
+        for cid, buf in rs.chains.items()
+        if buf.iters.size and int((buf.iters >= cutoff).sum()) >= floor
+    }
+    dropped = len(rs.chains) - len(ready)
+    if ready and dropped:
+        rs.chains = ready
+        return dropped
+    return 0
+
+
+def _efficiency_metrics(
+    summary: ChainSummary | None, n_samples: int
+) -> tuple[float | None, float | None]:
+    """Run-level, thinning-invariant efficiency, computed the way camdl's
+    ``fit summary`` reports it — method-agnostic (PGAS / PMMH / mh-ode / nuts all
+    write the same ``thin`` + ``ess`` primitives).
+
+    ESS/iteration = min-param ESS / (n_samples × thin): ``n_samples`` is kept
+    (thinned) draws across all chains, so ``× thin`` recovers the raw sampling
+    steps, making the ratio invariant to the thinning factor and iteration count
+    — the number to compare samplers with. ESS/second = min-param ESS /
+    wall-clock (thinning-invariant but hardware-dependent). Both key off the
+    *slowest* parameter (min ESS), which bounds usable ESS. ``(None, None)``
+    without an authoritative summary (a still-live fit) or a usable ESS."""
+    if summary is None:
+        return None, None
+    ess_vals = [v for v in summary.ess.values() if v is not None and v > 0]
+    if not ess_vals:
+        return None, None
+    min_ess = min(ess_vals)
+    raw_iters = n_samples * max(summary.thin, 1)
+    ess_per_iter = (min_ess / raw_iters) if raw_iters > 0 else None
+    wt = summary.wall_time_secs
+    ess_per_sec = (min_ess / wt) if (wt is not None and wt > 0) else None
+    return ess_per_iter, ess_per_sec
+
+
+def _live_ess_per_iter(
+    diag: "diag_mod.Diagnostics", n_chains: int, thin: int
+) -> float | None:
+    """A live ESS/iteration estimate for a still-sampling run that has no
+    authoritative summary yet: min live arviz bulk-ESS over the post-warm-up
+    tail, divided by the raw sampling iterations that tail spans (tail draws ×
+    chains × thin, with ``thin`` from fit.toml). Same shape as the summary
+    metric, so it updates live and is superseded by the authoritative number the
+    moment the stage writes its summary. ESS/second stays absent — a running fit
+    has no final wall-clock."""
+    ess_vals = [
+        d.bulk_ess
+        for d in diag.per_param.values()
+        if np.isfinite(d.bulk_ess) and d.bulk_ess > 0
+    ]
+    if not ess_vals:
+        return None
+    raw_iters = diag.n_tail * n_chains * max(thin, 1)
+    return (min(ess_vals) / raw_iters) if raw_iters > 0 else None
 
 
 # ---------------------------------------------------------------------------
@@ -166,12 +270,15 @@ def _run_summary(meta: RunMeta, rs: RunState) -> RunSummary:
         algorithm=meta.algorithm,
         backend=meta.backend.value,
         status=rs.status.value,
+        fit_kind=meta.fit_kind,
         n_chains=len(rs.chains),
+        chain_ids=sorted(rs.chains),
         n_params=len(meta.estimated),
         has_docs=not meta.docs.is_empty(),
         has_prequential=compare_mod.find_prequential(meta.run_dir) is not None,
         progress=_progress_info(rs),
         max_iter=rs.max_iter(),
+        target_sweeps=meta.target_sweeps,
         updated_at=rs.updated_at,
     )
 
@@ -222,6 +329,7 @@ def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
         default_selection=pg.default_selection(),
     )
     _quantity_manifest = quantities_mod.read_manifest(meta.run_dir)
+    cal = predictive.read_calendar(meta.run_dir)
     return RunDetail(
         run_id=meta.run_id,
         label=meta.display_label,
@@ -229,6 +337,7 @@ def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
         algorithm=meta.algorithm,
         backend=meta.backend.value,
         status=rs.status.value,
+        fit_kind=meta.fit_kind,
         n_chains=len(rs.chains),
         max_iter=rs.max_iter(),
         target_sweeps=meta.target_sweeps,
@@ -244,19 +353,40 @@ def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
             _quantity_info(q, meta) for q in _quantity_manifest.quantities
         ],
         quantity_scenarios=_quantity_manifest.scenarios,
+        calendar=(
+            Calendar(origin=cal.origin, time_unit=cal.time_unit, days_per_unit=cal.days_per_unit)
+            if cal is not None else None
+        ),
+        has_model_render=model_render_mod.has_model_render(meta.run_dir),
     )
 
 
 def _param_posterior(
-    meta: RunMeta, rs: RunState, diag, cutoff: int, param: str
+    meta: RunMeta,
+    rs: RunState,
+    diag,
+    summary: ChainSummary | None,
+    cutoff: int,
+    param: str,
+    *,
+    is_objective: bool = False,
 ) -> ParamPosterior | None:
-    """Project one estimated coordinate onto the wire: pooled post-warmup
-    quantiles (computed here), the resolved doc block + prior, and the effective
-    R̂/ESS. ``None`` when the coordinate has no finite post-warmup draws."""
+    """Project one coordinate onto the wire: pooled post-warmup quantiles
+    (computed here), the resolved doc block + prior, and the effective R̂/ESS.
+    ``None`` when the coordinate has no finite post-warmup draws.
+
+    Reads an estimated param from ``values`` and an ``is_objective`` column
+    (log_posterior / log_likelihood) from ``aux`` — an objective is a pooled fit
+    summary, so it carries no prior/docs.
+
+    ``summary`` is the authoritative stage summary to source R̂/ESS from, or
+    ``None`` to force the live arviz estimate — the caller passes ``None`` once a
+    chain has been dropped, since camdl's all-chains summary can't describe a
+    subset (so the forest recomputes on the retained chains, like Diagnostics)."""
     parts = [
-        buf.values[param][buf.iters >= cutoff]
+        (buf.values if param in buf.values else buf.aux)[param][buf.iters >= cutoff]
         for buf in rs.chains.values()
-        if param in buf.values
+        if param in buf.values or param in buf.aux
     ]
     vals = np.concatenate(parts) if parts else np.empty(0)
     vals = vals[np.isfinite(vals)]
@@ -266,16 +396,16 @@ def _param_posterior(
     mean = float(vals.mean())
     sd = float(vals.std(ddof=1)) if vals.size >= 2 else 0.0
 
-    block = meta.docs.for_param(param)
-    spec = rs.priors.get(param)
-    rhat_v, _ = diag_mod.effective_rhat(diag, rs.summary, param)
-    ess_v, _ = diag_mod.effective_ess(diag, rs.summary, param)
+    block = None if is_objective else meta.docs.for_param(param)
+    spec = None if is_objective else rs.priors.get(param)
+    rhat_v, _ = diag_mod.effective_rhat(diag, summary, param)
+    ess_v, _ = diag_mod.effective_ess(diag, summary, param)
     return ParamPosterior(
         name=param,
         symbol=block.symbol if block else None,
         description=block.text if block else None,
         reference=block.reference if block else None,
-        source=spec.source if spec else "unknown",
+        source="derived" if is_objective else (spec.source if spec else "unknown"),
         prior=_format_prior(spec),
         bounds=spec.bounds if spec else None,
         mean=mean,
@@ -287,7 +417,22 @@ def _param_posterior(
         q95=q95,
         rhat=_finite_or_none(rhat_v),
         ess=_finite_or_none(ess_v),
+        is_objective=is_objective,
     )
+
+
+def _present_objectives(rs: RunState) -> list[str]:
+    """The objective aux columns (``log_posterior`` / ``log_likelihood``) present
+    in every draw-bearing chain — the pooled fit summaries shown alongside the
+    params in the draws, pair plot, and posterior forest. Gated on the chains
+    that actually contribute draws: a chain still warming up carries no aux, and
+    must not veto an objective for the chains that have sampled."""
+    contributing = [b for b in rs.chains.values() if b.n]
+    return [
+        c
+        for c in ("log_posterior", "log_likelihood")
+        if c in AUX_COLUMNS and contributing and all(c in b.aux for b in contributing)
+    ]
 
 
 def _build_draws(
@@ -298,15 +443,12 @@ def _build_draws(
     Within a chain the i-th retained sweep is the same joint sample across
     columns; chains are concatenated (carrying a chain id per row). The objective
     aux columns (``log_posterior`` / ``log_likelihood``), when present in every
-    chain, are pooled alongside the params so they can be paired against them
-    (Stan's lp__). Rows where any column is non-finite are dropped so every
-    column stays aligned and JSON-serializable, then thinned to ``max_draws`` by
-    an even stride. Returns ``(chain, cols, objectives)``."""
+    draw-bearing chain, are pooled alongside the params so they can be paired
+    against them (Stan's lp__). Rows where any column is non-finite are dropped so
+    every column stays aligned and JSON-serializable, then thinned to
+    ``max_draws`` by an even stride. Returns ``(chain, cols, objectives)``."""
     params = list(meta.estimated)
-    objectives = [
-        c for c in ("log_posterior", "log_likelihood")
-        if c in AUX_COLUMNS and rs.chains and all(c in b.aux for b in rs.chains.values())
-    ]
+    objectives = _present_objectives(rs)
     wanted = params + objectives
     chain_parts: list[np.ndarray] = []
     col_parts: dict[str, list[np.ndarray]] = {p: [] for p in wanted}
@@ -376,29 +518,89 @@ def get_run(run_id: str) -> RunDetail:
     return _run_detail(meta, build_run_state(meta))
 
 
+@router.get("/runs/{run_id}/mle", response_model=MleResponse)
+def get_mle(run_id: str) -> MleResponse:
+    """The point estimate + multi-start results of an MLE ('scout') fit. 404 for a
+    run that isn't an MLE fit, or one whose ``mle_params.toml`` is unreadable."""
+    store = _store()
+    meta = _find_meta(store, run_id)
+    if meta is None or meta.fit_kind != "mle":
+        raise HTTPException(status_code=404, detail=f"no MLE fit: {run_id}")
+    fit = mle_mod.read_mle(meta.posterior_dir, list(meta.estimated))
+    if fit is None:
+        raise HTTPException(status_code=404, detail=f"unreadable MLE fit: {run_id}")
+    priors = ingest.extract_priors(meta)  # for bounds — is θ̂ pinned at an edge?
+    params = []
+    for p in fit.params:
+        block = meta.docs.for_param(p.name)
+        spec = priors.get(p.name)
+        params.append(MleParam(
+            name=p.name,
+            symbol=block.symbol if block else None,
+            description=block.text if block else None,
+            reference=block.reference if block else None,
+            bounds=(spec.bounds if spec else None),
+            value=_finite_or_none(p.value),
+            restart_lo=_finite_or_none(p.restart_lo),
+            restart_hi=_finite_or_none(p.restart_hi),
+        ))
+    restarts = [
+        MleRestart(chain=r.chain, loglik=_fnum(r.loglik), status=r.status, n_evals=r.n_evals)
+        for r in fit.restarts
+    ]
+    return MleResponse(
+        run_id=run_id, label=meta.display_label,
+        algorithm=meta.algorithm, backend=meta.backend.value,
+        loglik=_finite_or_none(fit.loglik),
+        n_restarts=fit.n_restarts, n_converged=fit.n_converged,
+        params=params, restarts=restarts,
+    )
+
+
 @router.get("/runs/{run_id}/posterior", response_model=PosteriorResponse)
 def get_posterior(
-    run_id: str, warmup_pct: int = Query(default=50, ge=0, le=100)
+    run_id: str,
+    warmup_pct: int = Query(default=50, ge=0, le=100),
+    chains: str | None = Query(default=None),
 ) -> PosteriorResponse:
     """Doc-labelled posterior summary (the forest-plot payload). Params are in
     the model's estimated order; a run with no draws yet returns ``params=[]``
-    and ``n_tail=0`` rather than erroring."""
+    and ``n_tail=0`` rather than erroring. ``chains`` restricts to an include-list
+    of chain ids; the pooled quantiles and R̂/ESS then recompute on the retained
+    chains (dropping a stuck chain here matches the Pair / Traces / Diagnostics
+    tabs, which share this selection)."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
     rs = build_run_state(meta)
+    filtered = _select_chains(rs, chains)
     cutoff = _warmup_cutoff(rs, warmup_pct)
     if rs.max_iter() is None:  # warming up — no draws to summarize
         return PosteriorResponse(
             run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
             n_tail=0, params=[],
         )
-    diag = diag_mod.compute_diagnostics(rs, cutoff, params=rs.params)
+    # Diagnose the estimated params AND the objective aux columns, so the
+    # appended log_posterior / log_likelihood rows carry live R̂/ESS too.
+    objectives = _present_objectives(rs)
+    diag = diag_mod.compute_diagnostics(rs, cutoff, params=rs.params + objectives)
+    # camdl's stage summary is over ALL chains and can't be recomputed for a
+    # subset, so once a chain is dropped we source R̂/ESS from the live arviz
+    # estimate over the retained chains (the quantiles already pool from them).
+    summ = None if filtered else rs.summary
     params = [
         pp
         for p in meta.estimated
-        if (pp := _param_posterior(meta, rs, diag, cutoff, p)) is not None
+        if (pp := _param_posterior(meta, rs, diag, summ, cutoff, p)) is not None
+    ]
+    # The pooled objectives close the forest (Stan's lp__), flagged so the UI can
+    # set them apart from the estimands.
+    params += [
+        pp
+        for o in objectives
+        if (pp := _param_posterior(meta, rs, diag, summ, cutoff, o, is_objective=True))
+        is not None
     ]
     return PosteriorResponse(
         run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
@@ -471,16 +673,19 @@ def get_draws(
     run_id: str,
     warmup_pct: int = Query(default=50, ge=0, le=100),
     max_draws: int = Query(default=1200, ge=50, le=5000),
+    chains: str | None = Query(default=None),
 ) -> DrawsResponse:
     """Row-aligned post-warmup draws (plus marginal prior samples) for the
     marginal densities and the pair plot. Pooled across chains, thinned to
     ``max_draws``; ``params`` in estimated order. A run with no draws yet returns
-    empty columns and ``n_draws=0`` (priors are still sampled)."""
+    empty columns and ``n_draws=0`` (priors are still sampled). ``chains``
+    restricts the pool to an include-list of chain ids (drop stuck chains)."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
     rs = build_run_state(meta)
+    _select_chains(rs, chains)
     cutoff = _warmup_cutoff(rs, warmup_pct)
     params = list(meta.estimated)
     prior = _sample_priors(rs, params)
@@ -582,6 +787,22 @@ def get_source(run_id: str) -> SourceResponse:
         model_identity=meta_json.get("model_identity"),
         fit_toml=fit_toml, highlight_css=HIGHLIGHT_CSS,
     )
+
+
+@router.get("/runs/{run_id}/model-render", response_model=ModelRender)
+def get_model_render(run_id: str) -> ModelRender:
+    """The run's structured model math (``model.render.json``) for the rendered
+    model view — parameters, definitions, reactions, and ODEs as KaTeX-safe
+    strings. 404 when the run predates the artifact (the Source tab then shows
+    only the raw source)."""
+    store = _store()
+    meta = _find_meta(store, run_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
+    raw = model_render_mod.read_model_render(meta.run_dir)
+    if raw is None:
+        raise HTTPException(status_code=404, detail=f"no model.render.json for run: {run_id}")
+    return ModelRender.model_validate(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -759,16 +980,18 @@ def get_traces(
     run_id: str,
     warmup_pct: int = Query(default=50, ge=0, le=100),
     max_points: int = Query(default=600, ge=50, le=4000),
+    chains: str | None = Query(default=None),
 ) -> TracesResponse:
     """Per-parameter, per-chain iteration traces (thinned) for the trace grid.
     Includes the estimated coordinates plus any present objective aux columns
     (``log_posterior`` / ``log_likelihood``) — the first thing to eyeball for
-    mixing."""
+    mixing. ``chains`` restricts to an include-list of chain ids."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
     rs = build_run_state(meta)
+    _select_chains(rs, chains)
     cutoff = _warmup_cutoff(rs, warmup_pct)
 
     objectives = [
@@ -864,23 +1087,41 @@ def _live_findings(diag: diag_mod.Diagnostics, rs: RunState) -> list[FindingGrou
 
 @router.get("/runs/{run_id}/diagnostics", response_model=DiagnosticsResponse)
 def get_diagnostics(
-    run_id: str, warmup_pct: int = Query(default=50, ge=0, le=100)
+    run_id: str,
+    warmup_pct: int = Query(default=50, ge=0, le=100),
+    chains: str | None = Query(default=None),
 ) -> DiagnosticsResponse:
     """Convergence diagnostics: camdl's authoritative verdict (findings) and
     R̂/ESS where a stage summary exists, else the watcher's live arviz estimate;
-    plus per-chain mixing (acceptance / trajectory renewal) and the PMMH MAP."""
+    plus per-chain mixing (acceptance / trajectory renewal) and the PMMH MAP.
+    ``chains`` restricts to an include-list of chain ids, so R̂/ESS recompute on
+    the retained chains once a stuck one is dropped."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
     rs = build_run_state(meta)
+    # Run-level efficiency is a property of the *completed* sampling, not the
+    # viewer's lens: capture the authoritative summary and the full kept-draw
+    # count across all chains before any warm-up / chain-selection pruning.
+    ess_per_iter, ess_per_sec = _efficiency_metrics(
+        rs.summary, sum(b.n for b in rs.chains.values())
+    )
+    filtered = _select_chains(rs, chains)
     cutoff = _warmup_cutoff(rs, warmup_pct)
-    summ = rs.summary
+    # Prune chains still warming up (no usable post-warm-up draws) so one lagging
+    # chain doesn't suppress R̂/ESS for the whole run; diagnose the ready ones.
+    warming = _drop_warming_chains(rs, cutoff)
+    # camdl's stage summary (R̂/ESS/per-chain) is over ALL chains and can't be
+    # recomputed for a subset, so once we drop a chain — user-chosen or still
+    # warming — we fall back to the live arviz estimate over the retained chains.
+    summ = None if (filtered or warming) else rs.summary
     base = dict(
         run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
-        n_chains=len(rs.chains),
+        n_chains=len(rs.chains), n_chains_warming=warming,
         stage=(summ.stage if summ is not None and summ.stage else None),
         logpost_label=meta.backend.logpost_label,
+        ess_per_iter=ess_per_iter, ess_per_sec=ess_per_sec,
     )
     if rs.max_iter() is None:
         return DiagnosticsResponse(
@@ -888,6 +1129,12 @@ def get_diagnostics(
         )
 
     diag = diag_mod.compute_diagnostics(rs, cutoff, params=rs.params)
+
+    # Still-sampling run with no authoritative summary: fall back to a live
+    # ESS/iteration from the arviz diagnostics just computed (the Verdict already
+    # frames these numbers as a live estimate). Done runs keep the summary value.
+    if base["ess_per_iter"] is None:
+        base["ess_per_iter"] = _live_ess_per_iter(diag, len(rs.chains), meta.thin)
 
     findings: list[FindingGroup] = []
     if summ is not None:
@@ -1040,3 +1287,51 @@ def compare(
         rows=rows,
         missing_prequential=missing,
     )
+
+
+# ---------------------------------------------------------------------------
+# Profile tab
+# ---------------------------------------------------------------------------
+
+
+def _profile_response(curve: profiles_mod.ProfileCurve) -> ProfileResponse:
+    mle = curve.mle
+    lo, hi = curve.ci_bounds_1d()  # (None, None) for a 2D surface
+    return ProfileResponse(
+        base_id=curve.base_id, label=curve.label, params=list(curve.params),
+        method=curve.method, loglik_type=curve.loglik_type,
+        points=[
+            ProfilePoint(
+                coords=list(p.coords), loglik=p.loglik,
+                n_starts=p.n_starts, nuisance=p.nuisance,
+            )
+            for p in curve.points
+        ],
+        mle_coords=list(mle.coords), mle_loglik=mle.loglik,
+        ci_level=profiles_mod.CI_LEVEL, ci_drop=curve.ci_drop,
+        ci_lo=lo, ci_hi=hi,
+    )
+
+
+@router.get("/profiles", response_model=list[ProfileSummary])
+def list_profiles() -> list[ProfileSummary]:
+    """Every profile-likelihood run under ``profiles/`` — the selector list."""
+    store = _store()
+    out: list[ProfileSummary] = []
+    for c in profiles_mod.discover_profiles(store):
+        out.append(ProfileSummary(
+            base_id=c.base_id, label=c.label, params=list(c.params),
+            method=c.method, n_points=len(c.points), mle_coords=list(c.mle.coords),
+        ))
+    return out
+
+
+@router.get("/profiles/{base_id}", response_model=ProfileResponse)
+def get_profile(base_id: str) -> ProfileResponse:
+    """One profile-likelihood curve: loglik vs the profiled value, its MLE, and
+    the 95% CI bracket (interpolated; open on a side the grid doesn't bound)."""
+    store = _store()
+    curve = profiles_mod.load_profile(store, base_id)
+    if curve is None:
+        raise HTTPException(status_code=404, detail=f"profile not found: {base_id}")
+    return _profile_response(curve)

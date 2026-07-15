@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { RunSummary } from '@/api/client'
 import { useRun, useRuns } from '@/api/queries'
 import { RunBar } from '@/components/RunBar'
 import { PosteriorTab } from '@/components/PosteriorTab'
+import { EstimateTab } from '@/components/EstimateTab'
+import { RestartsTab } from '@/components/RestartsTab'
 import { PairTab } from '@/components/PairTab'
 import { PredictiveTab } from '@/components/PredictiveTab'
 import { QuantitiesTab } from '@/components/QuantitiesTab'
@@ -13,14 +15,110 @@ import { SourceTab } from '@/components/SourceTab'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { excludedChainsKey, loadJson, saveJson } from '@/lib/persist'
 
 /** The single-fit tab grid — the inner navigation level of the Explore
- *  workspace. One run, examined deeply across its diagnostics. The Quantities
- *  tab appears (after Predictive) only when the fit has a quantities sidecar. */
+ *  workspace. Its tab set depends on the fit *kind*: a posterior (sampling) fit
+ *  gets the forest/traces/diagnostics view; an MLE ('scout') fit gets the
+ *  point-estimate + restarts view. Both reuse the Source (and Quantities) tabs. */
 function ResultsTabs({ run }: { run: RunSummary }) {
+  return run.fit_kind === 'mle' ? (
+    <MleTabs run={run} />
+  ) : (
+    <PosteriorTabs run={run} />
+  )
+}
+
+/** MLE fit view: the point estimate and the multi-start restart diagnostic. */
+function MleTabs({ run }: { run: RunSummary }) {
+  const detail = useRun(run.run_id)
+  const hasQuantities = (detail.data?.available_quantities?.length ?? 0) > 0
+
+  const tabs = [
+    { value: 'estimate', label: 'Estimate' },
+    { value: 'restarts', label: 'Restarts' },
+    ...(hasQuantities ? [{ value: 'quantities', label: 'Quantities' }] : []),
+    { value: 'source', label: 'Source' },
+  ]
+  const [tab, setTab] = useState<string>(() =>
+    loadJson('explore:mle-tab', 'estimate'),
+  )
+  const activeTab = tabs.some((t) => t.value === tab) ? tab : 'estimate'
+  const onTab = (v: string) => {
+    saveJson('explore:mle-tab', v)
+    setTab(v)
+  }
+
+  return (
+    <Tabs value={activeTab} onValueChange={onTab} className="w-full">
+      <TabsList>
+        {tabs.map((t) => (
+          <TabsTrigger key={t.value} value={t.value}>
+            {t.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      <TabsContent value="estimate">
+        <EstimateTab runId={run.run_id} />
+      </TabsContent>
+      <TabsContent value="restarts">
+        <RestartsTab runId={run.run_id} />
+      </TabsContent>
+      {hasQuantities && (
+        <TabsContent value="quantities">
+          <QuantitiesTab runId={run.run_id} />
+        </TabsContent>
+      )}
+      <TabsContent value="source">
+        <SourceTab runId={run.run_id} />
+      </TabsContent>
+    </Tabs>
+  )
+}
+
+/** Posterior (sampling) fit view: the forest, pair, traces, diagnostics tabs. */
+function PosteriorTabs({ run }: { run: RunSummary }) {
   const detail = useRun(run.run_id)
   const hasQuantities =
     (detail.data?.available_quantities?.length ?? 0) > 0
+
+  // Chain exclusion is a property of the RUN (a stuck chain is stuck
+  // everywhere), so it's shared across the Posterior / Pair / Traces /
+  // Diagnostics tabs — unlike warm-up, which each tab owns as a per-view lens.
+  // Persisted per run and reloaded on a run switch, so a page reload (or coming
+  // back to a run later) keeps the chains you dropped. `excluded` empty = all in.
+  //
+  // Use the run's REAL chain ids (camdl numbers from 1) — synthesizing 0..n-1
+  // would mislabel the checkboxes and, worse, silently drop the top chain, since
+  // its id could never appear in the include-list sent to the backend.
+  const chainIds = useMemo(
+    () => [...run.chain_ids].sort((a, b) => a - b),
+    [run.chain_ids],
+  )
+  const [excludedChains, setExcludedChains] = useState<Set<number>>(
+    () => new Set(loadJson(excludedChainsKey(run.run_id), [] as number[])),
+  )
+  useEffect(() => {
+    setExcludedChains(new Set(loadJson(excludedChainsKey(run.run_id), [] as number[])))
+  }, [run.run_id])
+  const commitExcluded = (next: Set<number>) => {
+    saveJson(excludedChainsKey(run.run_id), [...next])
+    return next
+  }
+  const onToggleChain = (id: number) =>
+    setExcludedChains((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return commitExcluded(next)
+    })
+  const onResetChains = () => setExcludedChains(commitExcluded(new Set()))
+  const chainProps = {
+    chainIds,
+    excludedChains,
+    onToggleChain,
+    onResetChains,
+  }
 
   const tabs = [
     { value: 'posterior', label: 'Posterior' },
@@ -32,8 +130,18 @@ function ResultsTabs({ run }: { run: RunSummary }) {
     { value: 'source', label: 'Source' },
   ]
 
+  // Persist the active tab across reloads, but fall back to Posterior if the
+  // stored tab isn't available for this run (e.g. Quantities on a run without a
+  // sidecar) so we never land on an empty panel.
+  const [tab, setTab] = useState<string>(() => loadJson('explore:tab', 'posterior'))
+  const activeTab = tabs.some((t) => t.value === tab) ? tab : 'posterior'
+  const onTab = (v: string) => {
+    saveJson('explore:tab', v)
+    setTab(v)
+  }
+
   return (
-    <Tabs defaultValue="posterior" className="w-full">
+    <Tabs value={activeTab} onValueChange={onTab} className="w-full">
       <TabsList>
         {tabs.map((tab) => (
           <TabsTrigger key={tab.value} value={tab.value}>
@@ -43,10 +151,10 @@ function ResultsTabs({ run }: { run: RunSummary }) {
       </TabsList>
 
       <TabsContent value="posterior">
-        <PosteriorTab runId={run.run_id} />
+        <PosteriorTab runId={run.run_id} {...chainProps} />
       </TabsContent>
       <TabsContent value="pair">
-        <PairTab runId={run.run_id} />
+        <PairTab runId={run.run_id} {...chainProps} />
       </TabsContent>
       <TabsContent value="predictive">
         <PredictiveTab runId={run.run_id} />
@@ -57,10 +165,10 @@ function ResultsTabs({ run }: { run: RunSummary }) {
         </TabsContent>
       )}
       <TabsContent value="traces">
-        <TracesTab runId={run.run_id} />
+        <TracesTab runId={run.run_id} {...chainProps} />
       </TabsContent>
       <TabsContent value="diagnostics">
-        <DiagnosticsTab runId={run.run_id} />
+        <DiagnosticsTab runId={run.run_id} {...chainProps} />
       </TabsContent>
       <TabsContent value="source">
         <SourceTab runId={run.run_id} />
@@ -77,9 +185,21 @@ function ResultsTabs({ run }: { run: RunSummary }) {
 export function ExploreWorkspace() {
   const { data, isPending, isError } = useRuns()
   const runs = data ?? []
-  const [selectedId, setSelectedId] = useState<string>()
+  // Restore the last-viewed run across reloads; fall back to the newest if it's
+  // gone.
+  const [selectedId, setSelectedId] = useState<string | undefined>(() =>
+    loadJson<string | undefined>('explore:run', undefined),
+  )
   const selected =
     runs.find((r) => r.run_id === selectedId) ?? runs[0] ?? undefined
+  // Pin the *effective* run (the default counts): the live store reorders as
+  // fits land, so without pinning a reload could drop you on a different run —
+  // and its chain exclusions wouldn't apply. A fresh visitor still opens on the
+  // newest; once a run is in view it stays put until they pick another.
+  const selectedRunId = selected?.run_id
+  useEffect(() => {
+    if (selectedRunId) saveJson('explore:run', selectedRunId)
+  }, [selectedRunId])
 
   // Live monitoring: while the open run is still sampling, refresh its data (and
   // the run list, for the progress blurb) on a short interval so the tabs track

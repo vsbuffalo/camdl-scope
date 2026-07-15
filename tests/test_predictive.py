@@ -88,3 +88,37 @@ def test_empty_file_is_none(tmp_path: Path):
     (tmp_path / "predictive").mkdir()
     (tmp_path / "predictive" / "cases.tsv").write_text("")  # 0 bytes -> NoDataError
     assert predictive.read_predictive(tmp_path, "cases") is None
+
+
+_CALENDAR = '{"calendar": {"origin": "1910-01-01", "time_unit": "days", "days_per_unit": 1.0}}'
+
+
+def test_read_calendar_from_predictive_sidecar(tmp_path: Path):
+    (tmp_path / "predictive.json").write_text(_CALENDAR)
+    cal = predictive.read_calendar(tmp_path)
+    assert cal is not None
+    assert cal.origin == "1910-01-01"
+    assert cal.time_unit == "days"
+    assert cal.days_per_unit == 1.0
+
+
+def test_read_calendar_falls_back_to_observed_sidecar(tmp_path: Path):
+    # No predictive.json; observed.json carries the calendar.
+    (tmp_path / "observed.json").write_text(_CALENDAR)
+    cal = predictive.read_calendar(tmp_path)
+    assert cal is not None and cal.origin == "1910-01-01"
+
+
+def test_read_calendar_absent_is_none(tmp_path: Path):
+    # A relative-time fit: no sidecar / no calendar block -> no dates.
+    assert predictive.read_calendar(tmp_path) is None
+    (tmp_path / "predictive.json").write_text('{"schema": "camdl.predictive/v1"}')
+    assert predictive.read_calendar(tmp_path) is None
+
+
+def test_read_calendar_ignores_calendar_without_origin(tmp_path: Path):
+    # A malformed / origin-less calendar is treated as no calendar, not a crash.
+    (tmp_path / "predictive.json").write_text('{"calendar": {"time_unit": "days"}}')
+    assert predictive.read_calendar(tmp_path) is None
+    (tmp_path / "predictive.json").write_text("not json{")
+    assert predictive.read_calendar(tmp_path) is None

@@ -20,6 +20,10 @@ def classify(rs: RunState, now: float) -> Status:
     """Status from camdl's ``progress.json`` heartbeat when present (terminal
     states win regardless of freshness; a fresh ``running`` beat is live), else
     the ``.lock`` PID + presence of draws."""
+    # An MLE ('scout') fit has no chains; it's discovered only once its optimizer
+    # wrote the point estimate, so it's a completed fit.
+    if rs.meta.fit_kind == "mle":
+        return Status.DONE
     prog = rs.progress
     if prog is not None:
         if prog.state == "done":
@@ -49,6 +53,13 @@ def build_run_state(meta: RunMeta) -> RunState:
         rs.chains[cid] = buf
         try:
             max_mtime = max(max_mtime, path.stat().st_mtime)
+        except OSError:
+            pass
+    # An MLE fit has no chains — date it by its point-estimate artifact so it
+    # sorts by real recency in the run list, not to the bottom on a 0 timestamp.
+    if meta.fit_kind == "mle":
+        try:
+            max_mtime = (meta.posterior_dir / "mle_params.toml").stat().st_mtime
         except OSError:
             pass
     rs.priors = ingest.extract_priors(meta)

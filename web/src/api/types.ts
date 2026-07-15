@@ -68,6 +68,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/mle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Mle
+         * @description The point estimate + multi-start results of an MLE ('scout') fit. 404 for a
+         *     run that isn't an MLE fit, or one whose ``mle_params.toml`` is unreadable.
+         */
+        get: operations["get_mle_api_runs__run_id__mle_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/posterior": {
         parameters: {
             query?: never;
@@ -79,7 +100,10 @@ export interface paths {
          * Get Posterior
          * @description Doc-labelled posterior summary (the forest-plot payload). Params are in
          *     the model's estimated order; a run with no draws yet returns ``params=[]``
-         *     and ``n_tail=0`` rather than erroring.
+         *     and ``n_tail=0`` rather than erroring. ``chains`` restricts to an include-list
+         *     of chain ids; the pooled quantiles and R̂/ESS then recompute on the retained
+         *     chains (dropping a stuck chain here matches the Pair / Traces / Diagnostics
+         *     tabs, which share this selection).
          */
         get: operations["get_posterior_api_runs__run_id__posterior_get"];
         put?: never;
@@ -102,7 +126,8 @@ export interface paths {
          * @description Row-aligned post-warmup draws (plus marginal prior samples) for the
          *     marginal densities and the pair plot. Pooled across chains, thinned to
          *     ``max_draws``; ``params`` in estimated order. A run with no draws yet returns
-         *     empty columns and ``n_draws=0`` (priors are still sampled).
+         *     empty columns and ``n_draws=0`` (priors are still sampled). ``chains``
+         *     restricts the pool to an include-list of chain ids (drop stuck chains).
          */
         get: operations["get_draws_api_runs__run_id__draws_get"];
         put?: never;
@@ -127,6 +152,29 @@ export interface paths {
          *     ``fit.toml`` (always archived in the run leaf).
          */
         get: operations["get_source_api_runs__run_id__source_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/model-render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Model Render
+         * @description The run's structured model math (``model.render.json``) for the rendered
+         *     model view — parameters, definitions, reactions, and ODEs as KaTeX-safe
+         *     strings. 404 when the run predates the artifact (the Source tab then shows
+         *     only the raw source).
+         */
+        get: operations["get_model_render_api_runs__run_id__model_render_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -210,7 +258,7 @@ export interface paths {
          * @description Per-parameter, per-chain iteration traces (thinned) for the trace grid.
          *     Includes the estimated coordinates plus any present objective aux columns
          *     (``log_posterior`` / ``log_likelihood``) — the first thing to eyeball for
-         *     mixing.
+         *     mixing. ``chains`` restricts to an include-list of chain ids.
          */
         get: operations["get_traces_api_runs__run_id__traces_get"];
         put?: never;
@@ -233,6 +281,8 @@ export interface paths {
          * @description Convergence diagnostics: camdl's authoritative verdict (findings) and
          *     R̂/ESS where a stage summary exists, else the watcher's live arviz estimate;
          *     plus per-chain mixing (acceptance / trajectory renewal) and the PMMH MAP.
+         *     ``chains`` restricts to an include-list of chain ids, so R̂/ESS recompute on
+         *     the retained chains once a stuck one is dropped.
          */
         get: operations["get_diagnostics_api_runs__run_id__diagnostics_get"];
         put?: never;
@@ -271,10 +321,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Profiles
+         * @description Every profile-likelihood run under ``profiles/`` — the selector list.
+         */
+        get: operations["list_profiles_api_profiles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/profiles/{base_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Profile
+         * @description One profile-likelihood curve: loglik vs the profiled value, its MLE, and
+         *     the 95% CI bracket (interpolated; open on a side the grid doesn't bound).
+         */
+        get: operations["get_profile_api_profiles__base_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Calendar
+         * @description The fit's time-axis calendar. A numeric ``time`` value maps to the date
+         *     ``origin + time × days_per_unit`` days, so the viewer can render real dates
+         *     instead of raw day-indices on every time axis (predictive ribbons, quantity
+         *     trajectories). ``None`` on a fit that declares no calendar (relative time —
+         *     the axis stays numeric).
+         */
+        Calendar: {
+            /** Origin */
+            origin: string;
+            /**
+             * Time Unit
+             * @default days
+             */
+            time_unit: string;
+            /**
+             * Days Per Unit
+             * @default 1
+             */
+            days_per_unit: number;
+        };
         /**
          * ChainMixing
          * @description Per-chain mixing metric — MH/PMMH acceptance rate or PGAS trajectory
@@ -389,6 +502,11 @@ export interface components {
             n_tail: number;
             /** N Chains */
             n_chains: number;
+            /**
+             * N Chains Warming
+             * @default 0
+             */
+            n_chains_warming: number;
             /** Stage */
             stage?: string | null;
             /** Source */
@@ -404,6 +522,10 @@ export interface components {
             map_loglik?: number | null;
             /** Map Chain */
             map_chain?: number | null;
+            /** Ess Per Iter */
+            ess_per_iter?: number | null;
+            /** Ess Per Sec */
+            ess_per_sec?: number | null;
         };
         /**
          * DimensionInfo
@@ -478,6 +600,117 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * MleParam
+         * @description One coordinate of an MLE fit: the point estimate plus its spread across the
+         *     converged restarts (``restart_lo``/``restart_hi`` null when only one restart —
+         *     or none — converged). Doc labels (``symbol`` etc.) join in from the model.
+         */
+        MleParam: {
+            /** Name */
+            name: string;
+            /** Symbol */
+            symbol?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Reference */
+            reference?: string | null;
+            /** Bounds */
+            bounds?: [
+                number,
+                number
+            ] | null;
+            /** Value */
+            value: number | null;
+            /** Restart Lo */
+            restart_lo?: number | null;
+            /** Restart Hi */
+            restart_hi?: number | null;
+        };
+        /**
+         * MleResponse
+         * @description An MLE ('scout') fit: the point estimate θ̂ (``params``, estimated order),
+         *     the optimum ``loglik``, and the multi-start ``restarts`` — the MLE analogue of
+         *     convergence diagnostics (how many restarts found the mode vs failed).
+         */
+        MleResponse: {
+            /** Run Id */
+            run_id: string;
+            /** Label */
+            label: string;
+            /** Algorithm */
+            algorithm: string;
+            /** Backend */
+            backend: string;
+            /** Loglik */
+            loglik?: number | null;
+            /** N Restarts */
+            n_restarts: number;
+            /** N Converged */
+            n_converged: number;
+            /** Params */
+            params: components["schemas"]["MleParam"][];
+            /** Restarts */
+            restarts: components["schemas"]["MleRestart"][];
+        };
+        /**
+         * MleRestart
+         * @description One multi-start restart's optimum: its log-likelihood (a huge-negative
+         *     sentinel if it failed), the optimizer exit status, and evals spent.
+         */
+        MleRestart: {
+            /** Chain */
+            chain: number;
+            /** Loglik */
+            loglik: number;
+            /** Status */
+            status: string;
+            /** N Evals */
+            n_evals: number;
+        };
+        /**
+         * ModelRender
+         * @description Structured model math for display (``model.render.json``). Every math
+         *     string is KaTeX-safe; the viewer renders leaves and lays them out. Present
+         *     for any run (fit or sim). Optional sections default to empty so the contract
+         *     stays forward-compatible.
+         */
+        ModelRender: {
+            /** Model */
+            model: string;
+            /** Mode */
+            mode: string;
+            /**
+             * States
+             * @default []
+             */
+            states: string[];
+            /**
+             * Dimensions
+             * @default []
+             */
+            dimensions: components["schemas"]["RenderDimension"][];
+            /**
+             * Parameters
+             * @default []
+             */
+            parameters: components["schemas"]["RenderParameter"][];
+            /**
+             * Definitions
+             * @default []
+             */
+            definitions: components["schemas"]["RenderDefinition"][];
+            /**
+             * Transitions
+             * @default []
+             */
+            transitions: components["schemas"]["RenderTransition"][];
+            /**
+             * Dynamics
+             * @default []
+             */
+            dynamics: components["schemas"]["RenderDynamic"][];
         };
         /**
          * ObservedPoint
@@ -596,6 +829,11 @@ export interface components {
             rhat?: number | null;
             /** Ess */
             ess?: number | null;
+            /**
+             * Is Objective
+             * @default false
+             */
+            is_objective: boolean;
         };
         /**
          * ParamTrace
@@ -672,7 +910,8 @@ export interface components {
         /**
          * PredictiveResponse
          * @description One stream's posterior-predictive ribbons + observed series. The frontend
-         *     facets by ``stratum`` and filters by ``horizon`` (e.g. free_forward).
+         *     facets by ``stratum`` and filters by ``horizon`` (e.g. free_forward). Time is
+         *     dated via the fit-level ``RunDetail.calendar``.
          */
         PredictiveResponse: {
             /** Run Id */
@@ -701,6 +940,85 @@ export interface components {
             x: number[];
             /** Y */
             y: number[];
+        };
+        /**
+         * ProfilePoint
+         * @description One grid cell of a profile: the profiled ``coords`` (one value per param —
+         *     length 1 for a curve, 2 for a surface) and the best optimized log-likelihood
+         *     there (max over restarts). ``nuisance`` is the conditional MLE of the *other*
+         *     params at this cell (optimized with the profiled coords held fixed); empty
+         *     when the run wrote no per-cell parameter file.
+         */
+        ProfilePoint: {
+            /** Coords */
+            coords: number[];
+            /** Loglik */
+            loglik: number;
+            /** N Starts */
+            n_starts: number;
+            /**
+             * Nuisance
+             * @default {}
+             */
+            nuisance: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * ProfileResponse
+         * @description A profile likelihood over one param (a curve) or two (a surface).
+         *     ``params`` gives the profiled names and fixes the dimensionality; each
+         *     ``points`` cell carries ``coords`` of that length. The MLE is the argmax
+         *     cell. ``ci_drop`` is the loglik drop for the 95% confidence set (½·χ²_df:
+         *     1.92 for a CI, 3.00 for a 2D region). ``ci_lo``/``ci_hi`` are the 1D CI
+         *     bracket (interpolated at the crossings, ``None`` on an unbracketed side, and
+         *     always ``None`` for a 2D surface — a region, not an interval).
+         */
+        ProfileResponse: {
+            /** Base Id */
+            base_id: string;
+            /** Label */
+            label: string;
+            /** Params */
+            params: string[];
+            /** Method */
+            method: string;
+            /** Loglik Type */
+            loglik_type: string;
+            /** Points */
+            points: components["schemas"]["ProfilePoint"][];
+            /** Mle Coords */
+            mle_coords: number[];
+            /** Mle Loglik */
+            mle_loglik: number;
+            /** Ci Level */
+            ci_level: number;
+            /** Ci Drop */
+            ci_drop: number;
+            /** Ci Lo */
+            ci_lo?: number | null;
+            /** Ci Hi */
+            ci_hi?: number | null;
+        };
+        /**
+         * ProfileSummary
+         * @description One profile in the selector list: the inference problem and the
+         *     parameter(s) it profiles (1 → a curve, 2 → a likelihood surface), plus its
+         *     MLE cell — enough to identify and label without the full grid.
+         */
+        ProfileSummary: {
+            /** Base Id */
+            base_id: string;
+            /** Label */
+            label: string;
+            /** Params */
+            params: string[];
+            /** Method */
+            method: string;
+            /** N Points */
+            n_points: number;
+            /** Mle Coords */
+            mle_coords: number[];
         };
         /**
          * ProgressInfo
@@ -863,6 +1181,70 @@ export interface components {
             points: components["schemas"]["QuantityBandPoint"][];
         };
         /**
+         * RenderDefinition
+         * @description A named auxiliary definition, ``tex`` a full KaTeX expression
+         *     (e.g. ``N = S + I + R``).
+         */
+        RenderDefinition: {
+            /** Name */
+            name: string;
+            /** Tex */
+            tex: string;
+        };
+        /**
+         * RenderDimension
+         * @description One indexing dimension of the model and its ordered levels.
+         */
+        RenderDimension: {
+            /** Name */
+            name: string;
+            /**
+             * Levels
+             * @default []
+             */
+            levels: string[];
+        };
+        /**
+         * RenderDynamic
+         * @description One state's ODE, ``tex`` the full KaTeX expression
+         *     (e.g. ``\dot{S} = -\frac{\beta S I}{N}``).
+         */
+        RenderDynamic: {
+            /** State */
+            state: string;
+            /** Tex */
+            tex: string;
+        };
+        /**
+         * RenderParameter
+         * @description A model parameter for the glossary: ``symbol`` is KaTeX (e.g. ``\beta``);
+         *     ``description`` is prose.
+         */
+        RenderParameter: {
+            /** Name */
+            name: string;
+            /** Symbol */
+            symbol: string;
+            /** Description */
+            description?: string | null;
+        };
+        /**
+         * RenderTransition
+         * @description One reaction, kept split so the viewer chooses table vs inline-arrow:
+         *     ``reactants``/``products`` are KaTeX state expressions, ``rate`` the KaTeX
+         *     rate law.
+         */
+        RenderTransition: {
+            /** Name */
+            name: string;
+            /** Reactants */
+            reactants: string;
+            /** Products */
+            products: string;
+            /** Rate */
+            rate: string;
+        };
+        /**
          * RunDetail
          * @description A run's metadata, schema, and verdict — everything but the draws.
          */
@@ -879,6 +1261,11 @@ export interface components {
             backend: string;
             /** Status */
             status: string;
+            /**
+             * Fit Kind
+             * @default posterior
+             */
+            fit_kind: string;
             /** N Chains */
             n_chains: number;
             /** Max Iter */
@@ -906,6 +1293,12 @@ export interface components {
              * @default []
              */
             quantity_scenarios: string[];
+            calendar?: components["schemas"]["Calendar"] | null;
+            /**
+             * Has Model Render
+             * @default false
+             */
+            has_model_render: boolean;
         };
         /**
          * RunSummary
@@ -925,8 +1318,15 @@ export interface components {
             backend: string;
             /** Status */
             status: string;
+            /**
+             * Fit Kind
+             * @default posterior
+             */
+            fit_kind: string;
             /** N Chains */
             n_chains: number;
+            /** Chain Ids */
+            chain_ids: number[];
             /** N Params */
             n_params: number;
             /** Has Docs */
@@ -939,6 +1339,8 @@ export interface components {
             has_prequential: boolean;
             /** Max Iter */
             max_iter?: number | null;
+            /** Target Sweeps */
+            target_sweeps?: number | null;
             /** Updated At */
             updated_at: number;
         };
@@ -1121,10 +1523,42 @@ export interface operations {
             };
         };
     };
+    get_mle_api_runs__run_id__mle_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_posterior_api_runs__run_id__posterior_get: {
         parameters: {
             query?: {
                 warmup_pct?: number;
+                chains?: string | null;
             };
             header?: never;
             path: {
@@ -1159,6 +1593,7 @@ export interface operations {
             query?: {
                 warmup_pct?: number;
                 max_draws?: number;
+                chains?: string | null;
             };
             header?: never;
             path: {
@@ -1206,6 +1641,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_render_api_runs__run_id__model_render_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelRender"];
                 };
             };
             /** @description Validation Error */
@@ -1319,6 +1785,7 @@ export interface operations {
             query?: {
                 warmup_pct?: number;
                 max_points?: number;
+                chains?: string | null;
             };
             header?: never;
             path: {
@@ -1352,6 +1819,7 @@ export interface operations {
         parameters: {
             query?: {
                 warmup_pct?: number;
+                chains?: string | null;
             };
             header?: never;
             path: {
@@ -1402,6 +1870,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CompareResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_profiles_api_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileSummary"][];
+                };
+            };
+        };
+    };
+    get_profile_api_profiles__base_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                base_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileResponse"];
                 };
             };
             /** @description Validation Error */

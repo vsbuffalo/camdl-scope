@@ -7,8 +7,14 @@ import type {
 } from '@/api/client'
 import { useQuantityScalars, useQuantitySeries, useRun } from '@/api/queries'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
+import { ScenarioChecks } from '@/components/ScenarioChecks'
+import { PlotDownloadButton } from '@/components/PlotDownloadButton'
+import { Segmented } from '@/components/Segmented'
+import { ByIndexPlot, LevelLegend } from '@/components/ByIndexPlot'
 import { Card } from '@/components/ui/card'
 import { fmtTick, fmtValue } from '@/lib/format'
+import { buildByIndexProfile, type IndexRecord } from '@/lib/byindex'
+import { dayToDate } from '@/lib/calendar'
 import { buildScenarioColors, SCENARIO_REFERENCE } from '@/lib/scenario'
 import { cn } from '@/lib/utils'
 
@@ -53,7 +59,15 @@ interface ScenarioSeries {
 /** One stratum's banded trajectory, overlaid by scenario. A lone scenario gets
  *  the full 90%/IQR ribbon; multiple scenarios get a faint 90% band + a colored
  *  median line each (so 5 arms stay legible). */
-function BandPanel({ title, series }: { title: string; series: ScenarioSeries[] }) {
+function BandPanel({
+  title,
+  series,
+  toDate,
+}: {
+  title: string
+  series: ScenarioSeries[]
+  toDate: ((t: number) => Date) | null
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
   const solo = series.length === 1
@@ -73,20 +87,23 @@ function BandPanel({ title, series }: { title: string; series: ScenarioSeries[] 
   useEffect(() => {
     const el = ref.current
     if (!el || width <= 0) return
+    // Numeric time → Date when the fit carries a calendar, so the axis reads as
+    // real dates; otherwise the raw numeric model-time index.
+    const xOf = (d: { time: number }) => (toDate ? toDate(d.time) : d.time)
     const marks: Plot.Markish[] = []
     for (const s of series) {
       const pts = [...s.points].sort((a, b) => a.time - b.time)
       if (solo) {
         marks.push(
-          Plot.areaY(pts, { x: 'time', y1: 'q05', y2: 'q95', fill: s.color, fillOpacity: 0.16 }),
-          Plot.areaY(pts, { x: 'time', y1: 'q25', y2: 'q75', fill: s.color, fillOpacity: 0.22 }),
+          Plot.areaY(pts, { x: xOf, y1: 'q05', y2: 'q95', fill: s.color, fillOpacity: 0.16 }),
+          Plot.areaY(pts, { x: xOf, y1: 'q25', y2: 'q75', fill: s.color, fillOpacity: 0.22 }),
         )
       } else {
         marks.push(
-          Plot.areaY(pts, { x: 'time', y1: 'q05', y2: 'q95', fill: s.color, fillOpacity: 0.1 }),
+          Plot.areaY(pts, { x: xOf, y1: 'q05', y2: 'q95', fill: s.color, fillOpacity: 0.1 }),
         )
       }
-      marks.push(Plot.line(pts, { x: 'time', y: 'q50', stroke: s.color, strokeWidth: 1.3 }))
+      marks.push(Plot.line(pts, { x: xOf, y: 'q50', stroke: s.color, strokeWidth: 1.3 }))
     }
     marks.push(Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }))
 
@@ -113,17 +130,25 @@ function BandPanel({ title, series }: { title: string; series: ScenarioSeries[] 
     return () => {
       node.remove()
     }
-  }, [series, width, solo])
+  }, [series, width, solo, toDate])
+
+  const figRef = useRef<HTMLDivElement>(null)
 
   return (
-    <div className="border-t border-neutral-100 px-3 py-2">
-      <div className="font-mono text-[10px] text-neutral-500">{title}</div>
-      <div
-        ref={ref}
-        className="mt-1 w-full min-w-0 overflow-x-auto"
-        style={{ minHeight: PANEL_HEIGHT }}
-        role="img"
-        aria-label={title}
+    <div className="group/fig relative border-t border-neutral-100 px-3 py-2">
+      <div ref={figRef} className="bg-white">
+        <div className="font-mono text-[10px] text-neutral-500">{title}</div>
+        <div
+          ref={ref}
+          className="mt-1 w-full min-w-0 overflow-x-auto"
+          style={{ minHeight: PANEL_HEIGHT }}
+          role="img"
+          aria-label={title}
+        />
+      </div>
+      <PlotDownloadButton
+        targetRef={figRef}
+        name={`quantity-${title.replace(/[^\w.-]+/g, '-')}`}
       />
     </div>
   )
@@ -133,22 +158,48 @@ function SeriesQuantity({
   runId,
   q,
   colorOf,
+  activeScenarios,
+  toDate,
+  dimLevels,
 }: {
   runId: string
   q: QuantityInfo
   colorOf: (scenario: string) => string
+  activeScenarios: string[]
+  toDate: ((t: number) => Date) | null
+  dimLevels: Map<string, string[]>
 }) {
   const { data, isPending, isError } = useQuantitySeries(runId, q.name)
   const tag = sourceTag(q.source)
 
-  // One panel per stratum cell; within a panel, one ribbon per scenario.
-  const panels = useMemo(() => {
+  // Inner view: the per-stratum ribbons over time, or the by-index profile
+  // (marginalise time by mean, one index dim on x). Only offer by-index when the
+  // quantity actually has an index dimension.
+  const [view, setView] = useState<'series' | 'byindex'>('series')
+  const [byIndexX, setByIndexX] = useState<string | null>(null)
+  const [byIndexFacet, setByIndexFacet] = useState<string | null>(null)
+  const indexDims = q.index_dims
+  const activeByX =
+    byIndexX && indexDims.includes(byIndexX) ? byIndexX : (indexDims[0] ?? null)
+  const activeByFacet =
+    byIndexFacet && byIndexFacet !== activeByX && indexDims.includes(byIndexFacet)
+      ? byIndexFacet
+      : null
+
+  // Points of the selected scenarios (mirrors the ribbon panels' filter).
+  const shownPoints = useMemo(() => {
     if (!data) return []
+    const keep = new Set(activeScenarios.length ? activeScenarios : ['as_fitted'])
+    return data.points.filter((p) => keep.has(p.scenario))
+  }, [data, activeScenarios])
+
+  // One panel per stratum cell; within a panel, one ribbon per (selected) scenario.
+  const panels = useMemo(() => {
     const byStratum = new Map<
       string,
       { stratum: Record<string, string>; byScenario: Map<string, QuantityBandPoint[]> }
     >()
-    for (const p of data.points) {
+    for (const p of shownPoints) {
       const key = JSON.stringify(p.stratum)
       let g = byStratum.get(key)
       if (!g) {
@@ -159,16 +210,28 @@ function SeriesQuantity({
       if (arr) arr.push(p)
       else g.byScenario.set(p.scenario, [p])
     }
-    const order = data.scenarios.length ? data.scenarios : ['as_fitted']
+    const order = activeScenarios.length ? activeScenarios : ['as_fitted']
     return [...byStratum.values()].map((g) => ({
       stratum: g.stratum,
       series: order
         .filter((s) => g.byScenario.has(s))
         .map((s) => ({ scenario: s, color: colorOf(s), points: g.byScenario.get(s)! })),
     }))
-  }, [data, colorOf])
+  }, [shownPoints, colorOf, activeScenarios])
+
+  // By-index profile — a derived quantity has no observed overlay, so obs=null.
+  const byIndex = useMemo(() => {
+    if (!activeByX || shownPoints.length === 0) return null
+    const records: IndexRecord[] = shownPoints.map((p) => ({
+      stratum: p.stratum,
+      pred: p.q50,
+      obs: null,
+    }))
+    return buildByIndexProfile(records, activeByX, activeByFacet, dimLevels)
+  }, [shownPoints, activeByX, activeByFacet, dimLevels])
 
   const hasSymbol = Boolean(q.symbol && q.symbol !== q.name)
+  const canByIndex = indexDims.length > 0
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2">
@@ -206,12 +269,78 @@ function SeriesQuantity({
           detail="The backend returned an error reading its TSV."
         />
       )}
+      {data && canByIndex && (
+        <div className="flex gap-4 border-t border-neutral-100 px-3 pt-2">
+          {(
+            [
+              ['series', 'Time series'],
+              ['byindex', 'By index'],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              aria-pressed={v === view}
+              className={cn(
+                '-mb-px border-b-2 py-1.5 font-mono text-xs transition-colors',
+                v === view
+                  ? 'border-neutral-900 text-neutral-900'
+                  : 'border-transparent text-neutral-500 hover:text-neutral-800',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       {data &&
-        panels.map((p) => (
-          <BandPanel
-            key={JSON.stringify(p.stratum)}
-            title={stratumLabel(p.stratum) || 'all'}
-            series={p.series}
+        (view === 'series' || !canByIndex ? (
+          panels.map((p) => (
+            <BandPanel
+              key={JSON.stringify(p.stratum)}
+              title={stratumLabel(p.stratum) || 'all'}
+              series={p.series}
+              toDate={toDate}
+            />
+          ))
+        ) : byIndex && byIndex.facets.some((f) => f.points.some((p) => p.pred != null)) ? (
+          <>
+            <div className="flex flex-col gap-2 border-t border-neutral-100 px-3 py-2">
+              <Segmented
+                label="Index (x)"
+                options={indexDims}
+                value={activeByX ?? ''}
+                onChange={setByIndexX}
+              />
+              {indexDims.length > 1 && (
+                <Segmented
+                  label="Facet by"
+                  options={['none', ...indexDims.filter((d) => d !== activeByX)]}
+                  value={activeByFacet ?? 'none'}
+                  onChange={(v) => setByIndexFacet(v === 'none' ? null : v)}
+                />
+              )}
+              {activeByFacet && (
+                <LevelLegend
+                  levelColor={new Map(byIndex.facets.map((f) => [f.level, f.color]))}
+                />
+              )}
+              <span className="font-mono text-[10px] text-neutral-400">
+                line = median · marginalised over time
+              </span>
+            </div>
+            <ByIndexPlot
+              profile={byIndex}
+              xLabel={activeByX ?? ''}
+              yLabel={`mean ${q.symbol ?? q.name}`}
+            />
+          </>
+        ) : (
+          <MutedNotice
+            bordered={false}
+            title="Nothing to profile"
+            detail="This quantity has no index dimension with values to profile."
           />
         ))}
     </Card>
@@ -247,11 +376,13 @@ function ScalarTable({
   showScenario,
   colorOf,
   infoOf,
+  activeScenarios,
 }: {
   runId: string
   showScenario: boolean
   colorOf: (scenario: string) => string
   infoOf: Map<string, QuantityInfo>
+  activeScenarios: string[]
 }) {
   const { data, isPending, isError } = useQuantityScalars(runId)
   const hasStrata = useMemo(
@@ -259,16 +390,19 @@ function ScalarTable({
     [data],
   )
 
-  // Group rows by quantity (the name shows once per group), preserving order.
+  // Group the selected scenarios' rows by quantity (the name shows once per
+  // group), preserving order.
   const groups = useMemo(() => {
+    const keep = new Set(activeScenarios)
     const m = new Map<string, QuantityScalarRow[]>()
     for (const r of data?.rows ?? []) {
+      if (showScenario && !keep.has(r.scenario)) continue
       const arr = m.get(r.name)
       if (arr) arr.push(r)
       else m.set(r.name, [r])
     }
     return [...m.entries()]
-  }, [data])
+  }, [data, activeScenarios, showScenario])
 
   if (isPending) return <ForestSkeleton rows={2} />
   if (isError)
@@ -385,8 +519,14 @@ function ScalarTable({
  */
 export function QuantitiesTab({ runId }: { runId: string }) {
   const run = useRun(runId)
-  const quantities = run.data?.available_quantities ?? []
-  const scenarios = run.data?.quantity_scenarios ?? []
+  const quantities = useMemo(
+    () => run.data?.available_quantities ?? [],
+    [run.data],
+  )
+  const scenarios = useMemo(
+    () => run.data?.quantity_scenarios ?? [],
+    [run.data],
+  )
   const series = quantities.filter((q) => q.shape === 'series')
   const scalars = quantities.filter((q) => q.shape === 'scalar')
 
@@ -397,6 +537,30 @@ export function QuantitiesTab({ runId }: { runId: string }) {
     () => new Map(quantities.map((q) => [q.name, q])),
     [quantities],
   )
+  // Fit-level calendar → dates on every quantity time axis; canonical level
+  // ordering for the by-index profile (age/village don't sort lexically).
+  const toDate = useMemo(() => dayToDate(run.data?.calendar), [run.data?.calendar])
+  const dimLevels = useMemo(() => {
+    const m = new Map<string, string[]>()
+    for (const d of run.data?.dimensions ?? []) m.set(d.name, d.levels)
+    return m
+  }, [run.data])
+
+  // Scenario overlay filter (null = all) — isolate one arm so a stepped/wide
+  // series (e.g. SIA campaigns in Reff) reads cleanly instead of as overlay mush.
+  const [selectedScenarios, setSelectedScenarios] = useState<readonly string[] | null>(
+    null,
+  )
+  const activeScenarios = useMemo(() => {
+    const set = new Set(selectedScenarios ?? scenarios)
+    return scenarios.filter((s) => set.has(s))
+  }, [selectedScenarios, scenarios])
+  const toggleScenario = (s: string) =>
+    setSelectedScenarios(
+      activeScenarios.includes(s)
+        ? activeScenarios.filter((x) => x !== s)
+        : [...activeScenarios, s],
+    )
 
   if (run.isPending) {
     return (
@@ -424,13 +588,13 @@ export function QuantitiesTab({ runId }: { runId: string }) {
   return (
     <div className="space-y-4">
       {showScenario && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 font-mono text-[11px]">
-          <span className="text-[10px] uppercase tracking-wide text-neutral-400">
-            Scenarios
-          </span>
-          {scenarios.map((s) => (
-            <ScenarioChip key={s} scenario={s} color={colorOf(s)} />
-          ))}
+        <div className="px-1">
+          <ScenarioChecks
+            options={scenarios}
+            selected={activeScenarios}
+            colorOf={colorOf}
+            onToggle={toggleScenario}
+          />
         </div>
       )}
       {scalars.length > 0 && (
@@ -439,10 +603,19 @@ export function QuantitiesTab({ runId }: { runId: string }) {
           showScenario={showScenario}
           colorOf={colorOf}
           infoOf={infoOf}
+          activeScenarios={activeScenarios}
         />
       )}
       {series.map((q) => (
-        <SeriesQuantity key={q.name} runId={runId} q={q} colorOf={colorOf} />
+        <SeriesQuantity
+          key={q.name}
+          runId={runId}
+          q={q}
+          colorOf={colorOf}
+          activeScenarios={activeScenarios}
+          toDate={toDate}
+          dimLevels={dimLevels}
+        />
       ))}
     </div>
   )

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { SourceFile } from '@/api/client'
-import { useSource } from '@/api/queries'
+import { useModelRender, useRun, useSource } from '@/api/queries'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
+import { ModelView } from '@/components/ModelView'
+import { Segmented } from '@/components/Segmented'
 import { Card } from '@/components/ui/card'
 
 const HIGHLIGHT_STYLE_ID = 'camdl-highlight-css'
@@ -154,9 +156,37 @@ function originNote(origin: SourceFile['origin']): string {
  * rendered verbatim; the token stylesheet is injected once. A comfortable
  * reading width — this is text, not a figure.
  */
+/** The rendered-model view: structured math from `model.render.json`. Its own
+ *  loading/empty states so a slow or absent render never blocks the raw source. */
+function RenderedModel({ runId }: { runId: string }) {
+  const { data, isPending, isError } = useModelRender(runId, true)
+  if (isPending)
+    return (
+      <Card className="overflow-hidden">
+        <ForestSkeleton rows={3} />
+      </Card>
+    )
+  if (isError || !data)
+    return (
+      <MutedNotice
+        bordered
+        title="No rendered model"
+        detail="This run has no model.render.json — see the raw source instead."
+      />
+    )
+  return <ModelView data={data} />
+}
+
 export function SourceTab({ runId }: { runId: string }) {
   const { data, isPending, isError } = useSource(runId)
   useHighlightCss(data?.highlight_css)
+
+  // The rendered-model view is offered only when the run carries the artifact;
+  // default to it (the friendlier view) and let the reader drop to raw source.
+  const run = useRun(runId)
+  const hasRender = run.data?.has_model_render ?? false
+  const [view, setView] = useState<'rendered' | 'source'>('rendered')
+  const effectiveView = hasRender ? view : 'source'
 
   if (isPending) {
     return (
@@ -183,6 +213,21 @@ export function SourceTab({ runId }: { runId: string }) {
 
   return (
     <div className="max-w-4xl space-y-4">
+      {hasRender && (
+        <div className="px-1">
+          <Segmented
+            label="Model"
+            options={['rendered', 'source']}
+            value={effectiveView}
+            onChange={(v) => setView(v as 'rendered' | 'source')}
+          />
+        </div>
+      )}
+
+      {effectiveView === 'rendered' && <RenderedModel runId={runId} />}
+
+      {effectiveView === 'source' && (
+        <>
       <SourcePanel
         title={modelBase ? `model · ${modelBase}` : 'model'}
         subline={
@@ -210,6 +255,8 @@ export function SourceTab({ runId }: { runId: string }) {
         }
         file={data.fit_toml}
       />
+        </>
+      )}
     </div>
   )
 }

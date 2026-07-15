@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDraws, usePosterior, useRun } from '@/api/queries'
 import { PairPlot, type PriorXlimMode } from '@/components/PairPlot'
 import { PairSettings } from '@/components/PairSettings'
+import { ChainSelect } from '@/components/ChainSelect'
+import { includedChains, type ChainControls } from '@/lib/chains'
 import { WarmupControl } from '@/components/WarmupControl'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
@@ -12,11 +14,18 @@ const DEFAULT_WARMUP_PCT = 50
 // it lighter than the Posterior tab to stay responsive.
 const PAIR_MAX_DRAWS = 800
 
-export function PairTab({ runId }: { runId: string }) {
+export function PairTab({
+  runId,
+  chainIds,
+  excludedChains,
+  onToggleChain,
+  onResetChains,
+}: { runId: string } & ChainControls) {
   const [warmupPct, setWarmupPct] = useState(DEFAULT_WARMUP_PCT)
   const [priorXlimMode, setPriorXlimMode] = useState<PriorXlimMode>('posterior')
   const run = useRun(runId)
-  const draws = useDraws(runId, warmupPct, PAIR_MAX_DRAWS)
+  const chains = includedChains({ chainIds, excludedChains, onToggleChain, onResetChains })
+  const draws = useDraws(runId, warmupPct, PAIR_MAX_DRAWS, chains)
   // Posterior summaries supply the diagonal median overlays and symbol labels.
   const posterior = usePosterior(runId, warmupPct)
 
@@ -68,6 +77,15 @@ export function PairTab({ runId }: { runId: string }) {
         cutoff={posterior.data?.warmup_cutoff ?? draws.data?.warmup_cutoff ?? null}
         nTail={posterior.data?.n_tail ?? null}
       />
+
+      {chainIds.length > 1 && (
+        <ChainSelect
+          chainIds={chainIds}
+          excluded={excludedChains}
+          onToggle={onToggleChain}
+          onReset={onResetChains}
+        />
+      )}
 
       {groups && (
         <PairSettings

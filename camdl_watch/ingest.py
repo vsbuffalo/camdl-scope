@@ -45,6 +45,7 @@ import polars as pl
 
 import time
 
+from . import mle
 from .docs import ModelDocs
 from .schema import ObsSchema
 from .state import (
@@ -207,8 +208,9 @@ def _read_findings(seed_dir: Path) -> list[Finding]:
 
 def _read_summary_json(seed_dir: Path) -> tuple[str, dict] | None:
     """The stage's authoritative summary (``pgas_summary.json`` /
-    ``pmmh_summary.json``), as ``(name, payload)``, or ``None``."""
-    for name in ("pgas_summary.json", "pmmh_summary.json"):
+    ``pmmh_summary.json`` / ``nuts_summary.json``), as ``(name, payload)``, or
+    ``None``. All three share the ``rhat`` / ``ess`` / ``thin`` keys."""
+    for name in ("pgas_summary.json", "pmmh_summary.json", "nuts_summary.json"):
         p = seed_dir / name
         if not p.exists():
             continue
@@ -285,7 +287,25 @@ def read_chain_summary(seed_dir: Path) -> ChainSummary | None:
         map_loglik=(float(s["map_loglik"]) if s.get("map_loglik") is not None else None),
         map_chain=(int(s["map_chain"]) if s.get("map_chain") is not None else None),
         findings=findings,
+        thin=int(s.get("thin", 1) or 1),
+        wall_time_secs=_read_wall_time_secs(seed_dir),
     )
+
+
+def _read_wall_time_secs(seed_dir: Path) -> float | None:
+    """Stage wall-clock from the stage leaf's ``run.json``
+    (``inputs.wall_time_seconds``) — the denominator for ESS/second. ``None`` on
+    older runs that predate the field or when ``run.json`` is absent/unreadable."""
+    p = seed_dir / "run.json"
+    try:
+        rec = json.loads(p.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    inputs = rec.get("inputs") if isinstance(rec, dict) else None
+    if not isinstance(inputs, dict):
+        return None
+    v = inputs.get("wall_time_seconds")
+    return float(v) if isinstance(v, (int, float)) else None
 
 
 def _pick_posterior_dir(
@@ -432,6 +452,47 @@ def _native_labels(store: Path) -> dict[str, str]:
     return out
 
 
+def _mle_run_meta(run_dir: Path, mle_seed: Path, labels: dict[str, str]) -> RunMeta:
+    """A ``RunMeta`` for a pure MLE (optimization) run. ``posterior_dir`` is
+    reused to point at the scout seed leaf (for status/progress); ``chain_paths``
+    is empty since there are no draws. Algorithm/backend come from the fit.toml
+    stage matching the seed's parent dir (``01-scout-<hash>`` → ``[stages.scout]``)."""
+    meta = _read_meta(run_dir)
+    toml = _read_fit_toml(run_dir)
+    model_path = meta.get("model_path", "")
+    model = Path(model_path).stem if model_path else run_dir.name
+
+    stage_dir = mle_seed.parent.name
+    stage_name = (
+        stage_dir.split("-", 1)[1].rsplit("-", 1)[0] if "-" in stage_dir else stage_dir
+    )
+    stage = (toml.get("stages", {}) or {}).get(stage_name, {}) or {}
+    algorithm = stage.get("algorithm", "unknown")
+    try:
+        backend = Backend(stage.get("backend", "unknown"))
+    except ValueError:
+        backend = Backend.UNKNOWN
+
+    return RunMeta(
+        run_id=run_dir.name,
+        run_dir=run_dir,
+        posterior_dir=mle_seed,
+        chain_paths={},
+        model=model,
+        algorithm=algorithm,
+        backend=backend,
+        estimated=list(meta.get("estimated", [])),
+        target_sweeps=None,
+        declared_burn_in=None,
+        thin=1,
+        fit_toml_stem=_fit_toml_stem(meta, run_dir),
+        user_label=labels.get(run_dir.name),
+        docs=ModelDocs.from_meta(meta),
+        schema=ObsSchema.from_meta(meta),
+        fit_kind="mle",
+    )
+
+
 def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta]:
     """Scan ``store`` for runs that have at least one non-empty chain trace.
 
@@ -451,6 +512,11 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
             continue
         picked = _pick_posterior_dir(run_dir, include_warming=include_warming)
         if picked is None:
+            # No posterior draws — but the run may be a pure MLE (optimization
+            # 'scout' stage) fit, which has a point estimate instead of chains.
+            mle_seed = mle.find_mle_seed(run_dir)
+            if mle_seed is not None:
+                out.append(_mle_run_meta(run_dir, mle_seed, labels))
             continue
         pdir, seed_dir, chain_paths, _has_draws = picked
         meta = _read_meta(run_dir)
@@ -469,6 +535,7 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
             backend = Backend.UNKNOWN
         target = stage.get("sweeps") or stage.get("iterations")
         burn_in = stage.get("burn_in")
+        thin = stage.get("thin")
 
         out.append(
             RunMeta(
@@ -482,6 +549,7 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
                 estimated=estimated,
                 target_sweeps=int(target) if target is not None else None,
                 declared_burn_in=int(burn_in) if burn_in is not None else None,
+                thin=int(thin) if thin is not None else 1,
                 fit_toml_stem=_fit_toml_stem(meta, run_dir),
                 user_label=labels.get(run_dir.name),
                 docs=ModelDocs.from_meta(meta),
@@ -676,6 +744,10 @@ def _parse_ir_params(model_path: Path) -> dict[str, tuple[PriorFamily, dict, tup
     if not model_path.is_file():
         return out
     text = model_path.read_text()
+    # Strip comments before the block match: a `}` inside a doc comment (e.g. the
+    # `e^{−μ}` in a mortality param's `#'` line) would otherwise truncate the
+    # non-greedy `parameters{...}` capture, dropping every param after it.
+    text = re.sub(r"#.*", "", text)
     m = re.search(r"parameters\s*\{(.*?)\}", text, re.DOTALL)
     block = m.group(1) if m else text
     for line in block.splitlines():
@@ -728,6 +800,24 @@ def _resolve_ir_for_param(
     return ir[best] if best is not None else None
 
 
+def _model_file(run_dir: Path, meta_json: dict) -> Path:
+    """The model ``.camdl`` to parse for IR priors: the leaf-archived copy
+    (``model.camdl.original``, gh#353 — path-independent and always present on
+    recent fits) when available, else the recorded ``model_path`` resolved
+    against the project root. The raw ``model_path`` is stored *relative* (e.g.
+    ``fits/../models/m.camdl``), so reading it as-is fails from any other CWD —
+    which silently dropped every model-declared prior to Flat."""
+    archived = run_dir / "model.camdl.original"
+    if archived.is_file():
+        return archived
+    mp = Path(meta_json.get("model_path", ""))
+    if not str(mp) or mp.is_absolute():
+        return mp
+    store = run_dir.parent
+    root = store.parent.parent if store.name == "fits" else store.parent
+    return root / mp
+
+
 def extract_priors(meta: RunMeta) -> dict[str, PriorSpec]:
     """Resolve the prior family+args for every estimated coordinate.
 
@@ -751,8 +841,7 @@ def extract_priors(meta: RunMeta) -> dict[str, PriorSpec]:
         if isinstance(d, dict) and "param" in d
     }
 
-    model_path = Path(meta_json.get("model_path", ""))
-    ir = _parse_ir_params(model_path) if model_path else {}
+    ir = _parse_ir_params(_model_file(run_dir, meta_json))
 
     out: dict[str, PriorSpec] = {}
     for param in meta.estimated:

@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Plot from '@observablehq/plot'
 import type { TraceSeries } from '@/api/client'
 import { useTraces } from '@/api/queries'
+import { ChainSelect } from '@/components/ChainSelect'
+import { PlotDownloadButton } from '@/components/PlotDownloadButton'
+import { includedChains, type ChainControls } from '@/lib/chains'
 import { WarmupControl } from '@/components/WarmupControl'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
 import { fmtTick } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { CHAIN_COLORS } from '@/lib/colors'
+import { chainColor } from '@/lib/colors'
 
 const DEFAULT_WARMUP_PCT = 0
 const PANEL_HEIGHT = 80
@@ -90,7 +93,11 @@ function TracePanel({
         tickPadding: 3,
         tickFormat: (d: number) => fmtTick(d),
       },
-      color: { type: 'categorical', domain: chainDomain, range: CHAIN_COLORS },
+      color: {
+        type: 'categorical',
+        domain: chainDomain,
+        range: chainDomain.map(chainColor),
+      },
       marks: [
         Plot.line(points, {
           x: 'iter',
@@ -122,18 +129,19 @@ function TracePanel({
 
 /**
  * Compact chain → colour legend for decoding the overlaid traces. Colours by
- * position in the (sorted) chain domain so it matches Plot's ordinal scale
- * (domain[i] → range[i]) even when chain ids aren't 0-based.
+ * chain **id** (`chainColor`), matching the plot's id-keyed scale, the pair
+ * scatter, and the chain selector — so a chain reads the same colour
+ * everywhere and doesn't shift when others are filtered out.
  */
 function ChainLegend({ chains }: { chains: number[] }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-neutral-400">
       <span className="uppercase tracking-wider">chains</span>
-      {chains.map((c, i) => (
+      {chains.map((c) => (
         <span key={c} className="flex items-center gap-1">
           <span
             className="inline-block h-2 w-3 rounded-[1px]"
-            style={{ background: CHAIN_COLORS[i % CHAIN_COLORS.length] }}
+            style={{ background: chainColor(c) }}
           />
           {c}
         </span>
@@ -142,11 +150,19 @@ function ChainLegend({ chains }: { chains: number[] }) {
   )
 }
 
-export function TracesTab({ runId }: { runId: string }) {
+export function TracesTab({
+  runId,
+  chainIds,
+  excludedChains,
+  onToggleChain,
+  onResetChains,
+}: { runId: string } & ChainControls) {
   const [warmupPct, setWarmupPct] = useState(DEFAULT_WARMUP_PCT)
+  const chains = includedChains({ chainIds, excludedChains, onToggleChain, onResetChains })
   const { data, isPending, isError, isPlaceholderData } = useTraces(
     runId,
     warmupPct,
+    chains,
   )
 
   const chainDomain = useMemo(() => {
@@ -183,6 +199,9 @@ export function TracesTab({ runId }: { runId: string }) {
     [data, hiddenObjectives],
   )
 
+  // The legend + stacked trace panels are the PNG capture target.
+  const figRef = useRef<HTMLDivElement>(null)
+
   return (
     <Card
       className={cn(
@@ -196,6 +215,15 @@ export function TracesTab({ runId }: { runId: string }) {
         cutoff={data?.warmup_cutoff ?? null}
         nTail={null}
       />
+
+      {chainIds.length > 1 && (
+        <ChainSelect
+          chainIds={chainIds}
+          excluded={excludedChains}
+          onToggle={onToggleChain}
+          onReset={onResetChains}
+        />
+      )}
 
       {isPending && <ForestSkeleton rows={4} />}
 
@@ -239,28 +267,33 @@ export function TracesTab({ runId }: { runId: string }) {
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-3 border-b border-neutral-100 px-3 py-2">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
-              iteration traces · mixing
-            </span>
-            <ChainLegend chains={chainDomain} />
-          </div>
-          <div>
-            {visibleTraces.map((t, i) => (
-              <div
-                key={t.param}
-                className="border-b border-neutral-100 px-3 py-1.5 last:border-b-0"
-              >
-                <div className="font-mono text-[10px] text-neutral-500">
-                  {t.param}
-                </div>
-                <TracePanel
-                  series={t.series}
-                  chainDomain={chainDomain}
-                  showXAxis={i === visibleTraces.length - 1}
-                />
+          <div className="group/fig relative">
+            <div ref={figRef} className="bg-white">
+              <div className="flex items-center justify-between gap-3 border-b border-neutral-100 px-3 py-2">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+                  iteration traces · mixing
+                </span>
+                <ChainLegend chains={chainDomain} />
               </div>
-            ))}
+              <div>
+                {visibleTraces.map((t, i) => (
+                  <div
+                    key={t.param}
+                    className="border-b border-neutral-100 px-3 py-1.5 last:border-b-0"
+                  >
+                    <div className="font-mono text-[10px] text-neutral-500">
+                      {t.param}
+                    </div>
+                    <TracePanel
+                      series={t.series}
+                      chainDomain={chainDomain}
+                      showXAxis={i === visibleTraces.length - 1}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <PlotDownloadButton targetRef={figRef} name="traces" />
           </div>
         </>
       )}

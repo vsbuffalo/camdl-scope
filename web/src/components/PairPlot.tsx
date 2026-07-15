@@ -1,23 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as Plot from '@observablehq/plot'
 import type { DrawsResponse, PosteriorResponse } from '@/api/client'
+import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { fmtTick } from '@/lib/format'
-
-/**
- * Subtle categorical palette for chains — muted 700-ish hues, not a rainbow.
- * At low dot opacity these read as quiet tints; the point is to *detect*
- * separation between chains (poor mixing), not to dazzle.
- */
-const CHAIN_COLORS = [
-  '#475569', // slate-600
-  '#0f766e', // teal-700
-  '#b45309', // amber-700
-  '#9f1239', // rose-800
-  '#4338ca', // indigo-700
-  '#15803d', // green-700
-  '#7e22ce', // purple-700
-  '#a16207', // yellow-700
-] as const
+import { chainColor } from '@/lib/colors'
 
 // Cell sizing: square cells clamp between these so few params fill the width
 // while many params shrink toward MIN and the grid scrolls.
@@ -103,7 +89,11 @@ function PairCell({
         ...base,
         x: { axis: null, domain: spec.xDomain },
         y: { axis: null, domain: spec.yDomain },
-        color: { type: 'categorical', domain: chainDomain, range: CHAIN_COLORS },
+        color: {
+          type: 'categorical',
+          domain: chainDomain,
+          range: chainDomain.map(chainColor),
+        },
         marks: [
           Plot.dot(spec.chain, {
             x: (_d: number, i: number) => spec.x[i],
@@ -304,6 +294,9 @@ export function PairPlot({
   const n = params.length
 
   const containerRef = useRef<HTMLDivElement>(null)
+  // The full-width figure (legend + grid) is the PNG capture target — ref this,
+  // not the scroll container, so a wide grid isn't clipped to the viewport.
+  const figRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(0)
 
   // Measure the scroll container's visible width once on mount (seeded
@@ -383,14 +376,16 @@ export function PairPlot({
     // here would let the measure effect run with no element and never re-fire,
     // stranding the grid at MIN_CELL on tab re-entry.) Measure the OUTER block,
     // not the inner overflow-x-auto box (which shrink-wraps to the grid).
-    <div ref={containerRef}>
+    <div ref={containerRef} className="group/fig relative">
       {n < 2 ? (
         <p className="text-sm text-neutral-500">
           The pair plot needs at least two selected parameters — open{' '}
           <span className="font-mono">⚙ params</span> to choose more.
         </p>
       ) : (
+        <>
         <div className="overflow-x-auto">
+          <div ref={figRef} className="w-max bg-white">
           {anyPrior && <Legend />}
           <div
             className="grid gap-px"
@@ -498,7 +493,10 @@ export function PairPlot({
             </div>
           ))}
           </div>
+          </div>
         </div>
+        <PlotDownloadButton targetRef={figRef} name="pairplot" />
+        </>
       )}
     </div>
   )

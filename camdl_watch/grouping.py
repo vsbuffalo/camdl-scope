@@ -14,13 +14,19 @@ match ``B_<stratum>``. The base is the longest such prefix, so ``k_raw_Bo`` and
 A coordinate that is the *only* member of its base (e.g. ``mu_k`` -> base ``mu``)
 is a **scalar**, not a family.
 
-The default selection shows scalars and hyperparameters (everything that is not
-an indexed leaf) and hides the leaves.
+The default pair-plot selection shows scalars and hyperparameters (everything
+that is not an indexed leaf) and hides the leaves — but falls back to the
+parameters themselves when there are no scalars (a fully-indexed fit), and is
+capped so a wide fit opens on a legible grid rather than an N² wall.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+# Cap the pair plot's default parameter count: N params → N²/2 scatter panels, so
+# past ~8 the grid is a wall. The default opens legible; the ⚙ control adds more.
+DEFAULT_PAIR_CAP = 8
 
 
 @dataclass(frozen=True)
@@ -39,14 +45,20 @@ class ParamGroups:
     def family_names(self) -> list[str]:
         return list(self.families)
 
-    def default_selection(self) -> list[str]:
-        """Scalars + hyperparameters only; indexed-family leaves hidden.
+    def default_selection(self, cap: int = DEFAULT_PAIR_CAP) -> list[str]:
+        """The pair plot's initial parameter set: scalars + hyperparameters
+        (indexed-family leaves hidden), in original order.
 
-        Preserves the original parameter order so downstream plots/tables read
-        the same as an ungrouped run.
+        Two guards so the pair plot is neither empty nor a wall:
+          * a *fully-indexed* fit has no scalars, so that set is empty — fall back
+            to the parameters themselves (better an all-leaf grid than nothing);
+          * cap the result at ``cap`` so a wide fit opens on a legible grid, not
+            an N² monster. The user adds the rest via the ⚙ params control.
         """
         leaves = {m for members in self.families.values() for m in members}
-        return [p for p in self._original_order() if p not in leaves]
+        primary = [p for p in self._original_order() if p not in leaves]
+        chosen = primary if len(primary) >= 2 else self._original_order()
+        return chosen[:cap]
 
     def all_params(self) -> list[str]:
         return self._original_order()

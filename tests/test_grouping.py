@@ -69,6 +69,24 @@ def test_singleton_indexed_stays_scalar():
     assert set(g.scalars) == {"foo_bar", "baz"}
 
 
+def test_fully_indexed_run_falls_back_to_all():
+    # Every param is a family leaf (no scalars) — hiding leaves would leave the
+    # pair plot's default selection empty. Fall back to the params themselves.
+    params = ["abar_kwaru", "abar_ajura", "mu_kwaru", "mu_ajura"]
+    g = group_params(params)
+    assert g.scalars == []
+    assert g.default_selection() == params
+
+
+def test_default_selection_capped():
+    # A wide fit opens on a legible grid, not an N² wall (the ⚙ control adds more).
+    from camdl_watch.grouping import DEFAULT_PAIR_CAP
+
+    params = [f"s{i}" for i in range(20)]  # 20 scalars
+    dflt = group_params(params).default_selection()
+    assert dflt == params[:DEFAULT_PAIR_CAP] and len(dflt) == DEFAULT_PAIR_CAP
+
+
 def test_grouping_on_real_run():
     metas = {m.run_id: m for m in ingest.discover_runs(STORE)}
     meta = next((m for k, m in metas.items()

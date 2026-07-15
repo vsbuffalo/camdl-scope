@@ -17,6 +17,7 @@ export type DimensionInfo = components['schemas']['DimensionInfo']
 export type FindingGroup = components['schemas']['FindingGroup']
 export type SourceResponse = components['schemas']['SourceResponse']
 export type SourceFile = components['schemas']['SourceFile']
+export type ModelRender = components['schemas']['ModelRender']
 export type PredictiveResponse = components['schemas']['PredictiveResponse']
 export type PredictivePoint = components['schemas']['PredictivePoint']
 export type ObservedPoint = components['schemas']['ObservedPoint']
@@ -33,6 +34,12 @@ export type QuantitySeriesResponse = components['schemas']['QuantitySeriesRespon
 export type QuantityBandPoint = components['schemas']['QuantityBandPoint']
 export type QuantityScalarsResponse = components['schemas']['QuantityScalarsResponse']
 export type QuantityScalarRow = components['schemas']['QuantityScalarRow']
+export type MleResponse = components['schemas']['MleResponse']
+export type MleParam = components['schemas']['MleParam']
+export type MleRestart = components['schemas']['MleRestart']
+export type ProfileSummary = components['schemas']['ProfileSummary']
+export type ProfileResponse = components['schemas']['ProfileResponse']
+export type ProfilePoint = components['schemas']['ProfilePoint']
 
 /** The closed set of run lifecycle states the UI badges. */
 export type RunStatus =
@@ -57,6 +64,15 @@ async function getJson<T>(path: string): Promise<T> {
   return (await res.json()) as T
 }
 
+/**
+ * The `&chains=` query suffix for the chain selector: a comma-separated
+ * include-list of chain ids. `null`/empty → no filter (server defaults to all),
+ * so unfiltered requests keep their clean URLs and cache keys.
+ */
+function chainsParam(chains: number[] | null | undefined): string {
+  return chains && chains.length ? `&chains=${chains.join(',')}` : ''
+}
+
 /** A failed `/api` call, carrying an HTTP status when one was received. */
 export class ApiError extends Error {
   readonly status?: number
@@ -77,14 +93,19 @@ export function getRun(runId: string): Promise<RunDetail> {
   return getJson<RunDetail>(`/api/runs/${encodeURIComponent(runId)}`)
 }
 
-/** Doc-labelled posterior summary — the per-row overlay/label payload. */
+/**
+ * Doc-labelled posterior summary — the per-row overlay/label payload. `chains`
+ * restricts the pool to an include-list of chain ids (drop stuck chains); the
+ * quantiles and R̂/ESS then recompute on the retained chains.
+ */
 export function getPosterior(
   runId: string,
   warmupPct: number,
+  chains: number[] | null = null,
 ): Promise<PosteriorResponse> {
   const id = encodeURIComponent(runId)
   return getJson<PosteriorResponse>(
-    `/api/runs/${id}/posterior?warmup_pct=${warmupPct}`,
+    `/api/runs/${id}/posterior?warmup_pct=${warmupPct}${chainsParam(chains)}`,
   )
 }
 
@@ -97,11 +118,17 @@ export function getDraws(
   runId: string,
   warmupPct: number,
   maxDraws = 1200,
+  chains: number[] | null = null,
 ): Promise<DrawsResponse> {
   const id = encodeURIComponent(runId)
   return getJson<DrawsResponse>(
-    `/api/runs/${id}/draws?warmup_pct=${warmupPct}&max_draws=${maxDraws}`,
+    `/api/runs/${id}/draws?warmup_pct=${warmupPct}&max_draws=${maxDraws}${chainsParam(chains)}`,
   )
+}
+
+/** An MLE ('scout') fit's point estimate + multi-start restarts. */
+export function getMle(runId: string): Promise<MleResponse> {
+  return getJson<MleResponse>(`/api/runs/${encodeURIComponent(runId)}/mle`)
 }
 
 /**
@@ -113,6 +140,13 @@ export function getDraws(
 export function getSource(runId: string): Promise<SourceResponse> {
   const id = encodeURIComponent(runId)
   return getJson<SourceResponse>(`/api/runs/${id}/source`)
+}
+
+/** Structured model math (`model.render.json`) for the rendered model view. 404s
+ * when the run predates the artifact. */
+export function getModelRender(runId: string): Promise<ModelRender> {
+  const id = encodeURIComponent(runId)
+  return getJson<ModelRender>(`/api/runs/${id}/model-render`)
 }
 
 /**
@@ -136,10 +170,11 @@ export function getTraces(
   runId: string,
   warmupPct: number,
   maxPoints = 600,
+  chains: number[] | null = null,
 ): Promise<TracesResponse> {
   const id = encodeURIComponent(runId)
   return getJson<TracesResponse>(
-    `/api/runs/${id}/traces?warmup_pct=${warmupPct}&max_points=${maxPoints}`,
+    `/api/runs/${id}/traces?warmup_pct=${warmupPct}&max_points=${maxPoints}${chainsParam(chains)}`,
   )
 }
 
@@ -151,10 +186,11 @@ export function getTraces(
 export function getDiagnostics(
   runId: string,
   warmupPct: number,
+  chains: number[] | null = null,
 ): Promise<DiagnosticsResponse> {
   const id = encodeURIComponent(runId)
   return getJson<DiagnosticsResponse>(
-    `/api/runs/${id}/diagnostics?warmup_pct=${warmupPct}`,
+    `/api/runs/${id}/diagnostics?warmup_pct=${warmupPct}${chainsParam(chains)}`,
   )
 }
 
@@ -190,4 +226,14 @@ export function getCompare(
   if (opts.baseline) params.set('baseline', opts.baseline)
   if (opts.allowMismatchedHorizon) params.set('allow_mismatched_horizon', 'true')
   return getJson<CompareResponse>(`/api/compare?${params.toString()}`)
+}
+
+/** Every profile-likelihood run under `profiles/` — the Profile selector list. */
+export function getProfiles(): Promise<ProfileSummary[]> {
+  return getJson<ProfileSummary[]>('/api/profiles')
+}
+
+/** One profile-likelihood curve: loglik vs the profiled value, MLE, and 95% CI. */
+export function getProfile(baseId: string): Promise<ProfileResponse> {
+  return getJson<ProfileResponse>(`/api/profiles/${encodeURIComponent(baseId)}`)
 }

@@ -190,6 +190,48 @@ def test_extract_priors_pgas():
     assert priors["k_raw_Bo"].args["sigma"] == pytest.approx(1.0)
 
 
+def test_parse_ir_params_survives_brace_in_comment(tmp_path: Path):
+    # A `}` inside a doc comment must NOT truncate the parameters{} block — every
+    # param after it (mu, here) was silently dropped, so its prior fell to Flat.
+    model = tmp_path / "m.camdl"
+    model.write_text(
+        "parameters {\n"
+        "  abar[v] : count in [0.05, 500.0] ~ log_normal(mu = 2.3, sigma = 1.5)\n"
+        "  #' Daily mortality (survival p = e^{-mu} per day) — note the brace.\n"
+        "  mu[v]   : rate  in [0.02, 2.0]   ~ log_normal(mu = -1.6, sigma = 0.3)\n"
+        "}\n"
+    )
+    ir = ingest._parse_ir_params(model)
+    assert set(ir) == {"abar", "mu"}  # not just {"abar"}
+    assert ir["mu"][0] is PriorFamily.LOGNORMAL
+    assert ir["mu"][1]["mu"] == pytest.approx(-1.6)
+
+
+def test_extract_priors_reads_leaf_archived_model(tmp_path: Path):
+    # The recorded model_path is *relative* (unresolvable from any other CWD), so
+    # a model-declared prior would fall to Flat unless we read the leaf-archived
+    # model.camdl.original instead.
+    seed = tmp_path / "fits" / "m-aa" / "01-posterior-hh" / "seed_1-hh"
+    (seed / "chain_1").mkdir(parents=True)
+    (seed / "chain_1" / "trace.tsv").write_text("draw\tabar_v1\n0\t10.0\n1\t11.0\n")
+    (tmp_path / "fits" / "m-aa" / "fit.meta.json").write_text(json.dumps({
+        "model_path": "fits/../models/does_not_resolve.camdl",
+        "estimated": ["abar_v1"],
+        "resolved_priors": [{"param": "abar_v1", "source": "model_ir"}],
+    }))
+    (tmp_path / "fits" / "m-aa" / "fit.toml.original").write_text(
+        "[estimate]\nabar_v1 = { start = 10.0 }\n"
+    )
+    (tmp_path / "fits" / "m-aa" / "model.camdl.original").write_text(
+        "parameters {\n  abar[v] : count in [0.05, 500.0]"
+        " ~ log_normal(mu = 2.3, sigma = 1.5)\n}\n"
+    )
+    m = {r.run_id: r for r in ingest.discover_runs(tmp_path / "fits")}["m-aa"]
+    spec = ingest.extract_priors(m)["abar_v1"]
+    assert spec.family is PriorFamily.LOGNORMAL  # not Flat
+    assert spec.source == "model_ir" and spec.bounds == (0.05, 500.0)
+
+
 def test_derived_label_is_readable():
     m = _pgas_run()
     # config stem recovered from fit.meta.json's fit_toml_path

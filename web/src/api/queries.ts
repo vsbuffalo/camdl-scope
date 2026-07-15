@@ -5,10 +5,14 @@ import {
   getDraws,
   getPosterior,
   getPredictive,
+  getProfile,
+  getProfiles,
   getQuantityScalars,
   getQuantitySeries,
+  getModelRender,
   getRun,
   getRuns,
+  getMle,
   getSource,
   getTraces,
 } from './client'
@@ -17,16 +21,23 @@ import {
 export const qk = {
   runs: ['runs'] as const,
   run: (id: string) => ['run', id] as const,
-  posterior: (id: string, warmupPct: number) =>
-    ['posterior', id, warmupPct] as const,
-  draws: (id: string, warmupPct: number, maxDraws: number) =>
-    ['draws', id, warmupPct, maxDraws] as const,
+  posterior: (id: string, warmupPct: number, chains: string) =>
+    ['posterior', id, warmupPct, chains] as const,
+  draws: (id: string, warmupPct: number, maxDraws: number, chains: string) =>
+    ['draws', id, warmupPct, maxDraws, chains] as const,
   source: (id: string) => ['source', id] as const,
+  modelRender: (id: string) => ['model-render', id] as const,
   predictive: (id: string, stream: string) =>
     ['predictive', id, stream] as const,
-  traces: (id: string, warmupPct: number) => ['traces', id, warmupPct] as const,
-  diagnostics: (id: string, warmupPct: number) =>
-    ['diagnostics', id, warmupPct] as const,
+  traces: (id: string, warmupPct: number, chains: string) =>
+    ['traces', id, warmupPct, chains] as const,
+  diagnostics: (id: string, warmupPct: number, chains: string) =>
+    ['diagnostics', id, warmupPct, chains] as const,
+}
+
+/** Stable cache-key fragment for a chain include-list (`null` → all chains). */
+function chainKey(chains: number[] | null | undefined): string {
+  return chains && chains.length ? chains.join(',') : 'all'
 }
 
 /** List of runs for the selector. Refetches occasionally so new fits appear. */
@@ -47,11 +58,17 @@ export function useRun(runId: string | undefined) {
   })
 }
 
-/** The doc-labelled posterior summary — overlays, labels, and numbers. */
-export function usePosterior(runId: string | undefined, warmupPct: number) {
+/** The doc-labelled posterior summary — overlays, labels, and numbers.
+ *  `chains` (an include-list, `null` = all) recomputes it on the retained
+ *  chains, shared with the Pair / Traces / Diagnostics selection. */
+export function usePosterior(
+  runId: string | undefined,
+  warmupPct: number,
+  chains: number[] | null = null,
+) {
   return useQuery({
-    queryKey: qk.posterior(runId ?? '∅', warmupPct),
-    queryFn: () => getPosterior(runId as string, warmupPct),
+    queryKey: qk.posterior(runId ?? '∅', warmupPct, chainKey(chains)),
+    queryFn: () => getPosterior(runId as string, warmupPct, chains),
     enabled: Boolean(runId),
     placeholderData: (prev) => prev,
   })
@@ -85,10 +102,11 @@ export function useDraws(
   runId: string | undefined,
   warmupPct: number,
   maxDraws = 1200,
+  chains: number[] | null = null,
 ) {
   return useQuery({
-    queryKey: qk.draws(runId ?? '∅', warmupPct, maxDraws),
-    queryFn: () => getDraws(runId as string, warmupPct, maxDraws),
+    queryKey: qk.draws(runId ?? '∅', warmupPct, maxDraws, chainKey(chains)),
+    queryFn: () => getDraws(runId as string, warmupPct, maxDraws, chains),
     enabled: Boolean(runId),
     placeholderData: (prev) => prev,
   })
@@ -117,12 +135,31 @@ export function useQuantitySeries(
   })
 }
 
+/** An MLE fit's point estimate + multi-start restarts (a done fit; no polling). */
+export function useMle(runId: string | undefined) {
+  return useQuery({
+    queryKey: ['mle', runId ?? '∅'],
+    queryFn: () => getMle(runId as string),
+    enabled: Boolean(runId),
+  })
+}
+
 /** The fit's model + fit.toml sources, highlighted server-side. */
 export function useSource(runId: string | undefined) {
   return useQuery({
     queryKey: qk.source(runId ?? '∅'),
     queryFn: () => getSource(runId as string),
     enabled: Boolean(runId),
+  })
+}
+
+/** Structured model math for the rendered model view. Enabled only when the run
+ * detail reports the artifact is present, so runs without it never 404. */
+export function useModelRender(runId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: qk.modelRender(runId ?? '∅'),
+    queryFn: () => getModelRender(runId as string),
+    enabled: Boolean(runId) && enabled,
   })
 }
 
@@ -143,10 +180,14 @@ export function usePredictive(
 }
 
 /** Per-parameter, per-chain iteration traces for the trace grid. */
-export function useTraces(runId: string | undefined, warmupPct: number) {
+export function useTraces(
+  runId: string | undefined,
+  warmupPct: number,
+  chains: number[] | null = null,
+) {
   return useQuery({
-    queryKey: qk.traces(runId ?? '∅', warmupPct),
-    queryFn: () => getTraces(runId as string, warmupPct),
+    queryKey: qk.traces(runId ?? '∅', warmupPct, chainKey(chains)),
+    queryFn: () => getTraces(runId as string, warmupPct, 600, chains),
     enabled: Boolean(runId),
     placeholderData: (prev) => prev,
   })
@@ -157,11 +198,37 @@ export function useTraces(runId: string | undefined, warmupPct: number) {
  * per-parameter R̂/ESS table, per-chain mixing, and the MAP. Recomputes when the
  * cutoff moves, so it mirrors {@link usePosterior}'s warm-up dependence.
  */
-export function useDiagnostics(runId: string | undefined, warmupPct: number) {
+export function useDiagnostics(
+  runId: string | undefined,
+  warmupPct: number,
+  chains: number[] | null = null,
+) {
   return useQuery({
-    queryKey: qk.diagnostics(runId ?? '∅', warmupPct),
-    queryFn: () => getDiagnostics(runId as string, warmupPct),
+    queryKey: qk.diagnostics(runId ?? '∅', warmupPct, chainKey(chains)),
+    queryFn: () => getDiagnostics(runId as string, warmupPct, chains),
     enabled: Boolean(runId),
     placeholderData: (prev) => prev,
+  })
+}
+
+/** List of profile-likelihood runs for the Profile selector. Refetches
+ *  occasionally so a profile that finishes appears. */
+export function useProfiles() {
+  return useQuery({
+    queryKey: ['profiles'],
+    queryFn: getProfiles,
+    refetchInterval: 30_000,
+  })
+}
+
+/** One profile (1D curve or 2D surface). Polls so a *running* profile's grid
+ *  fills in live as camdl lands each new cell — cheap (a glob + JSON read). */
+export function useProfile(baseId: string | undefined) {
+  return useQuery({
+    queryKey: ['profile', baseId ?? '∅'],
+    queryFn: () => getProfile(baseId as string),
+    enabled: Boolean(baseId),
+    placeholderData: (prev) => prev,
+    refetchInterval: 8_000,
   })
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as Plot from '@observablehq/plot'
 import type { CompareRow } from '@/api/client'
+import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 
 const INK = {
   zero: '#171717', // baseline rule at Δ=0
@@ -107,5 +108,10 @@ export function DeltaElpdPlot({
     }
   }, [width, data])
 
-  return <div ref={ref} className="w-full overflow-hidden" />
+  return (
+    <div className="group/fig relative">
+      <div ref={ref} className="w-full overflow-hidden bg-white" />
+      <PlotDownloadButton targetRef={ref} name="delta-elpd" />
+    </div>
+  )
 }

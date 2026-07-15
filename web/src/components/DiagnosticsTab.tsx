@@ -6,6 +6,9 @@ import type {
   ParamDiagnostic,
 } from '@/api/client'
 import { useDiagnostics } from '@/api/queries'
+import { ChainSelect } from '@/components/ChainSelect'
+import { PlotDownloadButton } from '@/components/PlotDownloadButton'
+import { includedChains, type ChainControls } from '@/lib/chains'
 import { WarmupControl } from '@/components/WarmupControl'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
@@ -44,6 +47,14 @@ function essClass(ess: number | null | undefined): string {
   if (ess == null) return 'text-neutral-400'
   if (ess < ESS_LOW) return 'text-amber-600'
   return 'text-neutral-400'
+}
+
+/** Compact readout: ≥100 or 0 as integers, else 3 sig-figs (e.g. 0.290). */
+function fmtEff(v: number | null | undefined): string {
+  if (v == null) return '—'
+  if (v === 0) return '0'
+  if (v >= 100 || v < 0.001) return v.toPrecision(3)
+  return v >= 1 ? v.toFixed(2) : v.toPrecision(2)
 }
 
 /** Finding-line color keyed off camdl's severity. */
@@ -165,12 +176,15 @@ function MixingChart({ mixing }: { mixing: ChainMixing }) {
   }, [mixing, width])
 
   return (
-    <div
-      ref={ref}
-      className="w-full min-w-0"
-      role="img"
-      aria-label={`per-chain ${mixing.label}`}
-    />
+    <div className="group/fig relative">
+      <div
+        ref={ref}
+        className="w-full min-w-0"
+        role="img"
+        aria-label={`per-chain ${mixing.label}`}
+      />
+      <PlotDownloadButton targetRef={ref} name="chain-mixing" />
+    </div>
   )
 }
 
@@ -193,6 +207,14 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
         </span>
       </div>
 
+      {data.n_chains_warming > 0 && (
+        <p className="mt-1 font-mono text-[11px] text-amber-600">
+          {data.n_chains_warming} chain{data.n_chains_warming > 1 ? 's' : ''} still
+          warming up (no post-warm-up draws) — R̂/ESS computed over the{' '}
+          {data.n_chains} with draws.
+        </p>
+      )}
+
       <div className="mt-1.5 space-y-1">
         {data.findings.length === 0 ? (
           <p className="text-xs text-emerald-600">no findings — within thresholds</p>
@@ -207,6 +229,61 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
           ))
         )}
       </div>
+    </div>
+  )
+}
+
+/** One run-level efficiency readout: label + value + hover explanation. */
+function Metric({
+  label,
+  value,
+  title,
+}: {
+  label: string
+  value: number | null | undefined
+  title: string
+}) {
+  return (
+    <span className="flex items-baseline gap-1.5" title={title}>
+      <span className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+        {label}
+      </span>
+      <span className="font-mono text-xs tabular-nums text-neutral-800">
+        {fmtEff(value)}
+      </span>
+    </span>
+  )
+}
+
+/**
+ * Run-level, thinning-invariant efficiency — the numbers `camdl fit summary`
+ * reports, method-agnostic (PGAS / PMMH / mh-ode / nuts). ESS/iter is min-param
+ * ESS ÷ raw sampling iterations (`n_samples × thin`): the algorithm-quality
+ * metric to compare samplers with, invariant to thinning. ESS/sec is min-param
+ * ESS ÷ wall-clock: the runtime metric (hardware-dependent). Shown only when the
+ * authoritative summary carries them (a finished stage on a recent camdl).
+ */
+function EfficiencyStrip({ data }: { data: DiagnosticsResponse }) {
+  if (data.ess_per_iter == null && data.ess_per_sec == null) return null
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b border-neutral-100 px-3 py-2">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        efficiency
+      </span>
+      {data.ess_per_iter != null && (
+        <Metric
+          label="ESS/iter"
+          value={data.ess_per_iter}
+          title="effective samples per raw sampling iteration (n_samples × thin) — thinning-invariant algorithm quality; compare samplers with this"
+        />
+      )}
+      {data.ess_per_sec != null && (
+        <Metric
+          label="ESS/sec"
+          value={data.ess_per_sec}
+          title="effective samples per second of wall-clock — runtime metric (hardware-dependent)"
+        />
+      )}
     </div>
   )
 }
@@ -302,11 +379,19 @@ function ParamTable({
  * arviz estimate), per-chain mixing, the per-parameter R̂/ESS table, and the
  * PMMH MAP. Owns the warm-up cutoff — diagnostics recompute as it moves.
  */
-export function DiagnosticsTab({ runId }: { runId: string }) {
+export function DiagnosticsTab({
+  runId,
+  chainIds,
+  excludedChains,
+  onToggleChain,
+  onResetChains,
+}: { runId: string } & ChainControls) {
   const [warmupPct, setWarmupPct] = useState(DEFAULT_WARMUP_PCT)
+  const chains = includedChains({ chainIds, excludedChains, onToggleChain, onResetChains })
   const { data, isPending, isError, isPlaceholderData } = useDiagnostics(
     runId,
     warmupPct,
+    chains,
   )
 
   const hasContent = Boolean(data && data.params.length > 0 && data.n_tail > 0)
@@ -332,6 +417,15 @@ export function DiagnosticsTab({ runId }: { runId: string }) {
           nTail={data?.n_tail ?? null}
         />
 
+        {chainIds.length > 1 && (
+          <ChainSelect
+            chainIds={chainIds}
+            excluded={excludedChains}
+            onToggle={onToggleChain}
+            onReset={onResetChains}
+          />
+        )}
+
         {isPending && <ForestSkeleton />}
 
         {isError && (
@@ -353,6 +447,7 @@ export function DiagnosticsTab({ runId }: { runId: string }) {
         {data && hasContent && (
           <>
             <Verdict data={data} />
+            <EfficiencyStrip data={data} />
 
             {data.mixing && (
               <>

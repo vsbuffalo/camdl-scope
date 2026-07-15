@@ -40,6 +40,9 @@ class ParamPosterior(BaseModel):
     q95: float
     rhat: float | None = None
     ess: float | None = None
+    # True for a pooled objective (log_posterior / log_likelihood) appended after
+    # the estimated params — a fit summary, not an estimand, with no prior/docs.
+    is_objective: bool = False
 
 
 class PosteriorResponse(BaseModel):
@@ -141,7 +144,15 @@ class RunSummary(BaseModel):
     algorithm: str
     backend: str
     status: str
+    # How the fit summarizes, and thus which display it gets: "posterior" (chains
+    # → the forest/traces/diagnostics view) or "mle" (a point estimate → the
+    # estimate/restarts view). Drives the kind-specific tab set in the UI.
+    fit_kind: str = "posterior"
     n_chains: int
+    # The run's actual chain ids, ascending (camdl numbers them from 1, not 0).
+    # The authority for the chain selector so its labels/colours and its
+    # include-list match the real chains — never synthesize 0..n-1.
+    chain_ids: list[int]
     n_params: int
     has_docs: bool
     # camdl's live progress heartbeat, when present (burn-in/sweep step, or a
@@ -151,6 +162,10 @@ class RunSummary(BaseModel):
     # gate for inclusion in the Compare workspace's model comparison.
     has_prequential: bool = False
     max_iter: int | None = None
+    # Target total sweeps/iterations (from fit.toml). With ``max_iter`` this gives
+    # a completion fraction for runs that emit no ``progress.json`` heartbeat —
+    # the fallback behind the run bar's progress bar.
+    target_sweeps: int | None = None
     updated_at: float
 
 
@@ -193,6 +208,18 @@ class QuantityInfo(BaseModel):
     reference: str | None = None
 
 
+class Calendar(BaseModel):
+    """The fit's time-axis calendar. A numeric ``time`` value maps to the date
+    ``origin + time × days_per_unit`` days, so the viewer can render real dates
+    instead of raw day-indices on every time axis (predictive ribbons, quantity
+    trajectories). ``None`` on a fit that declares no calendar (relative time —
+    the axis stays numeric)."""
+
+    origin: str  # ISO date the time axis counts from, e.g. "1910-01-01"
+    time_unit: str = "days"
+    days_per_unit: float = 1.0
+
+
 class RunDetail(BaseModel):
     """A run's metadata, schema, and verdict — everything but the draws."""
 
@@ -202,6 +229,7 @@ class RunDetail(BaseModel):
     algorithm: str
     backend: str
     status: str
+    fit_kind: str = "posterior"  # "posterior" | "mle" — see RunSummary.fit_kind
     n_chains: int
     max_iter: int | None = None
     target_sweeps: int | None = None
@@ -218,6 +246,12 @@ class RunDetail(BaseModel):
     # The scenario set the predict overlaid (e.g. baseline / no_sia / strong_sia);
     # empty for a scenario-less (older) predict.
     quantity_scenarios: list[str] = []
+    # The fit-level time calendar (origin epoch + unit) from the artifact
+    # sidecar, so time axes render as dates. None for a relative-time fit.
+    calendar: Calendar | None = None
+    # Whether the run carries a ``model.render.json`` (structured model math) —
+    # gates the Source tab's rendered-model view. False for runs predating it.
+    has_model_render: bool = False
 
 
 # --- Source tab --------------------------------------------------------------
@@ -248,6 +282,70 @@ class SourceResponse(BaseModel):
     model_identity: str | None = None
     fit_toml: SourceFile
     highlight_css: str
+
+
+# --- Rendered model (model.render.json) --------------------------------------
+# Every ``*_tex``/``symbol``/``rate`` string is a standalone KaTeX-renderable
+# expression — the viewer renders leaves client-side and owns the layout.
+
+
+class RenderDimension(BaseModel):
+    """One indexing dimension of the model and its ordered levels."""
+
+    name: str
+    levels: list[str] = []
+
+
+class RenderParameter(BaseModel):
+    """A model parameter for the glossary: ``symbol`` is KaTeX (e.g. ``\\beta``);
+    ``description`` is prose."""
+
+    name: str
+    symbol: str
+    description: str | None = None
+
+
+class RenderDefinition(BaseModel):
+    """A named auxiliary definition, ``tex`` a full KaTeX expression
+    (e.g. ``N = S + I + R``)."""
+
+    name: str
+    tex: str
+
+
+class RenderTransition(BaseModel):
+    """One reaction, kept split so the viewer chooses table vs inline-arrow:
+    ``reactants``/``products`` are KaTeX state expressions, ``rate`` the KaTeX
+    rate law."""
+
+    name: str
+    reactants: str
+    products: str
+    rate: str
+
+
+class RenderDynamic(BaseModel):
+    """One state's ODE, ``tex`` the full KaTeX expression
+    (e.g. ``\\dot{S} = -\\frac{\\beta S I}{N}``)."""
+
+    state: str
+    tex: str
+
+
+class ModelRender(BaseModel):
+    """Structured model math for display (``model.render.json``). Every math
+    string is KaTeX-safe; the viewer renders leaves and lays them out. Present
+    for any run (fit or sim). Optional sections default to empty so the contract
+    stays forward-compatible."""
+
+    model: str
+    mode: str
+    states: list[str] = []
+    dimensions: list[RenderDimension] = []
+    parameters: list[RenderParameter] = []
+    definitions: list[RenderDefinition] = []
+    transitions: list[RenderTransition] = []
+    dynamics: list[RenderDynamic] = []
 
 
 # --- Predictive tab ----------------------------------------------------------
@@ -281,7 +379,8 @@ class ObservedPoint(BaseModel):
 
 class PredictiveResponse(BaseModel):
     """One stream's posterior-predictive ribbons + observed series. The frontend
-    facets by ``stratum`` and filters by ``horizon`` (e.g. free_forward)."""
+    facets by ``stratum`` and filters by ``horizon`` (e.g. free_forward). Time is
+    dated via the fit-level ``RunDetail.calendar``."""
 
     run_id: str
     stream: str
@@ -467,7 +566,8 @@ class DiagnosticsResponse(BaseModel):
     warmup_pct: int
     warmup_cutoff: int
     n_tail: int
-    n_chains: int
+    n_chains: int  # chains actually diagnosed (excludes any still warming up)
+    n_chains_warming: int = 0  # chains dropped for lacking post-warm-up draws
     stage: str | None = None
     source: str
     logpost_label: str
@@ -476,3 +576,103 @@ class DiagnosticsResponse(BaseModel):
     mixing: ChainMixing | None = None
     map_loglik: float | None = None
     map_chain: int | None = None
+    # Run-level, thinning-invariant efficiency, computed the way camdl's
+    # ``fit summary`` reports it — from the authoritative stage summary, over the
+    # slowest (min-ESS) parameter and all chains, independent of the viewer's
+    # warm-up / chain selection. ``None`` while a fit is still live (no summary
+    # yet) or when the primitive is unrecorded (older runs).
+    ess_per_iter: float | None = None  # min_ess / (n_samples × thin) — algorithm quality
+    ess_per_sec: float | None = None  # min_ess / wall_time_secs — runtime (hardware-dependent)
+
+
+# --- Profile tab -------------------------------------------------------------
+
+
+class MleParam(BaseModel):
+    """One coordinate of an MLE fit: the point estimate plus its spread across the
+    converged restarts (``restart_lo``/``restart_hi`` null when only one restart —
+    or none — converged). Doc labels (``symbol`` etc.) join in from the model."""
+
+    name: str
+    symbol: str | None = None
+    description: str | None = None
+    reference: str | None = None
+    bounds: tuple[float, float] | None = None
+    value: float | None
+    restart_lo: float | None = None
+    restart_hi: float | None = None
+
+
+class MleRestart(BaseModel):
+    """One multi-start restart's optimum: its log-likelihood (a huge-negative
+    sentinel if it failed), the optimizer exit status, and evals spent."""
+
+    chain: int
+    loglik: float
+    status: str
+    n_evals: int
+
+
+class MleResponse(BaseModel):
+    """An MLE ('scout') fit: the point estimate θ̂ (``params``, estimated order),
+    the optimum ``loglik``, and the multi-start ``restarts`` — the MLE analogue of
+    convergence diagnostics (how many restarts found the mode vs failed)."""
+
+    run_id: str
+    label: str
+    algorithm: str
+    backend: str
+    loglik: float | None = None
+    n_restarts: int
+    n_converged: int
+    params: list[MleParam]
+    restarts: list[MleRestart]
+
+
+class ProfileSummary(BaseModel):
+    """One profile in the selector list: the inference problem and the
+    parameter(s) it profiles (1 → a curve, 2 → a likelihood surface), plus its
+    MLE cell — enough to identify and label without the full grid."""
+
+    base_id: str
+    label: str
+    params: list[str]  # profiled param names, e.g. ["g"] or ["g", "Cscale"]
+    method: str
+    n_points: int
+    mle_coords: list[float]  # MLE coordinate, one value per profiled param
+
+
+class ProfilePoint(BaseModel):
+    """One grid cell of a profile: the profiled ``coords`` (one value per param —
+    length 1 for a curve, 2 for a surface) and the best optimized log-likelihood
+    there (max over restarts). ``nuisance`` is the conditional MLE of the *other*
+    params at this cell (optimized with the profiled coords held fixed); empty
+    when the run wrote no per-cell parameter file."""
+
+    coords: list[float]
+    loglik: float
+    n_starts: int
+    nuisance: dict[str, float] = {}
+
+
+class ProfileResponse(BaseModel):
+    """A profile likelihood over one param (a curve) or two (a surface).
+    ``params`` gives the profiled names and fixes the dimensionality; each
+    ``points`` cell carries ``coords`` of that length. The MLE is the argmax
+    cell. ``ci_drop`` is the loglik drop for the 95% confidence set (½·χ²_df:
+    1.92 for a CI, 3.00 for a 2D region). ``ci_lo``/``ci_hi`` are the 1D CI
+    bracket (interpolated at the crossings, ``None`` on an unbracketed side, and
+    always ``None`` for a 2D surface — a region, not an interval)."""
+
+    base_id: str
+    label: str
+    params: list[str]
+    method: str
+    loglik_type: str
+    points: list[ProfilePoint]
+    mle_coords: list[float]
+    mle_loglik: float
+    ci_level: float
+    ci_drop: float
+    ci_lo: float | None = None
+    ci_hi: float | None = None

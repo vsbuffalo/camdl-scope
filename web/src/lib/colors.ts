@@ -15,3 +15,17 @@ export const CHAIN_COLORS = [
   '#7e22ce', // purple-700
   '#a16207', // yellow-700
 ] as const
+
+/**
+ * The colour for a chain, keyed by its **id** — not its position in whatever
+ * subset happens to be on screen. This is the invariant that lets a
+ * visibly-wrong chain in the pair plot be matched to its checkbox and dropped:
+ * chain N is the same colour in the scatter, the trace grid, and the chain
+ * selector, and it does NOT shift when other chains are filtered out. Feed a
+ * Plot categorical scale via `range: domain.map(chainColor)` so each id maps to
+ * its own colour regardless of the domain's contents or order.
+ */
+export function chainColor(id: number): string {
+  const n = CHAIN_COLORS.length
+  return CHAIN_COLORS[((id % n) + n) % n]!
+}
