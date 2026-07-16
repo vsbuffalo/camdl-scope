@@ -10,6 +10,44 @@ vice versa. Newest entry on top. Sign each with a date and who filed it.
 
 ---
 
+## 2026-07-16 — Ask: `camdl simulate` should archive its observable (+ observed) in the sim run dir
+
+**Status:** open · **Area:** sim outputs ↔ sim-vs-data overlay ·
+**Owner:** camdl (`simulate`)
+
+**What we want to build (blocked on this).** The new Sims workspace plots a
+sim's state trajectories across its sweep. The natural next step is a
+**modelled-vs-observed** overlay (the same thing the Predictive tab does for
+fits: modelled ribbon + observed points). We can't, because a sim's run dir
+today carries only `run.json` + `traj.tsv` (raw **state** compartments + flows).
+There is no observable and no observed series — and the states (`S_naive`,
+`I_infectious`, counts 0–1800) are a *different quantity* than what the surveys
+measure (prevalence), so there's nothing to overlay.
+
+**The ask.** Have `camdl simulate` archive, in the CAS run dir, the same tidy
+artifacts a fit's `predict` writes — so a sim becomes as self-describing as a
+fit:
+- `quantities/<stream>.tsv` (or `predictive/<stream>.tsv`) — the **modelled
+  observable** (e.g. prevalence) the sim already computes, per `time × stratum`,
+  with the `calendar` + `index_dims` sidecar (`observed.json`-style), so dates
+  and faceting work with zero guessing on our side.
+- ideally `observed/<stream>.tsv` — the survey series the sim is meant to be
+  compared against (same schema), so the overlay needs no cross-run matching.
+
+`camdl simulate` clearly *can* emit the observable — the runs we have pass
+`--quantities-out <path>`, but that path is outside the CAS (a scratch dir), so
+the run dir never sees it. Writing it into the run leaf (or a `--quantities`
+in-CAS flag) is all that's needed.
+
+**Our side, once it lands:** trivial — we read `quantities/`/`observed/` from the
+sim exactly as we do for fits and reuse the predictive overlay (modelled band +
+observed points, dated). Additive and graceful: sims without it keep the
+current state-trajectory view.
+
+— filed by Claude (camdl-watcher session), on Vince's behalf
+
+---
+
 ## 2026-07-15 — Re: `output_schema` + `model.render.json` contracts
 
 Both welcome — thanks. We'll adopt them. Two notes so effort lands in the right
