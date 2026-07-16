@@ -18,6 +18,10 @@ export type FindingGroup = components['schemas']['FindingGroup']
 export type SourceResponse = components['schemas']['SourceResponse']
 export type SourceFile = components['schemas']['SourceFile']
 export type ModelRender = components['schemas']['ModelRender']
+export type SimSummary = components['schemas']['SimSummary']
+export type SimSeriesResponse = components['schemas']['SimSeriesResponse']
+export type SimMemberSeries = components['schemas']['SimMemberSeries']
+export type SimBandPoint = components['schemas']['SimBandPoint']
 export type PredictiveResponse = components['schemas']['PredictiveResponse']
 export type PredictivePoint = components['schemas']['PredictivePoint']
 export type ObservedPoint = components['schemas']['ObservedPoint']
@@ -147,6 +151,29 @@ export function getSource(runId: string): Promise<SourceResponse> {
 export function getModelRender(runId: string): Promise<ModelRender> {
   const id = encodeURIComponent(runId)
   return getJson<ModelRender>(`/api/runs/${id}/model-render`)
+}
+
+/** Every forward-simulation run (the `sims/` tree). */
+export function getSims(): Promise<SimSummary[]> {
+  return getJson<SimSummary[]>('/api/sims')
+}
+
+/** A sim's compartment trajectory across its sweep members (members or band),
+ * optionally windowed to [tFrom, tTo] (re-thinned within the window). */
+export function getSimSeries(
+  simId: string,
+  state: string | undefined,
+  window?: [number, number],
+): Promise<SimSeriesResponse> {
+  const id = encodeURIComponent(simId)
+  const p = new URLSearchParams()
+  if (state) p.set('state', state)
+  if (window) {
+    p.set('t_from', String(window[0]))
+    p.set('t_to', String(window[1]))
+  }
+  const q = p.toString()
+  return getJson<SimSeriesResponse>(`/api/sims/${id}/series${q ? `?${q}` : ''}`)
 }
 
 /**

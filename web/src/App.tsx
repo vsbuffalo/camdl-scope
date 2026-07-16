@@ -3,6 +3,7 @@ import { GlobalHeader, type Workspace } from '@/components/GlobalHeader'
 import { ExploreWorkspace } from '@/components/ExploreWorkspace'
 import { CompareWorkspace } from '@/components/CompareWorkspace'
 import { ProfileWorkspace } from '@/components/ProfileWorkspace'
+import { SimWorkspace } from '@/components/SimWorkspace'
 import { loadJson, saveJson } from '@/lib/persist'
 
 /**
@@ -27,6 +28,7 @@ function App() {
         {workspace === 'explore' && <ExploreWorkspace />}
         {workspace === 'compare' && <CompareWorkspace />}
         {workspace === 'profile' && <ProfileWorkspace />}
+        {workspace === 'sims' && <SimWorkspace />}
       </main>
     </div>
   )

@@ -450,6 +450,67 @@ class QuantityScalarsResponse(BaseModel):
     rows: list[QuantityScalarRow]
 
 
+# --- Sims (forward simulations) ----------------------------------------------
+
+
+class SimSummary(BaseModel):
+    """A discoverable forward-simulation run (``sims/`` tree) for the run list.
+    ``n_members`` is the sweep size (the overlay members)."""
+
+    sim_id: str
+    model: str
+    n_members: int
+    status: str
+    updated_at: float
+
+
+class SimMemberSeries(BaseModel):
+    """One sweep member's trajectory of a compartment total: aligned
+    ``time`` + ``value`` (summed over the compartment's strata), thinned."""
+
+    member: str
+    scenario: str
+    time: list[float]
+    value: list[float]
+
+
+class SimBandPoint(BaseModel):
+    """A quantile snapshot across the sweep members at one time — the ensemble
+    ribbon for a large sweep."""
+
+    time: float
+    q05: float
+    q25: float
+    q50: float
+    q75: float
+    q95: float
+
+
+class SimSeriesResponse(BaseModel):
+    """A sim's compartment trajectory across its sweep members — the overlay
+    payload. ``states`` lists the selectable compartments; ``state`` is the one
+    returned. ``mode`` is ``members`` for a small sweep (each thinned trajectory
+    in ``members``) or ``band`` for a large one (a quantile-across-members ribbon
+    in ``band`` + a handful of sample ``members`` to toggle on). ``n_members`` is
+    the full sweep size the band summarises. ``calendar`` dates the axis when
+    known (else the axis is numeric model-time in days)."""
+
+    sim_id: str
+    model: str
+    state: str
+    states: list[str]
+    mode: str = "members"
+    n_members: int
+    members: list[SimMemberSeries] = []
+    band: list[SimBandPoint] = []
+    calendar: Calendar | None = None
+    # The sim's FULL time domain (independent of the requested window) — the
+    # bounds for the window/zoom control. Series above are re-thinned within the
+    # window so a zoomed view keeps full resolution.
+    t_min: float = 0.0
+    t_max: float = 0.0
+
+
 # --- Traces tab --------------------------------------------------------------
 
 

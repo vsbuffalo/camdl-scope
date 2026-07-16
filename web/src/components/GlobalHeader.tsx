@@ -3,12 +3,13 @@ import { cn } from '@/lib/utils'
 /** Top-level workspaces. Each owns its own selector + sub-navigation; the run
  *  dropdown belongs to `explore`, not this global chrome. Adding a future mode
  *  (a fit-queue monitor, a residual explorer) is one entry here + one view. */
-export type Workspace = 'explore' | 'compare' | 'profile'
+export type Workspace = 'explore' | 'compare' | 'profile' | 'sims'
 
 const WORKSPACES: { value: Workspace; label: string }[] = [
   { value: 'explore', label: 'Explore fit' },
   { value: 'compare', label: 'Compare models' },
   { value: 'profile', label: 'Profile' },
+  { value: 'sims', label: 'Sims' },
 ]
 
 /**

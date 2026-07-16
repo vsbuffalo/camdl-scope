@@ -362,6 +362,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sims": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sims
+         * @description Every forward-simulation run (``sims/`` tree), newest first.
+         */
+        get: operations["list_sims_api_sims_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sims/{sim_id}/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sim Series
+         * @description One compartment's trajectory across a sim's sweep members. ``state`` picks
+         *     the compartment (defaults to the first); columns are resolved once (identical
+         *     across members) and summed over strata. ``t_from``/``t_to`` window the axis
+         *     (to zoom / cut burn-in) — the series is re-thinned *within* the window so a
+         *     zoom keeps full resolution; ``t_min``/``t_max`` report the full domain. A
+         *     small sweep ships each thinned member; a large one ships a band + samples.
+         */
+        get: operations["get_sim_series_api_sims__sim_id__series_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1345,6 +1390,105 @@ export interface components {
             updated_at: number;
         };
         /**
+         * SimBandPoint
+         * @description A quantile snapshot across the sweep members at one time — the ensemble
+         *     ribbon for a large sweep.
+         */
+        SimBandPoint: {
+            /** Time */
+            time: number;
+            /** Q05 */
+            q05: number;
+            /** Q25 */
+            q25: number;
+            /** Q50 */
+            q50: number;
+            /** Q75 */
+            q75: number;
+            /** Q95 */
+            q95: number;
+        };
+        /**
+         * SimMemberSeries
+         * @description One sweep member's trajectory of a compartment total: aligned
+         *     ``time`` + ``value`` (summed over the compartment's strata), thinned.
+         */
+        SimMemberSeries: {
+            /** Member */
+            member: string;
+            /** Scenario */
+            scenario: string;
+            /** Time */
+            time: number[];
+            /** Value */
+            value: number[];
+        };
+        /**
+         * SimSeriesResponse
+         * @description A sim's compartment trajectory across its sweep members — the overlay
+         *     payload. ``states`` lists the selectable compartments; ``state`` is the one
+         *     returned. ``mode`` is ``members`` for a small sweep (each thinned trajectory
+         *     in ``members``) or ``band`` for a large one (a quantile-across-members ribbon
+         *     in ``band`` + a handful of sample ``members`` to toggle on). ``n_members`` is
+         *     the full sweep size the band summarises. ``calendar`` dates the axis when
+         *     known (else the axis is numeric model-time in days).
+         */
+        SimSeriesResponse: {
+            /** Sim Id */
+            sim_id: string;
+            /** Model */
+            model: string;
+            /** State */
+            state: string;
+            /** States */
+            states: string[];
+            /**
+             * Mode
+             * @default members
+             */
+            mode: string;
+            /** N Members */
+            n_members: number;
+            /**
+             * Members
+             * @default []
+             */
+            members: components["schemas"]["SimMemberSeries"][];
+            /**
+             * Band
+             * @default []
+             */
+            band: components["schemas"]["SimBandPoint"][];
+            calendar?: components["schemas"]["Calendar"] | null;
+            /**
+             * T Min
+             * @default 0
+             */
+            t_min: number;
+            /**
+             * T Max
+             * @default 0
+             */
+            t_max: number;
+        };
+        /**
+         * SimSummary
+         * @description A discoverable forward-simulation run (``sims/`` tree) for the run list.
+         *     ``n_members`` is the sweep size (the overlay members).
+         */
+        SimSummary: {
+            /** Sim Id */
+            sim_id: string;
+            /** Model */
+            model: string;
+            /** N Members */
+            n_members: number;
+            /** Status */
+            status: string;
+            /** Updated At */
+            updated_at: number;
+        };
+        /**
          * SourceFile
          * @description One source artifact: syntax-highlighted ``html`` to render and raw
          *     ``text`` for the copy button. ``present`` is false when the file couldn't be
@@ -1921,6 +2065,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sims_api_sims_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimSummary"][];
+                };
+            };
+        };
+    };
+    get_sim_series_api_sims__sim_id__series_get: {
+        parameters: {
+            query?: {
+                state?: string | null;
+                t_from?: number | null;
+                t_to?: number | null;
+            };
+            header?: never;
+            path: {
+                sim_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimSeriesResponse"];
                 };
             };
             /** @description Validation Error */

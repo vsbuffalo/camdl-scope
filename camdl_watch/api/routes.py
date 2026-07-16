@@ -26,6 +26,7 @@ from .. import ingest
 from .. import mle as mle_mod
 from .. import model_render as model_render_mod
 from .. import predictive
+from .. import sims as sims_mod
 from .. import profiles as profiles_mod
 from .. import quantities as quantities_mod
 from ..assembly import build_run_state
@@ -73,6 +74,10 @@ from .models import (
     QuantitySeriesResponse,
     RunDetail,
     RunSummary,
+    SimBandPoint,
+    SimMemberSeries,
+    SimSeriesResponse,
+    SimSummary,
     SourceFile,
     SourceResponse,
     StreamInfo,
@@ -1335,3 +1340,115 @@ def get_profile(base_id: str) -> ProfileResponse:
     if curve is None:
         raise HTTPException(status_code=404, detail=f"profile not found: {base_id}")
     return _profile_response(curve)
+
+
+# ---------------------------------------------------------------------------
+# Sims (forward simulations)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/sims", response_model=list[SimSummary])
+def list_sims() -> list[SimSummary]:
+    """Every forward-simulation run (``sims/`` tree), newest first."""
+    store = _store()
+    return [
+        SimSummary(
+            sim_id=s.sim_id, model=s.model, n_members=len(s.members),
+            status=s.status, updated_at=s.updated_at,
+        )
+        for s in sims_mod.discover_sims(store)
+    ]
+
+
+# A sweep at or below this overlays its members directly; above it, the members
+# are summarised as a quantile band (+ a few sample members to toggle on).
+_SIM_OVERLAY_CAP = 12
+_SIM_BAND_SAMPLE = 6
+_SIM_TIME_POINTS = 400  # thin every trajectory to at most this many points
+
+
+def _thin_idx(n: int, target: int = _SIM_TIME_POINTS) -> np.ndarray:
+    """Evenly-spaced unique row indices thinning ``n`` rows to ``≤ target``."""
+    if n <= target:
+        return np.arange(n)
+    return np.unique(np.linspace(0, n - 1, target).astype(int))
+
+
+@router.get("/sims/{sim_id}/series", response_model=SimSeriesResponse)
+def get_sim_series(
+    sim_id: str,
+    state: str | None = Query(default=None),
+    t_from: float | None = Query(default=None),
+    t_to: float | None = Query(default=None),
+) -> SimSeriesResponse:
+    """One compartment's trajectory across a sim's sweep members. ``state`` picks
+    the compartment (defaults to the first); columns are resolved once (identical
+    across members) and summed over strata. ``t_from``/``t_to`` window the axis
+    (to zoom / cut burn-in) — the series is re-thinned *within* the window so a
+    zoom keeps full resolution; ``t_min``/``t_max`` report the full domain. A
+    small sweep ships each thinned member; a large one ships a band + samples."""
+    store = _store()
+    meta = next((s for s in sims_mod.discover_sims(store) if s.sim_id == sim_id), None)
+    if meta is None or not meta.members:
+        raise HTTPException(status_code=404, detail=f"sim not found: {sim_id}")
+    roles = sims_mod.resolve_roles(meta.members[0])
+    model = sims_mod.read_sim_model(store, meta)  # exact compartments + calendar
+    exact = model.states or None
+    states = sims_mod.available_series(roles, "state", exact)
+    if not states:
+        raise HTTPException(status_code=404, detail=f"sim has no state trajectories: {sim_id}")
+    chosen = state if state in states else states[0]
+    cal = (
+        Calendar(origin=model.origin, time_unit=model.time_unit)
+        if model.origin else None
+    )
+
+    # Read every member's compartment total; align on the common (first) time
+    # grid, thinned. Members are the same length (same model/config).
+    raw = [sims_mod.read_member_total(m, chosen, roles, "state", exact) for m in meta.members]
+    raw = [r for r in raw if r is not None and r.value]
+    if not raw:
+        raise HTTPException(status_code=404, detail=f"no data for compartment {chosen}: {sim_id}")
+    n_full = len(raw[0].time)
+    t_all = raw[0].time
+    t_min, t_max = t_all[0], t_all[-1]
+    # Window to [t_from, t_to] (default full), then thin *within* the window so a
+    # zoom keeps resolution. `sel` are indices into the full per-member arrays.
+    lo = t_from if t_from is not None else t_min
+    hi = t_to if t_to is not None else t_max
+    win = [i for i, t in enumerate(t_all) if lo <= t <= hi] or list(range(n_full))
+    sel = [win[k] for k in _thin_idx(len(win))]
+    times = [t_all[i] for i in sel]
+    aligned = [r for r in raw if len(r.value) == n_full]  # guard ragged members
+
+    def thinned(r: sims_mod.SimSeries) -> SimMemberSeries:
+        return SimMemberSeries(
+            member=r.member, scenario=r.scenario,
+            time=times, value=[r.value[i] for i in sel],
+        )
+
+    n_members = len(aligned)
+    if n_members <= _SIM_OVERLAY_CAP:
+        return SimSeriesResponse(
+            sim_id=sim_id, model=meta.model, state=chosen, states=states,
+            mode="members", n_members=n_members, members=[thinned(r) for r in aligned],
+            calendar=cal, t_min=t_min, t_max=t_max,
+        )
+
+    # Large sweep → a quantile ribbon across members at each windowed-thinned time.
+    mat = np.array([[r.value[i] for i in sel] for r in aligned], dtype=float)
+    qs = np.quantile(mat, _QUANTILES, axis=0)  # (5, n_times)
+    band = [
+        SimBandPoint(
+            time=times[j], q05=float(qs[0, j]), q25=float(qs[1, j]),
+            q50=float(qs[2, j]), q75=float(qs[3, j]), q95=float(qs[4, j]),
+        )
+        for j in range(len(times))
+    ]
+    sample_idx = np.unique(np.linspace(0, n_members - 1, _SIM_BAND_SAMPLE).astype(int))
+    samples = [thinned(aligned[k]) for k in sample_idx]
+    return SimSeriesResponse(
+        sim_id=sim_id, model=meta.model, state=chosen, states=states,
+        mode="band", n_members=n_members, members=samples, band=band, calendar=cal,
+        t_min=t_min, t_max=t_max,
+    )

@@ -13,6 +13,8 @@ import {
   getRun,
   getRuns,
   getMle,
+  getSims,
+  getSimSeries,
   getSource,
   getTraces,
 } from './client'
@@ -27,6 +29,9 @@ export const qk = {
     ['draws', id, warmupPct, maxDraws, chains] as const,
   source: (id: string) => ['source', id] as const,
   modelRender: (id: string) => ['model-render', id] as const,
+  sims: ['sims'] as const,
+  simSeries: (id: string, state: string, win: string) =>
+    ['sim-series', id, state, win] as const,
   predictive: (id: string, stream: string) =>
     ['predictive', id, stream] as const,
   traces: (id: string, warmupPct: number, chains: string) =>
@@ -160,6 +165,27 @@ export function useModelRender(runId: string | undefined, enabled: boolean) {
     queryKey: qk.modelRender(runId ?? '∅'),
     queryFn: () => getModelRender(runId as string),
     enabled: Boolean(runId) && enabled,
+  })
+}
+
+/** Every forward-simulation run (the `sims/` tree) for the Sims workspace. */
+export function useSims() {
+  return useQuery({ queryKey: qk.sims, queryFn: getSims })
+}
+
+/** A sim's compartment trajectory across its sweep members, optionally windowed
+ * to `[tFrom, tTo]`. Disabled until a sim is chosen; keeps the previous series
+ * while switching compartment/sim/window. */
+export function useSimSeries(
+  simId: string | undefined,
+  state: string | undefined,
+  window?: [number, number],
+) {
+  return useQuery({
+    queryKey: qk.simSeries(simId ?? '∅', state ?? '', window ? window.join(':') : ''),
+    queryFn: () => getSimSeries(simId as string, state, window),
+    enabled: Boolean(simId),
+    placeholderData: (prev) => prev,
   })
 }
 
