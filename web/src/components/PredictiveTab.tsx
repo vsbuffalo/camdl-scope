@@ -160,7 +160,9 @@ function PredictivePanel({
       width,
       height: PANEL_HEIGHT,
       marginTop: 10,
-      marginBottom: 24,
+      // A date axis renders two-line ticks (day over month) — reserve the
+      // second line's room or the month row clips at the SVG edge.
+      marginBottom: toDate ? 34 : 24,
       marginLeft: 46,
       marginRight: 12,
       style: { background: 'transparent', color: AXIS, fontSize: '10px', fontFamily: MONO },

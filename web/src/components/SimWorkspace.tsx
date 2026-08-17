@@ -320,7 +320,8 @@ function SimPlot({
           width,
           height: Math.min(Math.round(width * 0.5), 320),
           marginTop: 10,
-          marginBottom: 30,
+          // Date axes stack two-line ticks under the axis label — reserve room.
+          marginBottom: toDate ? 38 : 30,
           marginLeft: 54,
           marginRight: 12,
           style: { background: 'transparent', color: AXIS, fontSize: '10px', fontFamily: MONO },

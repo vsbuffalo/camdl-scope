@@ -111,7 +111,8 @@ function BandPanel({
       width,
       height: PANEL_HEIGHT,
       marginTop: 8,
-      marginBottom: 22,
+      // Two-line date ticks (day over month) need the extra bottom room.
+      marginBottom: toDate ? 34 : 22,
       marginLeft: 46,
       marginRight: 12,
       style: { background: 'transparent', color: AXIS, fontSize: '10px', fontFamily: MONO },
