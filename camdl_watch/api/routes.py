@@ -24,6 +24,7 @@ from .. import compare as compare_mod
 from .. import diagnostics as diag_mod
 from .. import ingest
 from .. import mle as mle_mod
+from .. import model_graph as model_graph_mod
 from .. import model_render as model_render_mod
 from .. import predictive
 from .. import sims as sims_mod
@@ -52,6 +53,7 @@ from .models import (
     MleParam,
     MleResponse,
     MleRestart,
+    ModelGraph,
     ModelRender,
     ObservedPoint,
     ParamDiagnostic,
@@ -363,6 +365,7 @@ def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
             if cal is not None else None
         ),
         has_model_render=model_render_mod.has_model_render(meta.run_dir),
+        has_model_graph=model_graph_mod.has_model_graph(meta.run_dir),
     )
 
 
@@ -808,6 +811,22 @@ def get_model_render(run_id: str) -> ModelRender:
     if raw is None:
         raise HTTPException(status_code=404, detail=f"no model.render.json for run: {run_id}")
     return ModelRender.model_validate(raw)
+
+
+@router.get("/runs/{run_id}/model-graph", response_model=ModelGraph)
+def get_model_graph(run_id: str) -> ModelGraph:
+    """The run's compartmental flow graph (``model.graph.json``) for the Model
+    tab's diagram — base compartments, plates, transition edges (KaTeX rates),
+    and mean-field couplings. 404 when the run predates the artifact (the Model
+    tab then shows only the equations / raw source)."""
+    store = _store()
+    meta = _find_meta(store, run_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
+    raw = model_graph_mod.read_model_graph(meta.run_dir)
+    if raw is None:
+        raise HTTPException(status_code=404, detail=f"no model.graph.json for run: {run_id}")
+    return ModelGraph.model_validate(raw)
 
 
 # ---------------------------------------------------------------------------

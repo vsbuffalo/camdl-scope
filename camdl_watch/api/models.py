@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ParamPosterior(BaseModel):
@@ -250,8 +250,11 @@ class RunDetail(BaseModel):
     # sidecar, so time axes render as dates. None for a relative-time fit.
     calendar: Calendar | None = None
     # Whether the run carries a ``model.render.json`` (structured model math) —
-    # gates the Source tab's rendered-model view. False for runs predating it.
+    # gates the Model tab's equations view. False for runs predating it.
     has_model_render: bool = False
+    # Whether the run carries a ``model.graph.json`` (compartmental flow graph) —
+    # gates the Model tab's diagram view. False for runs predating it.
+    has_model_graph: bool = False
 
 
 # --- Source tab --------------------------------------------------------------
@@ -346,6 +349,74 @@ class ModelRender(BaseModel):
     definitions: list[RenderDefinition] = []
     transitions: list[RenderTransition] = []
     dynamics: list[RenderDynamic] = []
+
+
+# --- Model flow graph (model.graph.json) -------------------------------------
+# A compartmental node-link diagram: base compartments + stratifying plates +
+# transition edges (KaTeX rate) + mean-field couplings. Model-pure, so it is
+# byte-identical across runs of the same model. The viewer lays it out; nothing
+# here is derived server-side.
+
+
+class GraphNode(BaseModel):
+    """One base compartment. ``label`` is a KaTeX string (e.g. ``S_{naive}``);
+    ``id`` is the plain identifier edges reference."""
+
+    id: str
+    label: str
+
+
+class GraphPlate(BaseModel):
+    """One stratifying dimension the compartments are replicated over (e.g.
+    ``age`` with its ordered ``levels``). Drawn as an enclosing annotation, never
+    one node per level — a stratified model can be thousands of cells."""
+
+    name: str
+    levels: list[str] = []
+
+
+class GraphEdge(BaseModel):
+    """One transition between compartments. ``rate`` is a KaTeX string.
+    ``source``/``target`` are compartment ids; ``None`` marks an exogenous flow
+    (``source=None`` → inflow/birth, ``target=None`` → outflow/death), and the
+    literal ``"c"`` is the compartment iterator (applies to every node — a
+    plate-family edge such as aging/death). ``advances`` names the plate an edge
+    steps along (e.g. ``age``), else ``None``. ``reads_pool`` flags a rate that
+    reads a mean-field aggregate (its couplings carry which pools)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    # ``from`` is a Python keyword; expose the JSON key via alias, field is
+    # ``source``. ``to`` is not reserved but paired with ``target`` for symmetry.
+    source: str | None = Field(default=None, alias="from")
+    target: str | None = Field(default=None, alias="to")
+    rate: str = ""
+    advances: str | None = None
+    reads_pool: bool = False
+
+
+class GraphCoupling(BaseModel):
+    """A mean-field coupling: ``edge``'s rate reads the ``aggregate`` pool (its
+    name, e.g. ``inf_vil``) summed ``over`` the listed plates."""
+
+    edge: str
+    aggregate: str
+    over: list[str] = []
+
+
+class ModelGraph(BaseModel):
+    """The compartmental flow graph (``model.graph.json``) for the Model tab's
+    diagram. Optional sections default to empty so the contract stays
+    forward-compatible."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    model: str
+    nodes: list[GraphNode] = []
+    plates: list[GraphPlate] = []
+    edges: list[GraphEdge] = []
+    couplings: list[GraphCoupling] = []
 
 
 # --- Predictive tab ----------------------------------------------------------

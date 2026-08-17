@@ -90,6 +90,40 @@ SCHEMA = {
     ],
 }
 
+# Compartmental flow graph (model.graph.json) — a patch SEIRS consistent with the
+# fixture's states/params, exercising every FlowDiagram branch: a forward chain,
+# a waning return arc (R→S), a birth inflow chip, an all-compartment iterator
+# edge (death), and a mean-field read-pool coupling.
+MODEL_GRAPH = {
+    "model": "seir_patch_demo",
+    "nodes": [
+        {"id": "S", "label": "S"},
+        {"id": "E", "label": "E"},
+        {"id": "I", "label": "I"},
+        {"id": "R", "label": "R"},
+    ],
+    "plates": [{"name": "patch", "levels": ["Bo", "Bombali"]}],
+    "edges": [
+        {"id": "infection", "from": "S", "to": "E",
+         "rate": "\\frac{\\beta\\,S\\,I_{p}}{N_{p}}", "advances": None, "reads_pool": True},
+        {"id": "progression", "from": "E", "to": "I",
+         "rate": "\\sigma\\,E", "advances": None, "reads_pool": False},
+        {"id": "recovery", "from": "I", "to": "R",
+         "rate": "\\gamma\\,I", "advances": None, "reads_pool": False},
+        {"id": "waning", "from": "R", "to": "S",
+         "rate": "\\omega\\,R", "advances": None, "reads_pool": False},
+        {"id": "birth", "from": None, "to": "S",
+         "rate": "\\delta\\,N_{p}", "advances": None, "reads_pool": True},
+        {"id": "death", "from": "c", "to": None,
+         "rate": "\\delta\\,c", "advances": None, "reads_pool": False},
+    ],
+    "couplings": [
+        {"edge": "infection", "aggregate": "I_patch", "over": []},
+        {"edge": "infection", "aggregate": "N_patch", "over": []},
+        {"edge": "birth", "aggregate": "N_patch", "over": []},
+    ],
+}
+
 FIT_META = {
     "model_path": "models/seir_patch_demo.ir.json",  # relative placeholder, no CAS
     "model_identity": "demo0000000000000000000000000000",
@@ -234,6 +268,8 @@ def build(out: Path) -> Path:
     (run_dir / "fit.meta.json").write_text(json.dumps(FIT_META, indent=2,
                                                       ensure_ascii=False) + "\n")
     (run_dir / "fit.toml.original").write_text(FIT_TOML)
+    (run_dir / "model.graph.json").write_text(
+        json.dumps(MODEL_GRAPH, indent=2, ensure_ascii=False) + "\n")
 
     header = ["sweep", *PARAM_NAMES, "log_likelihood", "log_posterior"]
     for c in range(N_CHAINS):

@@ -1,0 +1,39 @@
+{
+  "model": "seir_age",
+  "nodes": [
+    { "id": "S", "label": "S" },
+    { "id": "E", "label": "E" },
+    { "id": "I", "label": "I" },
+    { "id": "R", "label": "R" }
+  ],
+  "plates": [ { "name": "age", "levels": [ "child", "adult" ] } ],
+  "edges": [
+    {
+      "id": "infection",
+      "from": "S",
+      "to": "E",
+      "rate": "β\\,S_{a}\\,\\sum_{b} \\frac{C_{age,a,b}\\,I_{b}}{N_{local,b}}",
+      "advances": null,
+      "reads_pool": true
+    },
+    {
+      "id": "progression",
+      "from": "E",
+      "to": "I",
+      "rate": "σ\\,E_{a}",
+      "advances": null,
+      "reads_pool": false
+    },
+    {
+      "id": "recovery",
+      "from": "I",
+      "to": "R",
+      "rate": "γ\\,I_{a}",
+      "advances": null,
+      "reads_pool": false
+    }
+  ],
+  "couplings": [
+    { "edge": "infection", "aggregate": "sum", "over": [ "age" ] }
+  ]
+}

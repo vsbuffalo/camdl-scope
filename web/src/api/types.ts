@@ -183,6 +183,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/model-graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Model Graph
+         * @description The run's compartmental flow graph (``model.graph.json``) for the Model
+         *     tab's diagram — base compartments, plates, transition edges (KaTeX rates),
+         *     and mean-field couplings. 404 when the run predates the artifact (the Model
+         *     tab then shows only the equations / raw source).
+         */
+        get: operations["get_model_graph_api_runs__run_id__model_graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/predictive/{stream}": {
         parameters: {
             query?: never;
@@ -641,6 +664,78 @@ export interface components {
             /** Params */
             params: string[];
         };
+        /**
+         * GraphCoupling
+         * @description A mean-field coupling: ``edge``'s rate reads the ``aggregate`` pool (its
+         *     name, e.g. ``inf_vil``) summed ``over`` the listed plates.
+         */
+        GraphCoupling: {
+            /** Edge */
+            edge: string;
+            /** Aggregate */
+            aggregate: string;
+            /**
+             * Over
+             * @default []
+             */
+            over: string[];
+        };
+        /**
+         * GraphEdge
+         * @description One transition between compartments. ``rate`` is a KaTeX string.
+         *     ``source``/``target`` are compartment ids; ``None`` marks an exogenous flow
+         *     (``source=None`` → inflow/birth, ``target=None`` → outflow/death), and the
+         *     literal ``"c"`` is the compartment iterator (applies to every node — a
+         *     plate-family edge such as aging/death). ``advances`` names the plate an edge
+         *     steps along (e.g. ``age``), else ``None``. ``reads_pool`` flags a rate that
+         *     reads a mean-field aggregate (its couplings carry which pools).
+         */
+        GraphEdge: {
+            /** Id */
+            id: string;
+            /** From */
+            from?: string | null;
+            /** To */
+            to?: string | null;
+            /**
+             * Rate
+             * @default
+             */
+            rate: string;
+            /** Advances */
+            advances?: string | null;
+            /**
+             * Reads Pool
+             * @default false
+             */
+            reads_pool: boolean;
+        };
+        /**
+         * GraphNode
+         * @description One base compartment. ``label`` is a KaTeX string (e.g. ``S_{naive}``);
+         *     ``id`` is the plain identifier edges reference.
+         */
+        GraphNode: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+        };
+        /**
+         * GraphPlate
+         * @description One stratifying dimension the compartments are replicated over (e.g.
+         *     ``age`` with its ordered ``levels``). Drawn as an enclosing annotation, never
+         *     one node per level — a stratified model can be thousands of cells.
+         */
+        GraphPlate: {
+            /** Name */
+            name: string;
+            /**
+             * Levels
+             * @default []
+             */
+            levels: string[];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -713,6 +808,36 @@ export interface components {
             status: string;
             /** N Evals */
             n_evals: number;
+        };
+        /**
+         * ModelGraph
+         * @description The compartmental flow graph (``model.graph.json``) for the Model tab's
+         *     diagram. Optional sections default to empty so the contract stays
+         *     forward-compatible.
+         */
+        ModelGraph: {
+            /** Model */
+            model: string;
+            /**
+             * Nodes
+             * @default []
+             */
+            nodes: components["schemas"]["GraphNode"][];
+            /**
+             * Plates
+             * @default []
+             */
+            plates: components["schemas"]["GraphPlate"][];
+            /**
+             * Edges
+             * @default []
+             */
+            edges: components["schemas"]["GraphEdge"][];
+            /**
+             * Couplings
+             * @default []
+             */
+            couplings: components["schemas"]["GraphCoupling"][];
         };
         /**
          * ModelRender
@@ -1344,6 +1469,11 @@ export interface components {
              * @default false
              */
             has_model_render: boolean;
+            /**
+             * Has Model Graph
+             * @default false
+             */
+            has_model_graph: boolean;
         };
         /**
          * RunSummary
@@ -1816,6 +1946,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelRender"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_graph_api_runs__run_id__model_graph_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelGraph"];
                 };
             };
             /** @description Validation Error */

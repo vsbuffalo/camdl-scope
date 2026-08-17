@@ -38,7 +38,7 @@ function MleTabs({ run }: { run: RunSummary }) {
     { value: 'estimate', label: 'Estimate' },
     { value: 'restarts', label: 'Restarts' },
     ...(hasQuantities ? [{ value: 'quantities', label: 'Quantities' }] : []),
-    { value: 'source', label: 'Source' },
+    { value: 'source', label: 'Model' },
   ]
   const [tab, setTab] = useState<string>(() =>
     loadJson('explore:mle-tab', 'estimate'),
@@ -127,7 +127,7 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
     ...(hasQuantities ? [{ value: 'quantities', label: 'Quantities' }] : []),
     { value: 'traces', label: 'Traces' },
     { value: 'diagnostics', label: 'Diagnostics' },
-    { value: 'source', label: 'Source' },
+    { value: 'source', label: 'Model' },
   ]
 
   // Persist the active tab across reloads, but fall back to Posterior if the

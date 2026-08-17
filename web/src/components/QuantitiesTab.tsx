@@ -6,7 +6,7 @@ import type {
   QuantityScalarRow,
 } from '@/api/client'
 import { useQuantityScalars, useQuantitySeries, useRun } from '@/api/queries'
-import { ForestSkeleton, MutedNotice } from '@/components/States'
+import { ForestSkeleton, MutedNotice, NoPosteriorNotice } from '@/components/States'
 import { ScenarioChecks } from '@/components/ScenarioChecks'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { Segmented } from '@/components/Segmented'
@@ -572,15 +572,18 @@ export function QuantitiesTab({ runId }: { runId: string }) {
 
   if (quantities.length === 0) {
     return (
-      <MutedNotice
-        title="No generated quantities"
-        detail={
-          <>
-            This fit has no <span className="font-mono">quantities</span> sidecar.
-            Add a <span className="font-mono">quantities {'{}'}</span> block to the
-            model and run <span className="font-mono">camdl fit predict</span>.
-          </>
-        }
+      <NoPosteriorNotice
+        status={run.data?.status}
+        whenDone={{
+          title: 'No generated quantities',
+          detail: (
+            <>
+              This fit has no <span className="font-mono">quantities</span> sidecar.
+              Add a <span className="font-mono">quantities {'{}'}</span> block to the
+              model and run <span className="font-mono">camdl fit predict</span>.
+            </>
+          ),
+        }}
       />
     )
   }

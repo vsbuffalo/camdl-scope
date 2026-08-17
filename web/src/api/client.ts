@@ -1,4 +1,5 @@
 import type { components } from './types'
+import { DEMO } from '@/lib/demo'
 
 /**
  * Typed wire aliases, derived from the OpenAPI-generated schemas so the
@@ -18,6 +19,11 @@ export type FindingGroup = components['schemas']['FindingGroup']
 export type SourceResponse = components['schemas']['SourceResponse']
 export type SourceFile = components['schemas']['SourceFile']
 export type ModelRender = components['schemas']['ModelRender']
+export type ModelGraph = components['schemas']['ModelGraph']
+export type GraphNode = components['schemas']['GraphNode']
+export type GraphEdge = components['schemas']['GraphEdge']
+export type GraphPlate = components['schemas']['GraphPlate']
+export type GraphCoupling = components['schemas']['GraphCoupling']
 export type SimSummary = components['schemas']['SimSummary']
 export type SimSeriesResponse = components['schemas']['SimSeriesResponse']
 export type SimMemberSeries = components['schemas']['SimMemberSeries']
@@ -53,10 +59,24 @@ export type RunStatus =
   | 'failed'
   | 'stalled'
 
+/**
+ * Static-demo mode (built with `VITE_DEMO=1`): there is no live backend, so an
+ * `/api/...` request is rewritten to a pre-baked JSON file under `snap/`. Query
+ * params are dropped — the snapshot captures each endpoint at its default state
+ * (the demo build hides the controls that would vary them). The path is kept
+ * *relative* so the demo works at any deploy subpath. See
+ * `scripts/make_demo_snapshot.py`.
+ */
+function demoUrl(path: string): string {
+  const noQuery = path.split('?')[0].replace(/^\//, '') // "api/runs/<id>/posterior"
+  return `snap/${noQuery}.json`
+}
+
 async function getJson<T>(path: string): Promise<T> {
+  const url = DEMO ? demoUrl(path) : path
   let res: Response
   try {
-    res = await fetch(path, { headers: { Accept: 'application/json' } })
+    res = await fetch(url, { headers: { Accept: 'application/json' } })
   } catch (cause) {
     // Network-level failure (backend down, DNS, CORS): surface a clear message
     // rather than a cryptic TypeError.
@@ -151,6 +171,13 @@ export function getSource(runId: string): Promise<SourceResponse> {
 export function getModelRender(runId: string): Promise<ModelRender> {
   const id = encodeURIComponent(runId)
   return getJson<ModelRender>(`/api/runs/${id}/model-render`)
+}
+
+/** The compartmental flow graph (`model.graph.json`) for the Model tab's
+ * diagram. 404s when the run predates the artifact. */
+export function getModelGraph(runId: string): Promise<ModelGraph> {
+  const id = encodeURIComponent(runId)
+  return getJson<ModelGraph>(`/api/runs/${id}/model-graph`)
 }
 
 /** Every forward-simulation run (the `sims/` tree). */

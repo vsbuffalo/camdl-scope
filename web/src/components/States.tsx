@@ -32,6 +32,60 @@ export function MutedNotice({
   )
 }
 
+/**
+ * Empty-state for a posterior-dependent tab (Predictive, Quantities) that has
+ * nothing to show. The message depends on *why* the posterior is absent: a
+ * stalled or failed run never produced one, and a warming run hasn't yet — so
+ * pointing the user at `camdl fit predict` (the `whenDone` case) would be wrong,
+ * predict has nothing to draw from. Falls back to `whenDone` for a finished run
+ * that simply hasn't had predict run, or whose model declares no such artifact.
+ */
+export function NoPosteriorNotice({
+  status,
+  whenDone,
+  bordered = true,
+}: {
+  status: string | undefined
+  whenDone: { title: string; detail: ReactNode }
+  bordered?: boolean
+}) {
+  if (status === 'stalled') {
+    return (
+      <MutedNotice
+        bordered={bordered}
+        title="No posterior to predict from"
+        detail="This run stopped before it finished sampling — it left partial chains but never wrote a pooled posterior, so there is nothing to predict from."
+      />
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <MutedNotice
+        bordered={bordered}
+        title="No posterior to predict from"
+        detail="This run failed before producing a posterior, so there is nothing to predict from."
+      />
+    )
+  }
+  if (status === 'warming' || status === 'running') {
+    return (
+      <MutedNotice
+        bordered={bordered}
+        title="Still sampling"
+        detail={
+          <>
+            Posterior-predictive checks appear once the fit finishes and you run{' '}
+            <span className="font-mono">camdl fit predict</span>.
+          </>
+        }
+      />
+    )
+  }
+  return (
+    <MutedNotice bordered={bordered} title={whenDone.title} detail={whenDone.detail} />
+  )
+}
+
 /** Placeholder rows that occupy the same rhythm as the forest while loading. */
 export function ForestSkeleton({ rows = 5 }: { rows?: number }) {
   return (

@@ -1,4 +1,5 @@
 import { Slider } from '@/components/ui/slider'
+import { DEMO } from '@/lib/demo'
 
 interface WarmupControlProps {
   value: number
@@ -39,14 +40,18 @@ export function WarmupControl({
         </dl>
       </div>
 
-      <Slider
-        className="mt-2"
-        value={[value]}
-        onValueChange={(v) => onChange(v[0] ?? 0)}
-        min={0}
-        max={95}
-        step={5}
-      />
+      {/* Static demo: the slider refetches at other cutoffs a static host can't
+          serve, so it's hidden — the snapshot is frozen at this warm-up. */}
+      {!DEMO && (
+        <Slider
+          className="mt-2"
+          value={[value]}
+          onValueChange={(v) => onChange(v[0] ?? 0)}
+          min={0}
+          max={95}
+          step={5}
+        />
+      )}
     </div>
   )
 }

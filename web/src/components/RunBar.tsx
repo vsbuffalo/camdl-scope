@@ -56,14 +56,16 @@ function Ticker({ run }: { run: RunSummary }) {
 }
 
 /**
- * The run's status line — the single status indicator, sitting above its
- * progress bar. Leads with the {@link StatusBadge} (swatch + status) for every
- * run, so it's not duplicated in the ticker. For a live run it adds the
- * heartbeat phase (burn-in vs sampling, when known), a sweep counter, and a
- * completion bar — driven by camdl's `progress.json` when present, else the
- * trace's `max_iter / target_sweeps`. A clean failure appends its reason.
+ * The run's status line, sitting above its progress bar. It carries information
+ * beyond the badge only while a run is *live* (the heartbeat phase, a sweep
+ * counter, a completion bar) or has *failed* / *stalled* (worth flagging). On a
+ * clean `done` finish it would just echo the status already shown in the run
+ * dropdown, so it's omitted — one status light, not two.
  */
 function ProgressBlurb({ run }: { run: RunSummary }) {
+  // Clean terminal state: the dropdown already shows `done`; don't repeat it.
+  if (run.status === 'done') return null
+
   const p = run.progress
   const failed = run.status === 'failed' || p?.state === 'failed'
   const live = run.status === 'running' || run.status === 'warming'

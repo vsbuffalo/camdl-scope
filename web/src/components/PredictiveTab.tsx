@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Plot from '@observablehq/plot'
 import type { ObservedPoint, PredictivePoint } from '@/api/client'
 import { usePredictive, useRun } from '@/api/queries'
-import { ForestSkeleton, MutedNotice } from '@/components/States'
+import { ForestSkeleton, MutedNotice, NoPosteriorNotice } from '@/components/States'
 import { ScenarioChecks } from '@/components/ScenarioChecks'
 import { Figure } from '@/components/Figure'
 import { ByIndexPlot, LevelLegend } from '@/components/ByIndexPlot'
@@ -1040,14 +1040,17 @@ export function PredictiveTab({ runId }: { runId: string }) {
 
   if (availableStreams.length === 0) {
     return (
-      <MutedNotice
-        title="No predictive artifact"
-        detail={
-          <>
-            Run <span className="font-mono">camdl fit predict</span> for this fit
-            to generate posterior-predictive checks.
-          </>
-        }
+      <NoPosteriorNotice
+        status={run.data?.status}
+        whenDone={{
+          title: 'No predictive artifact',
+          detail: (
+            <>
+              Run <span className="font-mono">camdl fit predict</span> for this fit
+              to generate posterior-predictive checks.
+            </>
+          ),
+        }}
       />
     )
   }

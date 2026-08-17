@@ -160,6 +160,24 @@ def stage_is_live(seed_dir: Path) -> bool:
     return _pid_alive(pid)
 
 
+def stage_completed(seed_dir: Path) -> bool:
+    """True if the stage finished and wrote its pooled posterior (``draws.tsv``).
+
+    A posterior stage writes its completion artifacts only at the end —
+    ``draws.tsv`` (the pooled, thinned posterior, and the input ``camdl fit
+    predict`` re-simulates from), alongside ``fit_state.toml`` and the summary
+    JSONs. A stage that was killed, crashed, or OOM'd leaves partial per-chain
+    ``trace.tsv`` files and *none* of these. ``draws.tsv`` is the load-bearing
+    one, so we key on it: no draws.tsv means there is no posterior to predict
+    from, whatever the trace files contain.
+    """
+    draws = seed_dir / "draws.tsv"
+    try:
+        return draws.stat().st_size > 0
+    except OSError:
+        return False
+
+
 # ----------------------------------------------------------------------------
 # Authoritative end-of-stage diagnostics (camdl's own summary + findings)
 # ----------------------------------------------------------------------------
@@ -314,9 +332,12 @@ def _pick_posterior_dir(
     """Return (posterior_dir, seed_dir, chain_paths, has_draws) for the best
     stage dir, or ``None`` if there's nothing worth surfacing.
 
-    Prefer the posterior dir with the most non-empty chains; break ties by
-    most-recently-modified. A resume leaves an empty ``trace.tsv`` stub —
-    those score zero non-empty chains and lose.
+    Prefer a *completed* stage (one that wrote ``draws.tsv``) over any partial
+    stub, then the stage with the most non-empty chains, then the
+    most-recently-modified. A resume/relaunch leaves an empty ``trace.tsv`` stub
+    — those score zero non-empty chains and lose. A *crashed* relaunch can leave
+    a stub with as many started chains as the real run and a newer mtime; the
+    completion key keeps the finished stage from being masked by it.
 
     When no stage has any draws yet (every ``trace.tsv`` is empty, as during
     burn-in), the run is hidden by default. With ``include_warming=True`` it is
@@ -325,7 +346,7 @@ def _pick_posterior_dir(
     returned ``chain_paths`` are the (currently empty) trace files, so the
     normal tail picks up rows the moment burn-in clears.
     """
-    candidates: list[tuple[int, float, Path, Path, dict[int, Path]]] = []
+    candidates: list[tuple[bool, int, float, Path, Path, dict[int, Path]]] = []
     for pdir in sorted(run_dir.glob("[0-9]*-posterior-*")):
         for seed_dir in sorted(pdir.glob("seed_*")):
             paths = _seed_chain_paths(seed_dir)
@@ -333,12 +354,15 @@ def _pick_posterior_dir(
             if not paths:
                 continue
             mtime = max((p.stat().st_mtime for p in paths.values()), default=0.0)
-            # Use the full path set for display, but rank by #non-empty.
-            candidates.append((len(ne), mtime, pdir, seed_dir, ne or paths))
+            # Rank completed-first, then by #non-empty chains, then recency.
+            # Use the full path set for display when none are non-empty yet.
+            candidates.append(
+                (stage_completed(seed_dir), len(ne), mtime, pdir, seed_dir, ne or paths)
+            )
     if not candidates:
         return None
-    candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)
-    n_ne, _mtime, pdir, seed_dir, paths = candidates[0]
+    candidates.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
+    _done, n_ne, _mtime, pdir, seed_dir, paths = candidates[0]
     if n_ne > 0:
         return pdir, seed_dir, paths, True
     # No draws anywhere (burn-in, or a killed stub). A run can have several
@@ -346,7 +370,7 @@ def _pick_posterior_dir(
     # just the most-recent by mtime, so a relaunched fit isn't read off a dead
     # sibling stub.
     if include_warming:
-        for _n, _mt, pd_, sd_, pth_ in candidates:
+        for _c, _n, _mt, pd_, sd_, pth_ in candidates:
             if stage_is_live(sd_):
                 return pd_, sd_, pth_, False
     return None

@@ -1,4 +1,4 @@
-# camdl-watch
+# camdl 'scope
 
 A browser-based results viewer (and live monitor) for
 [camdl](https://github.com/vsbuffalo/camdl) fits. Point it at a fit store and it

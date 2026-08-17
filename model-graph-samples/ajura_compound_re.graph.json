@@ -1,0 +1,125 @@
+{
+  "model": "ajura_compound_re",
+  "nodes": [
+    { "id": "S", "label": "S" },
+    { "id": "E", "label": "E" },
+    { "id": "I_inf", "label": "I_{inf}" },
+    { "id": "I_rec", "label": "I_{rec}" }
+  ],
+  "plates": [
+    { "name": "village", "levels": [ "ajura" ] },
+    {
+      "name": "age",
+      "levels": [
+        "a1_4", "a5_9", "a10_14", "a15_24", "a25_34", "a35_44", "a45plus"
+      ]
+    },
+    { "name": "imm", "levels": [ "m0", "m1", "m2", "m3" ] },
+    {
+      "name": "compound",
+      "levels": [
+        "c68", "c36", "c30", "c29", "c55", "c80", "c40", "c58", "c20", "c74",
+        "c54", "c12", "c48", "c65", "c42"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "inoc",
+      "from": "S",
+      "to": "E",
+      "rate": "h_{v,k}\\,S_{v,a,m,k}",
+      "advances": null,
+      "reads_pool": true
+    },
+    {
+      "id": "incub",
+      "from": "E",
+      "to": "I_inf",
+      "rate": "\\nu\\,E_{v,a,m,k}",
+      "advances": null,
+      "reads_pool": false
+    },
+    {
+      "id": "lose_infect",
+      "from": "I_inf",
+      "to": "I_rec",
+      "rate": "a_{1}\\,I_{inf,v,a,m,k}",
+      "advances": null,
+      "reads_pool": false
+    },
+    {
+      "id": "recover_climb",
+      "from": "I_rec",
+      "to": "S",
+      "rate": "R_{v,m,k}\\,I_{rec,v,a,m,k}",
+      "advances": "imm",
+      "reads_pool": true
+    },
+    {
+      "id": "recover_top",
+      "from": "I_rec",
+      "to": "S",
+      "rate": "R_{v,m_{3},k}\\,I_{rec,v,a,m_{3},k}",
+      "advances": null,
+      "reads_pool": true
+    },
+    {
+      "id": "aging",
+      "from": "c",
+      "to": "c",
+      "rate": "\\frac{1\\,c_{v,a,m,k}}{\\mathrm{age\\_dur}_{a}}",
+      "advances": "age",
+      "reads_pool": false
+    },
+    {
+      "id": "birth",
+      "from": null,
+      "to": "S",
+      "rate": "\\delta\\,\\sum_{a} \\sum_{m} N_{v,a,m,k}",
+      "advances": null,
+      "reads_pool": true
+    },
+    {
+      "id": "death",
+      "from": "c",
+      "to": null,
+      "rate": "\\delta\\,c_{v,a,m,k}",
+      "advances": null,
+      "reads_pool": false
+    }
+  ],
+  "couplings": [
+    {
+      "edge": "inoc",
+      "aggregate": "inf_vil",
+      "over": [ "age", "imm", "compound" ]
+    },
+    {
+      "edge": "inoc",
+      "aggregate": "Nvil",
+      "over": [ "age", "imm", "compound" ]
+    },
+    {
+      "edge": "recover_climb",
+      "aggregate": "inf_vil",
+      "over": [ "age", "imm", "compound" ]
+    },
+    {
+      "edge": "recover_climb",
+      "aggregate": "Nvil",
+      "over": [ "age", "imm", "compound" ]
+    },
+    {
+      "edge": "recover_top",
+      "aggregate": "inf_vil",
+      "over": [ "age", "imm", "compound" ]
+    },
+    {
+      "edge": "recover_top",
+      "aggregate": "Nvil",
+      "over": [ "age", "imm", "compound" ]
+    },
+    { "edge": "birth", "aggregate": "sum", "over": [ "age", "imm" ] }
+  ]
+}

@@ -1,16 +1,22 @@
 import { cn } from '@/lib/utils'
+import { DEMO } from '@/lib/demo'
 
 /** Top-level workspaces. Each owns its own selector + sub-navigation; the run
  *  dropdown belongs to `explore`, not this global chrome. Adding a future mode
  *  (a fit-queue monitor, a residual explorer) is one entry here + one view. */
 export type Workspace = 'explore' | 'compare' | 'profile' | 'sims'
 
-const WORKSPACES: { value: Workspace; label: string }[] = [
+const ALL_WORKSPACES: { value: Workspace; label: string }[] = [
   { value: 'explore', label: 'Explore fit' },
   { value: 'compare', label: 'Compare models' },
   { value: 'profile', label: 'Profile' },
   { value: 'sims', label: 'Sims' },
 ]
+
+// The static demo has no prequential data, so Compare is dropped from the nav.
+const WORKSPACES = DEMO
+  ? ALL_WORKSPACES.filter((w) => w.value !== 'compare')
+  : ALL_WORKSPACES
 
 /**
  * Persistent top bar: the wordmark on the left, then the workspace nav — a flat,
@@ -34,7 +40,11 @@ export function GlobalHeader({
             <span className="w-2 shrink-0 self-stretch bg-blue-900" aria-hidden />
             <span className="flex flex-col text-sm font-semibold leading-[0.95] tracking-tight text-neutral-900">
               <span>camdl</span>
-              <span className="text-neutral-400">watch</span>
+              {/* '_scope — the tick nods to camdl's #' doc syntax and reads as the
+                  instrument clipping ('scope, as in oscilloscope/microscope). */}
+              <span className="text-neutral-400">
+                <span className="text-blue-900">{"'"}</span>scope
+              </span>
             </span>
           </div>
 

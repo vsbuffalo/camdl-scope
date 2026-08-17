@@ -5,7 +5,9 @@ the tests share.
 progress / authoritative summary, then ``classify(rs, now)`` tags it
 ``running | warming | done | failed | stalled`` from camdl's ``progress.json``
 heartbeat (terminal states win; a fresh ``running`` beat is live) or, absent a
-heartbeat, the seed ``.lock`` PID plus whether any draws exist.
+heartbeat, the seed ``.lock`` PID plus whether the stage wrote its pooled
+``draws.tsv`` — a dead process with only partial per-chain traces and no
+``draws.tsv`` is ``stalled`` (killed mid-run), not ``done``.
 """
 
 from __future__ import annotations
@@ -36,9 +38,17 @@ def classify(rs: RunState, now: float) -> Status:
             return Status.WARMING if prog.phase == "burn_in" else Status.RUNNING
         return Status.DONE
     live = ingest.stage_is_live(rs.meta.posterior_dir)
-    has_draws = any(buf.n for buf in rs.chains.values())
-    if has_draws:
-        return Status.RUNNING if live else Status.DONE
+    has_rows = any(buf.n for buf in rs.chains.values())
+    if has_rows:
+        if live:
+            return Status.RUNNING
+        # A dead process with trace rows is NOT proof of completion: a killed,
+        # crashed, or OOM'd stage leaves partial per-chain traces but never
+        # writes the pooled ``draws.tsv``. Only call it done if that completion
+        # artifact exists; otherwise it terminated without finishing.
+        if ingest.stage_completed(rs.meta.posterior_dir):
+            return Status.DONE
+        return Status.STALLED
     return Status.WARMING if live else Status.STALLED
 
 

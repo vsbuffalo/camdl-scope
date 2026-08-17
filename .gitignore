@@ -7,6 +7,7 @@ __pycache__/
 # v2 frontend
 web/node_modules/
 web/dist/
+web/dist-demo/
 web/openapi.json
 # generated golden fixture store (regenerate: make fixture)
 tests/fixtures/golden-store/

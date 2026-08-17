@@ -19,7 +19,9 @@ from camdl_watch import assembly, ingest
 from camdl_watch.state import RunState
 
 
-def _mkrun(store: Path, name: str, *, rows: int, lock_pid: int) -> Path:
+def _mkrun(
+    store: Path, name: str, *, rows: int, lock_pid: int, draws: bool = True
+) -> Path:
     seed = store / name / "01-posterior-aaaa1111" / "seed_1-bbbb2222"
     (seed / "chain_1").mkdir(parents=True)
     tp = seed / "chain_1" / "trace.tsv"
@@ -28,6 +30,12 @@ def _mkrun(store: Path, name: str, *, rows: int, lock_pid: int) -> Path:
             "step\tlog_posterior\tR0\n"
             + "".join(f"{i}\t-5.0\t1.{i}\n" for i in range(rows))
         )
+        # A finished stage writes the pooled posterior; a killed one (draws=False)
+        # leaves only the partial per-chain trace above.
+        if draws:
+            (seed / "draws.tsv").write_text(
+                "R0\n" + "".join(f"1.{i}\n" for i in range(rows))
+            )
     else:
         tp.write_text("")  # burn-in: empty
     (seed / ".lock").write_text(str(lock_pid))
@@ -62,8 +70,17 @@ def test_live_slow_sampler_with_ancient_trace_is_running(tmp_path):
 
 def test_finished_run_with_draws_is_done(tmp_path):
     store = tmp_path / "fits"
-    _mkrun(store, "fin-bbbb", rows=72, lock_pid=_DEAD_PID)
+    _mkrun(store, "fin-bbbb", rows=72, lock_pid=_DEAD_PID)  # writes draws.tsv
     assert _registry(store)["fin-bbbb"].status.value == "done"
+
+
+def test_killed_partial_run_is_stalled_not_done(tmp_path):
+    # No heartbeat, dead PID, trace rows present but NO draws.tsv: a stage that
+    # was killed / crashed / OOM'd mid-sampling. It must NOT read as done —
+    # there is no pooled posterior to predict from.
+    store = tmp_path / "fits"
+    _mkrun(store, "killed-eeee", rows=72, lock_pid=_DEAD_PID, draws=False)
+    assert _registry(store)["killed-eeee"].status.value == "stalled"
 
 
 def _seed(store: Path, name: str) -> Path:
@@ -164,6 +181,28 @@ def test_pick_prefers_live_stage_among_empty_siblings(tmp_path):
     os.utime(dead / "chain_1" / "trace.tsv", (newer, newer))
     picked = ingest._pick_posterior_dir(run, include_warming=True)
     assert picked is not None and picked[1] == live  # the live seed dir
+
+
+def test_pick_prefers_completed_stage_over_newer_stub(tmp_path):
+    # A crashed relaunch leaves a stub with as many started chains as the real
+    # run and a *newer* mtime. Without the completion key it would win the
+    # (chains, mtime) tie-break and mask the finished stage; the completed stage
+    # (draws.tsv) must still be the one surfaced.
+    run = tmp_path / "cfg-feedface"
+    done_stage = run / "01-posterior-aaaa1111" / "seed_1-aaaa"
+    stub_stage = run / "02-posterior-bbbb2222" / "seed_1-bbbb"
+    trace = (
+        "step\tlog_posterior\tR0\n"
+        + "".join(f"{i}\t-5.0\t1.{i}\n" for i in range(50))
+    )
+    for sd in (done_stage, stub_stage):
+        (sd / "chain_1").mkdir(parents=True)
+        (sd / "chain_1" / "trace.tsv").write_text(trace)
+    (done_stage / "draws.tsv").write_text("R0\n1.0\n1.1\n")
+    newer = time.time() + 100  # the stub is more recent
+    os.utime(stub_stage / "chain_1" / "trace.tsv", (newer, newer))
+    picked = ingest._pick_posterior_dir(run)
+    assert picked is not None and picked[1] == done_stage
 
 
 def test_live_burn_in_is_warming_dead_burn_in_hidden(tmp_path):

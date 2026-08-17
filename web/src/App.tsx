@@ -5,6 +5,7 @@ import { CompareWorkspace } from '@/components/CompareWorkspace'
 import { ProfileWorkspace } from '@/components/ProfileWorkspace'
 import { SimWorkspace } from '@/components/SimWorkspace'
 import { loadJson, saveJson } from '@/lib/persist'
+import { DEMO } from '@/lib/demo'
 
 /**
  * App shell: the persistent header with the workspace nav, and the active
@@ -19,16 +20,19 @@ function App() {
     saveJson('workspace', w)
     setWorkspace(w)
   }
+  // Compare is hidden in the demo; never land on it (e.g. from a stale saved
+  // choice), and keep the nav highlight consistent.
+  const active = DEMO && workspace === 'compare' ? 'explore' : workspace
 
   return (
     <div className="min-h-screen bg-white text-neutral-900 antialiased">
-      <GlobalHeader workspace={workspace} onWorkspace={onWorkspace} />
+      <GlobalHeader workspace={active} onWorkspace={onWorkspace} />
 
       <main className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 sm:py-6">
-        {workspace === 'explore' && <ExploreWorkspace />}
-        {workspace === 'compare' && <CompareWorkspace />}
-        {workspace === 'profile' && <ProfileWorkspace />}
-        {workspace === 'sims' && <SimWorkspace />}
+        {active === 'explore' && <ExploreWorkspace />}
+        {active === 'compare' && <CompareWorkspace />}
+        {active === 'profile' && <ProfileWorkspace />}
+        {active === 'sims' && <SimWorkspace />}
       </main>
     </div>
   )

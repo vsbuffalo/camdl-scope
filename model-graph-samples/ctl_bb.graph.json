@@ -1,0 +1,120 @@
+{
+  "model": "ctl_bb",
+  "nodes": [
+    { "id": "S_naive", "label": "S_{naive}" },
+    { "id": "E_naive", "label": "E_{naive}" },
+    { "id": "I_infectious", "label": "I_{infectious}" },
+    { "id": "I_recovering", "label": "I_{recovering}" },
+    { "id": "I_immune", "label": "I_{immune}" },
+    { "id": "S_immune", "label": "S_{immune}" },
+    { "id": "E_immune", "label": "E_{immune}" }
+  ],
+  "plates": [
+    { "name": "village", "levels": [ "kwaru", "ajura" ] },
+    {
+      "name": "age",
+      "levels": [ "a1_4", "a5_9", "a10_14", "a15_24", "a25_44" ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "inoc_naive",
+      "from": "S_naive",
+      "to": "E_naive",
+      "rate": "h_{v}\\,S_{naive,v,a}",
+      "advances": null,
+      "reads_pool": true
+    },
+    {
+      "id": "inoc_immune",
+      "from": "S_immune",
+      "to": "E_immune",
+      "rate": "h_{v}\\,S_{immune,v,a}",
+      "advances": null,
+      "reads_pool": true
+    },
+    {
+      "id": "incub_naive",
+      "from": "E_naive",
+      "to": "I_infectious",
+      "rate": "\\nu\\,E_{naive,v,a}",
+      "advances": null,
+      "reads_pool": false
+    },
+    {
+      "id": "incub_immune",
+      "from": "E_immune",
+      "to": "I_immune",
+      "rate": "\\nu\\,E_{immune,v,a}",
+      "advances": null,
+      "reads_pool": false
+    },
+    {
+      "id": "lose_infect",
+      "from": "I_infectious",
+      "to": "I_recovering",
+      "rate": "a_{1}\\,I_{infectious,v,a}",
+      "advances": null,
+      "reads_pool": false
+    },
+    {
+      "id": "acquire_imm",
+      "from": "I_recovering",
+      "to": "I_immune",
+      "rate": "a_{2}\\,I_{recovering,v,a}",
+      "advances": null,
+      "reads_pool": false
+    },
+    {
+      "id": "recover_rec",
+      "from": "I_recovering",
+      "to": "S_naive",
+      "rate": "R_{1,v}\\,I_{recovering,v,a}",
+      "advances": null,
+      "reads_pool": true
+    },
+    {
+      "id": "recover_imm",
+      "from": "I_immune",
+      "to": "S_immune",
+      "rate": "R_{2,v}\\,I_{immune,v,a}",
+      "advances": null,
+      "reads_pool": true
+    },
+    {
+      "id": "aging",
+      "from": "c",
+      "to": "c",
+      "rate": "\\frac{1\\,c_{v,a}}{\\mathrm{age\\_dur}_{a}}",
+      "advances": "age",
+      "reads_pool": false
+    },
+    {
+      "id": "birth",
+      "from": null,
+      "to": "S_naive",
+      "rate": "\\delta\\,N_{vil,v}",
+      "advances": null,
+      "reads_pool": true
+    },
+    {
+      "id": "death",
+      "from": "c",
+      "to": null,
+      "rate": "\\delta\\,c_{v,a}",
+      "advances": null,
+      "reads_pool": false
+    }
+  ],
+  "couplings": [
+    { "edge": "inoc_naive", "aggregate": "inf_vil", "over": [ "age" ] },
+    { "edge": "inoc_naive", "aggregate": "Nvil", "over": [ "age" ] },
+    { "edge": "inoc_immune", "aggregate": "inf_vil", "over": [ "age" ] },
+    { "edge": "inoc_immune", "aggregate": "Nvil", "over": [ "age" ] },
+    { "edge": "recover_rec", "aggregate": "inf_vil", "over": [ "age" ] },
+    { "edge": "recover_rec", "aggregate": "Nvil", "over": [ "age" ] },
+    { "edge": "recover_imm", "aggregate": "inf_vil", "over": [ "age" ] },
+    { "edge": "recover_imm", "aggregate": "Nvil", "over": [ "age" ] },
+    { "edge": "birth", "aggregate": "Nvil", "over": [ "age" ] }
+  ]
+}

@@ -10,6 +10,7 @@ import {
   getQuantityScalars,
   getQuantitySeries,
   getModelRender,
+  getModelGraph,
   getRun,
   getRuns,
   getMle,
@@ -29,6 +30,7 @@ export const qk = {
     ['draws', id, warmupPct, maxDraws, chains] as const,
   source: (id: string) => ['source', id] as const,
   modelRender: (id: string) => ['model-render', id] as const,
+  modelGraph: (id: string) => ['model-graph', id] as const,
   sims: ['sims'] as const,
   simSeries: (id: string, state: string, win: string) =>
     ['sim-series', id, state, win] as const,
@@ -164,6 +166,16 @@ export function useModelRender(runId: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: qk.modelRender(runId ?? '∅'),
     queryFn: () => getModelRender(runId as string),
+    enabled: Boolean(runId) && enabled,
+  })
+}
+
+/** The compartmental flow graph for the Model tab's diagram. Enabled only when
+ * the run detail reports the artifact is present, so runs without it never 404. */
+export function useModelGraph(runId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: qk.modelGraph(runId ?? '∅'),
+    queryFn: () => getModelGraph(runId as string),
     enabled: Boolean(runId) && enabled,
   })
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { chainColor } from '@/lib/colors'
+import { DEMO } from '@/lib/demo'
 
 interface ChainSelectProps {
   /** All chain ids in the run, ascending. */
@@ -34,6 +35,9 @@ export function ChainSelect({
   onReset,
 }: ChainSelectProps) {
   const [open, setOpen] = useState(false)
+  // Static demo: chain filtering refetches with a `chains=` param a static host
+  // can't serve, so the control is hidden (all chains shown).
+  if (DEMO) return null
   const includedCount = chainIds.length - excluded.size
   const anyExcluded = excluded.size > 0
 

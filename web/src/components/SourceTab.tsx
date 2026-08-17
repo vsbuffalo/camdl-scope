@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { SourceFile } from '@/api/client'
-import { useModelRender, useRun, useSource } from '@/api/queries'
+import { useModelGraph, useModelRender, useRun, useSource } from '@/api/queries'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { ModelView } from '@/components/ModelView'
+import { FlowDiagram } from '@/components/FlowDiagram'
 import { Segmented } from '@/components/Segmented'
 import { Card } from '@/components/ui/card'
+import { loadJson, saveJson } from '@/lib/persist'
 
 const HIGHLIGHT_STYLE_ID = 'camdl-highlight-css'
 
@@ -177,16 +179,49 @@ function RenderedModel({ runId }: { runId: string }) {
   return <ModelView data={data} />
 }
 
+/** The flow-diagram view: the compartmental graph from `model.graph.json`. Its
+ *  own loading/empty states so a slow or absent graph never blocks the source. */
+function RenderedGraph({ runId }: { runId: string }) {
+  const { data, isPending, isError } = useModelGraph(runId, true)
+  if (isPending)
+    return (
+      <Card className="overflow-hidden">
+        <ForestSkeleton rows={3} />
+      </Card>
+    )
+  if (isError || !data)
+    return (
+      <MutedNotice
+        bordered
+        title="No flow diagram"
+        detail="This run has no model.graph.json — see the equations or raw source instead."
+      />
+    )
+  return <FlowDiagram graph={data} />
+}
+
 export function SourceTab({ runId }: { runId: string }) {
   const { data, isPending, isError } = useSource(runId)
   useHighlightCss(data?.highlight_css)
 
-  // The rendered-model view is offered only when the run carries the artifact;
-  // default to it (the friendlier view) and let the reader drop to raw source.
+  // Three lenses on the same model, offered only when their artifact is present.
+  // Precedence (most visual first): diagram → equations → raw source. Source is
+  // always the floor. The reader can drop down; a run without the richer
+  // artifacts opens straight on source with no toggle.
   const run = useRun(runId)
+  const hasGraph = run.data?.has_model_graph ?? false
   const hasRender = run.data?.has_model_render ?? false
-  const [view, setView] = useState<'rendered' | 'source'>('rendered')
-  const effectiveView = hasRender ? view : 'source'
+  const options = [
+    ...(hasGraph ? ['diagram'] : []),
+    ...(hasRender ? ['equations'] : []),
+    'source',
+  ]
+  const [view, setView] = useState<string>(() => loadJson('explore:model-view', 'diagram'))
+  const effectiveView = options.includes(view) ? view : options[0]
+  const onView = (v: string) => {
+    saveJson('explore:model-view', v)
+    setView(v)
+  }
 
   if (isPending) {
     return (
@@ -213,18 +248,20 @@ export function SourceTab({ runId }: { runId: string }) {
 
   return (
     <div className="max-w-4xl space-y-4">
-      {hasRender && (
+      {options.length > 1 && (
         <div className="px-1">
           <Segmented
-            label="Model"
-            options={['rendered', 'source']}
+            label="view"
+            options={options}
             value={effectiveView}
-            onChange={(v) => setView(v as 'rendered' | 'source')}
+            onChange={onView}
           />
         </div>
       )}
 
-      {effectiveView === 'rendered' && <RenderedModel runId={runId} />}
+      {effectiveView === 'diagram' && <RenderedGraph runId={runId} />}
+
+      {effectiveView === 'equations' && <RenderedModel runId={runId} />}
 
       {effectiveView === 'source' && (
         <>

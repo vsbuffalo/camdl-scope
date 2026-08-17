@@ -1,0 +1,28 @@
+{
+  "model": "sir_basic",
+  "nodes": [
+    { "id": "S", "label": "S" },
+    { "id": "I", "label": "I" },
+    { "id": "R", "label": "R" }
+  ],
+  "plates": [],
+  "edges": [
+    {
+      "id": "infection",
+      "from": "S",
+      "to": "I",
+      "rate": "\\frac{β\\,S\\,I}{N}",
+      "advances": null,
+      "reads_pool": false
+    },
+    {
+      "id": "recovery",
+      "from": "I",
+      "to": "R",
+      "rate": "γ\\,I",
+      "advances": null,
+      "reads_pool": false
+    }
+  ],
+  "couplings": []
+}
