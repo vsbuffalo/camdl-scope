@@ -349,7 +349,7 @@ function SeriesQuantity({
 
 // ── Scalar quantities — one censoring-aware table, faceted by scenario ──────
 
-function ScalarBand({
+export function ScalarBand({
   q50,
   q05,
   q95,
