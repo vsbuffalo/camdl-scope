@@ -587,7 +587,10 @@ export function QuantitiesTab({ runId }: { runId: string }) {
     [scenarios, reference],
   )
   const activeScenarios = useMemo(() => {
-    const set = new Set(selectedScenarios ?? scenarios)
+    // Default: with a pinned reference, open on the clean posterior predictive
+    // (overlays deselected — add arms deliberately); without one, default to
+    // all arms so a scenario-only sidecar doesn't open empty.
+    const set = new Set(selectedScenarios ?? (reference ? [] : scenarios))
     return scenarios.filter((s) => s === reference || set.has(s))
   }, [selectedScenarios, scenarios, reference])
   const toggleScenario = (s: string) =>
