@@ -429,16 +429,33 @@ def _param_posterior(
     )
 
 
+# The objective aux columns exposed as pairable/plottable targets, in display
+# order. MH/ODE traces carry ``log_posterior`` (marginal) + ``log_likelihood``.
+# PGAS (chain-binomial) traces decompose differently: ``log_posterior`` there is
+# the COMPLETE-DATA log posterior (path-dominated — see Backend.logpost_label),
+# ``obs_ll`` is the data-fit term, ``transition_ll`` the latent-path term, and
+# ``log_complete_data_ll`` their combined likelihood. Exposing the decomposition
+# lets a PGAS fit pair params against the data fit (obs_ll) rather than only
+# the path-dominated total.
+_OBJECTIVE_FAMILY = (
+    "log_posterior",
+    "log_likelihood",
+    "obs_ll",
+    "transition_ll",
+    "log_complete_data_ll",
+)
+
+
 def _present_objectives(rs: RunState) -> list[str]:
-    """The objective aux columns (``log_posterior`` / ``log_likelihood``) present
-    in every draw-bearing chain — the pooled fit summaries shown alongside the
-    params in the draws, pair plot, and posterior forest. Gated on the chains
-    that actually contribute draws: a chain still warming up carries no aux, and
-    must not veto an objective for the chains that have sampled."""
+    """The objective aux columns present in every draw-bearing chain — the
+    pooled fit summaries shown alongside the params in the draws, pair plot,
+    posterior forest, and traces. Gated on the chains that actually contribute
+    draws: a chain still warming up carries no aux, and must not veto an
+    objective for the chains that have sampled."""
     contributing = [b for b in rs.chains.values() if b.n]
     return [
         c
-        for c in ("log_posterior", "log_likelihood")
+        for c in _OBJECTIVE_FAMILY
         if c in AUX_COLUMNS and contributing and all(c in b.aux for b in contributing)
     ]
 
