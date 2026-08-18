@@ -16,13 +16,13 @@ With [uv](https://docs.astral.sh/uv/):
 
 ```sh
 # Install the `camdl-watch` command on your PATH:
-uv tool install git+https://github.com/vsbuffalo/camdl-watch
+uv tool install git+https://github.com/vsbuffalo/camdl-scope
 
 # Or run it once without installing:
-uvx --from git+https://github.com/vsbuffalo/camdl-watch camdl-watch --port 8800
+uvx --from git+https://github.com/vsbuffalo/camdl-scope camdl-watch --port 8800
 
 # Or add it to a project's dev dependencies:
-uv add --dev git+https://github.com/vsbuffalo/camdl-watch
+uv add --dev git+https://github.com/vsbuffalo/camdl-scope
 ```
 
 From a local checkout, swap the git URL for the path (add `--editable` to track edits).
