@@ -185,3 +185,44 @@ def test_warnings_shape():
     order = {"error": 0, "warn": 1, "info": 2}
     sev = [order[w.severity.value] for w in ws]
     assert sev == sorted(sev)
+
+
+# ---------------------------------------------------------------------------
+# Plateau-test memory guard (docs/dev/incidents/2026-08-17-plateau-test-oom.md)
+# ---------------------------------------------------------------------------
+
+
+def test_plateau_test_memory_is_bounded_on_long_traces():
+    """scipy's theilslopes materializes n×n pairwise intermediates; unthinned,
+    a 4-chain × 30k-sweep pooled series would allocate ~29 GB and take the host
+    into swap (as the 6k-sweep PGAS fits did at 7 GB/request). The pooled input
+    must be thinned to a constant cap before Theil–Sen."""
+    import tracemalloc
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from camdl_watch import diagnostics as diag_mod
+    from camdl_watch.state import ChainBuffer
+
+    rng = np.random.default_rng(0)
+    n = 30_000
+    chains = {}
+    for cid in range(1, 5):
+        buf = ChainBuffer(cid=cid, path=Path(f"/nonexistent/chain_{cid}"))
+        buf.iters = np.arange(n, dtype=np.int64)
+        # A plateaued ll series: flat with noise.
+        buf.aux["log_likelihood"] = -500.0 + rng.normal(0, 1.0, n)
+        chains[cid] = buf
+    run = SimpleNamespace(chains=chains)  # _plateau_test reads only .chains
+
+    tracemalloc.start()
+    plateaued, slope = diag_mod._plateau_test(run)
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    assert plateaued is True
+    assert slope is not None and abs(slope) < 1.0
+    # Capped Theil–Sen intermediates are ~32 MB; leave generous headroom while
+    # staying far below the quadratic regime (which would be gigabytes).
+    assert peak < 200 * 1024 * 1024, f"plateau test allocated {peak/2**20:.0f} MB"

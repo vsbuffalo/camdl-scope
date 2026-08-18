@@ -74,6 +74,16 @@ def _az_safe(fn, arr: np.ndarray) -> float:
         return float("nan")
 
 
+# Cap on the pooled points handed to Theil–Sen. scipy's ``theilslopes``
+# materializes ALL pairwise differences — n×n float64 intermediates, several of
+# them — so memory is quadratic: 12k pooled points (4 chains × a 6k-sweep PGAS
+# trace) allocated ~7 GB *per request* and took two watchers into system swap.
+# The plateau test only asks "is the trailing slope ≈ 0 relative to the ll
+# scale"; an evenly-strided subsample answers that just as well, and the cap
+# makes the cost constant (2000² ≈ 32 MB per intermediate).
+_PLATEAU_MAX_POINTS = 2000
+
+
 def _plateau_test(
     run: RunState, window_frac: float = 0.5, min_pts: int = 20
 ) -> tuple[bool | None, float | None]:
@@ -85,7 +95,9 @@ def _plateau_test(
     small relative to the ll scale. Returns ``(plateaued, slope)``.
 
     ``slope`` is in ll-units per unit-normalized-sweep; we threshold it against
-    the trailing ll standard deviation, so it's scale-aware."""
+    the trailing ll standard deviation, so it's scale-aware. Pooled input is
+    thinned to ``_PLATEAU_MAX_POINTS`` (see note above) — Theil–Sen's pairwise
+    memory is quadratic in n."""
     from scipy import stats as sstats
 
     xs: list[np.ndarray] = []
@@ -113,6 +125,11 @@ def _plateau_test(
         return None, None
     x = np.concatenate(xs)
     y = np.concatenate(ys)
+    # Evenly-strided thin across the pooled (per-chain-concatenated) series —
+    # ordering doesn't matter to Theil–Sen, which pairs on x values.
+    if x.size > _PLATEAU_MAX_POINTS:
+        idx = np.linspace(0, x.size - 1, _PLATEAU_MAX_POINTS).astype(np.intp)
+        x, y = x[idx], y[idx]
     if x.max() - x.min() < 1e-9:
         return True, 0.0
     xn = (x - x.min()) / (x.max() - x.min())  # in [0,1]
