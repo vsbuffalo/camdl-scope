@@ -24,3 +24,20 @@ export function dayToDate(
   const scale = (cal.days_per_unit || 1) * DAY_MS
   return (t: number) => new Date(originMs + t * scale)
 }
+
+/**
+ * Is a quantity's declared ``unit`` an ANCHORED time point — a model-time value
+ * that should render as a calendar date (`time_of_max(I)` → 2026-08-12)?
+ * Duration units ("days", "weeks") are deliberately NOT time points: a
+ * generation interval is a length, not a location, and must never be anchored
+ * to the calendar origin. camdl's manifest is expected to mark points with
+ * ``unit: "time"`` (spec §quantities: "a time (a date in an anchored model)").
+ */
+export function isTimePointUnit(unit: string | null | undefined): boolean {
+  return unit === 'time' || unit === 'date'
+}
+
+/** ISO day string (UTC) for a model-time value under the fit's calendar. */
+export function fmtModelDate(toDate: (t: number) => Date, t: number): string {
+  return toDate(t).toISOString().slice(0, 10)
+}

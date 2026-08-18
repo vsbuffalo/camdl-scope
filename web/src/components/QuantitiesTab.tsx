@@ -14,7 +14,7 @@ import { ByIndexPlot, LevelLegend } from '@/components/ByIndexPlot'
 import { Card } from '@/components/ui/card'
 import { fmtTick, fmtValue } from '@/lib/format'
 import { buildByIndexProfile, type IndexRecord } from '@/lib/byindex'
-import { dayToDate } from '@/lib/calendar'
+import { dayToDate, fmtModelDate, isTimePointUnit } from '@/lib/calendar'
 import { buildScenarioColors, SCENARIO_REFERENCE } from '@/lib/scenario'
 import { cn } from '@/lib/utils'
 
@@ -354,13 +354,35 @@ export function ScalarBand({
   q50,
   q05,
   q95,
+  unit,
+  toDate,
 }: {
   q50: number | null | undefined
   q05: number | null | undefined
   q95: number | null | undefined
+  /** The quantity's declared unit from the manifest. An anchored time point
+   *  (``unit: "time"``) renders as calendar dates when the fit has a calendar;
+   *  any other non-null unit (a duration like "days", a rate) is appended as a
+   *  suffix. camdl currently emits ``unit: null`` — this lights up when the
+   *  manifest starts carrying units. */
+  unit?: string | null
+  toDate?: ((t: number) => Date) | null
 }) {
   if (q50 == null) {
     return <span className="text-neutral-400">— censored —</span>
+  }
+  if (unit != null && isTimePointUnit(unit) && toDate) {
+    return (
+      <span>
+        <span className="font-semibold text-neutral-900">
+          {fmtModelDate(toDate, q50)}
+        </span>{' '}
+        <span className="text-neutral-500">
+          [{q05 != null ? fmtModelDate(toDate, q05) : '—'},{' '}
+          {q95 != null ? fmtModelDate(toDate, q95) : '—'}]
+        </span>
+      </span>
+    )
   }
   return (
     <span>
@@ -368,6 +390,9 @@ export function ScalarBand({
       <span className="text-neutral-500">
         [{fmtValue(q05)}, {fmtValue(q95)}]
       </span>
+      {unit != null && !isTimePointUnit(unit) && (
+        <span className="ml-1 text-[10px] text-neutral-400">{unit}</span>
+      )}
     </span>
   )
 }
@@ -378,12 +403,14 @@ function ScalarTable({
   colorOf,
   infoOf,
   activeScenarios,
+  toDate,
 }: {
   runId: string
   showScenario: boolean
   colorOf: (scenario: string) => string
   infoOf: Map<string, QuantityInfo>
   activeScenarios: string[]
+  toDate: ((t: number) => Date) | null
 }) {
   const { data, isPending, isError } = useQuantityScalars(runId)
   const hasStrata = useMemo(
@@ -488,7 +515,7 @@ function ScalarTable({
                       </td>
                     )}
                     <td className="px-3 py-1.5 text-right">
-                      <ScalarBand q50={r.q50} q05={r.q05} q95={r.q95} />
+                      <ScalarBand q50={r.q50} q05={r.q05} q95={r.q95} unit={infoOf.get(r.name)?.unit} toDate={toDate} />
                     </td>
                     <td
                       className={cn(
@@ -608,6 +635,7 @@ export function QuantitiesTab({ runId }: { runId: string }) {
           colorOf={colorOf}
           infoOf={infoOf}
           activeScenarios={activeScenarios}
+          toDate={toDate}
         />
       )}
       {series.map((q) => (

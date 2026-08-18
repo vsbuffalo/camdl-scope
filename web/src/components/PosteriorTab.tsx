@@ -6,6 +6,7 @@ import { includedChains, type ChainControls } from '@/lib/chains'
 import { WarmupControl } from '@/components/WarmupControl'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { ScalarBand } from '@/components/QuantitiesTab'
+import { dayToDate } from '@/lib/calendar'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
@@ -40,6 +41,7 @@ function QuantityScalarSection({ runId }: { runId: string }) {
 
   if (rows.length === 0) return null
   const infoOf = new Map(scalarInfo.map((q) => [q.name, q]))
+  const toDate = dayToDate(run.data?.calendar)
 
   return (
     <>
@@ -77,7 +79,7 @@ function QuantityScalarSection({ runId }: { runId: string }) {
                 )}
               </span>
               <span className="shrink-0 font-mono text-[12px] tabular-nums">
-                <ScalarBand q50={r.q50} q05={r.q05} q95={r.q95} />
+                <ScalarBand q50={r.q50} q05={r.q05} q95={r.q95} unit={info?.unit} toDate={toDate} />
               </span>
             </div>
           )
