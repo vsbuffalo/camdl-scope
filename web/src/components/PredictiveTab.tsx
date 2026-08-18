@@ -1178,11 +1178,28 @@ export function PredictiveTab({ runId }: { runId: string }) {
 
       {data && strata.length === 0 && !isPending && (
         <div className="border-t border-neutral-100">
-          <MutedNotice
-            bordered={false}
-            title="No predictive points"
-            detail="This stream's predictive artifact has no points for the selected horizon(s)."
-          />
+          {byScenario && activeScenarios.length === 0 ? (
+            <MutedNotice
+              bordered={false}
+              title="No arms selected"
+              detail={
+                <>
+                  This sidecar carries no as-fitted posterior predictive to fall
+                  back on — predict ran with an explicit{' '}
+                  <span className="font-mono">--scenario</span> list. Check a
+                  scenario above, or include{' '}
+                  <span className="font-mono">fitted</span> in the list to
+                  always have the reference arm.
+                </>
+              }
+            />
+          ) : (
+            <MutedNotice
+              bordered={false}
+              title="No predictive points"
+              detail="This stream's predictive artifact has no points for the selected horizon(s)."
+            />
+          )}
         </div>
       )}
 
