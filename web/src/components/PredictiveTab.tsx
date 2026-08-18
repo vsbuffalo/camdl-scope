@@ -66,6 +66,7 @@ function PredictivePanel({
   dense,
   hiddenLayers,
   toDate,
+  windowMode,
 }: {
   title: string
   series: OverlaySeries[]
@@ -73,6 +74,9 @@ function PredictivePanel({
   dense: boolean
   hiddenLayers: ReadonlySet<PredLayer>
   toDate: ((t: number) => Date) | null
+  /** 'data' clips the ribbons to the observed window (y rescales to the fit);
+   *  'full' shows the whole predictive extent with a dashed rule at data end. */
+  windowMode: 'data' | 'full'
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -97,6 +101,13 @@ function PredictivePanel({
       .filter((o) => o.value != null && Number.isFinite(o.value))
       .sort((a, b) => a.time - b.time)
 
+    // The forecast boundary: where this stratum's observations stop. In 'data'
+    // mode ribbons are clipped here (auto x/y domains then rescale to the fit
+    // window); in 'full' mode a dashed rule marks it when a forecast extends
+    // past it (e.g. a scenario with `simulate { to = ... }`).
+    const obsEnd = obs.length ? Math.max(...obs.map((o) => o.time)) : null
+    const clip = windowMode === 'data' && obsEnd != null
+
     // Numeric time → Date when the fit carries a calendar, so the shared x-axis
     // reads as real dates; otherwise the raw numeric index.
     const xOf = (d: { time: number }) => (toDate ? toDate(d.time) : d.time)
@@ -107,8 +118,11 @@ function PredictivePanel({
     const showP50 = !hiddenLayers.has('p50')
     const showMedian = !hiddenLayers.has('median')
     const marks: Plot.Markish[] = []
+    let predEnd = -Infinity
     for (const s of series) {
-      const pred = [...s.pred].sort((a, b) => a.time - b.time)
+      let pred = [...s.pred].sort((a, b) => a.time - b.time)
+      if (pred.length) predEnd = Math.max(predEnd, pred[pred.length - 1]!.time)
+      if (clip) pred = pred.filter((p) => p.time <= obsEnd!)
       if (showP90) {
         marks.push(
           Plot.areaY(pred, {
@@ -136,6 +150,17 @@ function PredictivePanel({
           Plot.line(pred, { x: xOf, y: 'q50', stroke: s.color, strokeWidth: 1.3 }),
         )
       }
+    }
+    // Forecast boundary rule: only when predictions actually extend past the
+    // observed window (and it isn't clipped away).
+    if (!clip && obsEnd != null && predEnd > obsEnd) {
+      marks.push(
+        Plot.ruleX([toDate ? toDate(obsEnd) : obsEnd], {
+          stroke: '#a3a3a3',
+          strokeWidth: 1,
+          strokeDasharray: '3,3',
+        }),
+      )
     }
     marks.push(
       Plot.line(obs, {
@@ -182,7 +207,7 @@ function PredictivePanel({
     return () => {
       node.remove()
     }
-  }, [series, observed, width, dense, hiddenLayers, toDate])
+  }, [series, observed, width, dense, hiddenLayers, toDate, windowMode])
 
   const figRef = useRef<HTMLDivElement>(null)
 
@@ -754,6 +779,11 @@ export function PredictiveTab({ runId }: { runId: string }) {
   const [hiddenLayers, setHiddenLayers] = useState<ReadonlySet<PredLayer>>(
     () => new Set(),
   )
+  // Time window of the series view: the full predictive extent (forecasts and
+  // scenario runs past the data, with a dashed rule at data end), or clipped to
+  // the observed window so the axes rescale to the fit itself. Only offered
+  // when some prediction actually extends past the data.
+  const [windowMode, setWindowMode] = useState<'data' | 'full'>('full')
 
   const horizons = data?.horizons ?? []
   const scenarios = useMemo(() => data?.scenarios ?? [], [data])
@@ -856,6 +886,18 @@ export function PredictiveTab({ runId }: { runId: string }) {
     byScenario,
     scenarioColors,
   ])
+
+  // Does any prediction extend past the observed window (a free-forward
+  // forecast, or a scenario with a later `simulate { to }`)? Gates the window
+  // toggle — with nothing beyond the data there's nothing to clip.
+  const hasForecast = useMemo(() => {
+    if (!data) return false
+    let obsMax = -Infinity
+    for (const o of data.observed)
+      if (o.value != null && Number.isFinite(o.value)) obsMax = Math.max(obsMax, o.time)
+    if (!Number.isFinite(obsMax)) return false
+    return data.predictive.some((p) => p.time > obsMax)
+  }, [data])
 
   // The stream's index dimensions are the "colour by" options; guard the stored
   // choice against a stream switch that doesn't have it.
@@ -1178,6 +1220,21 @@ export function PredictiveTab({ runId }: { runId: string }) {
                     })
                   }
                 />
+                {hasForecast && (
+                  <>
+                    <Segmented
+                      label="Window"
+                      options={['full', 'data']}
+                      value={windowMode}
+                      onChange={(v) => setWindowMode(v as 'data' | 'full')}
+                    />
+                    {windowMode === 'full' && (
+                      <span className="font-mono text-[10px] text-neutral-400">
+                        dashed rule = end of observed data · beyond it is forecast
+                      </span>
+                    )}
+                  </>
+                )}
               </div>
               {strata.map((s) => {
                 const lbl = stratumLabel(s.stratum)
@@ -1191,6 +1248,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
                     dense={s.series.length <= 2}
                     hiddenLayers={hiddenLayers}
                     toDate={toDate}
+                    windowMode={windowMode}
                   />
                 )
               })}
