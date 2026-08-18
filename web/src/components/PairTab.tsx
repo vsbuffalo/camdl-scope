@@ -34,26 +34,33 @@ export function PairTab({
   // Which params are plotted. Initialized to the run's recommended set (scalars
   // + hyperparams; family leaves hidden) and RESET whenever the run changes —
   // tracked by a ref so a same-run refetch never clobbers the user's edits.
+  // Objectives (log_posterior, obs_ll, …) are selected separately below.
   const [selection, setSelection] = useState<Set<string>>(() => new Set())
+  // Which objective columns join the grid as extra rows/columns. Separate from
+  // the param selection — they're targets to pair *against*, not estimands —
+  // with their own always-visible checkbox row. Defaults to log_posterior.
+  const [targets, setTargets] = useState<Set<string>>(() => new Set())
   const initedRun = useRef<string | null>(null)
   useEffect(() => {
     if (!groups || !draws.data || initedRun.current === runId) return
+    setSelection(new Set(groups.default_selection))
     const objs = draws.data.objectives ?? []
-    const base = [...groups.default_selection]
-    if (objs.includes('log_posterior')) base.push('log_posterior')
-    setSelection(new Set(base))
+    setTargets(new Set(objs.includes('log_posterior') ? ['log_posterior'] : []))
     initedRun.current = runId
   }, [groups, draws.data, runId])
 
-  // Render only the selected variables: estimated params first, then objectives
-  // (e.g. log_posterior / log_likelihood), in that order, filtered to the
-  // selection. The pair plot handles the objective columns as ordinary variables.
+  const objectives = draws.data?.objectives ?? []
+
+  // Render the selected variables: estimated params first, then the checked
+  // objective targets, in wire order. The pair plot handles objective columns
+  // as ordinary variables.
   const visibleParams = useMemo(() => {
-    const candidates = draws.data
-      ? [...draws.data.params, ...draws.data.objectives]
-      : []
-    return candidates.filter((p) => selection.has(p))
-  }, [draws.data, selection])
+    if (!draws.data) return []
+    return [
+      ...draws.data.params.filter((p) => selection.has(p)),
+      ...draws.data.objectives.filter((o) => targets.has(o)),
+    ]
+  }, [draws.data, selection, targets])
 
   // Any visible param carrying a prior curve → the breadth toggle is meaningful.
   const anyPrior = useMemo(
@@ -90,10 +97,49 @@ export function PairTab({
       {groups && (
         <PairSettings
           groups={groups}
-          objectives={draws.data?.objectives ?? []}
           selection={selection}
           onChange={setSelection}
         />
+      )}
+
+      {/* Objective targets (log_posterior, obs_ll, …) join the grid as extra
+          rows — their own control, not buried in the ⚙ params panel. On a PGAS
+          fit log_posterior is the COMPLETE-DATA log posterior (path-dominated);
+          obs_ll is the data-fit term to pair params against. */}
+      {objectives.length > 0 && (
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-neutral-100 px-3 py-2">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+            Objectives
+          </span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {objectives.map((name) => {
+              const on = targets.has(name)
+              return (
+                <label
+                  key={name}
+                  className="flex cursor-pointer items-center gap-1.5 font-mono text-xs"
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() =>
+                      setTargets((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(name)) next.delete(name)
+                        else next.add(name)
+                        return next
+                      })
+                    }
+                    className="size-3 accent-neutral-800"
+                  />
+                  <span className={on ? 'text-neutral-900' : 'text-neutral-500'}>
+                    {name}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        </div>
       )}
 
       {draws.isPending && <ForestSkeleton rows={3} />}

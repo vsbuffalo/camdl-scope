@@ -7,12 +7,6 @@ type ParamGroups = RunDetail['groups']
 
 interface PairSettingsProps {
   groups: ParamGroups
-  /**
-   * Auxiliary objective columns (e.g. `log_posterior`, `log_likelihood`) that
-   * can also be plotted as ordinary corner-plot variables. Empty hides the
-   * section entirely.
-   */
-  objectives: string[]
   /** The set of currently-visible param names (controlled by the parent). */
   selection: Set<string>
   onChange: (next: Set<string>) => void
@@ -27,7 +21,6 @@ interface PairSettingsProps {
  */
 export function PairSettings({
   groups,
-  objectives,
   selection,
   onChange,
 }: PairSettingsProps) {
@@ -36,14 +29,12 @@ export function PairSettings({
 
   const total =
     groups.scalars.length +
-    groups.families.reduce((acc, f) => acc + f.members.length, 0) +
-    objectives.length
+    groups.families.reduce((acc, f) => acc + f.members.length, 0)
   const count = selection.size
 
   const allParams = [
     ...groups.scalars,
     ...groups.families.flatMap((f) => f.members),
-    ...objectives,
   ]
 
   const toggle = (name: string) => {
@@ -181,26 +172,6 @@ export function PairSettings({
             </div>
           )}
 
-          {objectives.length > 0 && (
-            <div
-              className={cn(
-                (groups.scalars.length > 0 || groups.families.length > 0) &&
-                  'mt-2.5 border-t border-neutral-200 pt-2.5',
-              )}
-            >
-              <SectionLabel>objectives</SectionLabel>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {objectives.map((name) => (
-                  <Check
-                    key={name}
-                    label={name}
-                    checked={selection.has(name)}
-                    onChange={() => toggle(name)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
