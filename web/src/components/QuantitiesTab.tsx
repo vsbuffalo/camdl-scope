@@ -625,6 +625,7 @@ export function QuantitiesTab({ runId }: { runId: string }) {
             selected={activeScenarios}
             colorOf={colorOf}
             onToggle={toggleScenario}
+            onSetAll={setSelectedScenarios}
           />
         </div>
       )}

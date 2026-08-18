@@ -1130,6 +1130,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
             selected={activeScenarios}
             colorOf={(s) => scenarioColors.get(s) ?? SCENARIO_REFERENCE}
             onToggle={toggleScenario}
+            onSetAll={setSelectedScenarios}
           />
         )}
         {horizons.length > 1 && (
