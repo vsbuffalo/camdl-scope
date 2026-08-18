@@ -17,7 +17,7 @@ import {
   NEUTRAL,
   type IndexRecord,
 } from '@/lib/byindex'
-import { buildScenarioColors, SCENARIO_REFERENCE } from '@/lib/scenario'
+import { buildScenarioColors, referenceScenario, SCENARIO_REFERENCE } from '@/lib/scenario'
 import { cn } from '@/lib/utils'
 
 // Horizon ink (used when there is no scenario overlay): free_forward reads blue,
@@ -800,10 +800,18 @@ export function PredictiveTab({ runId }: { runId: string }) {
     return horizons.filter((h) => set.has(h))
   }, [selected, horizons])
 
+  // The reference arm (fitted / as_fitted / baseline) is the posterior
+  // predictive itself — pinned always-on; the checkbox selection governs only
+  // the scenario overlays on top of it, so `none` never blanks the tab.
+  const reference = useMemo(() => referenceScenario(scenarios), [scenarios])
+  const overlayOptions = useMemo(
+    () => scenarios.filter((s) => s !== reference),
+    [scenarios, reference],
+  )
   const activeScenarios = useMemo(() => {
     const set = new Set(selectedScenarios ?? scenarios)
-    return scenarios.filter((s) => set.has(s))
-  }, [selectedScenarios, scenarios])
+    return scenarios.filter((s) => s === reference || set.has(s))
+  }, [selectedScenarios, scenarios, reference])
 
   const toggleHorizon = (h: string) =>
     setSelected(
@@ -1126,11 +1134,12 @@ export function PredictiveTab({ runId }: { runId: string }) {
         )}
         {byScenario && (
           <ScenarioChecks
-            options={scenarios}
-            selected={activeScenarios}
+            options={overlayOptions}
+            selected={activeScenarios.filter((s) => s !== reference)}
             colorOf={(s) => scenarioColors.get(s) ?? SCENARIO_REFERENCE}
             onToggle={toggleScenario}
             onSetAll={setSelectedScenarios}
+            pinned={reference}
           />
         )}
         {horizons.length > 1 && (

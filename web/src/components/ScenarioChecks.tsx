@@ -17,6 +17,7 @@ export function ScenarioChecks({
   colorOf,
   onToggle,
   onSetAll,
+  pinned,
 }: {
   options: readonly string[]
   selected: readonly string[]
@@ -24,6 +25,10 @@ export function ScenarioChecks({
   onToggle: (s: string) => void
   /** Replace the whole selection (the `all` / `none` quick actions). */
   onSetAll: (names: string[]) => void
+  /** The always-shown reference arm (the as-fitted posterior predictive) —
+   *  displayed as a non-toggleable chip; `options` and `all`/`none` govern
+   *  only the scenario overlays on top of it. */
+  pinned?: string | null
 }) {
   const many = options.length > COLLAPSE_OVER
   // User toggle overrides the size-based default; null = no override yet.
@@ -48,6 +53,21 @@ export function ScenarioChecks({
       ) : (
         <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
           Scenario
+        </span>
+      )}
+
+      {pinned && (
+        <span
+          className="flex items-center gap-1.5 font-mono text-xs"
+          title="The as-fitted posterior predictive — always shown; scenarios overlay it."
+        >
+          <span
+            className="inline-block size-2 shrink-0 rounded-[1px]"
+            style={{ background: colorOf(pinned) }}
+            aria-hidden
+          />
+          <span className="text-neutral-900">{pinned}</span>
+          <span className="text-[10px] text-neutral-400">always</span>
         </span>
       )}
 

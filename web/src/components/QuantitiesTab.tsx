@@ -15,7 +15,7 @@ import { Card } from '@/components/ui/card'
 import { fmtTick, fmtValue } from '@/lib/format'
 import { buildByIndexProfile, type IndexRecord } from '@/lib/byindex'
 import { dayToDate, fmtModelDate, isTimePointUnit } from '@/lib/calendar'
-import { buildScenarioColors, SCENARIO_REFERENCE } from '@/lib/scenario'
+import { buildScenarioColors, referenceScenario, SCENARIO_REFERENCE } from '@/lib/scenario'
 import { cn } from '@/lib/utils'
 
 const AXIS = '#737373'
@@ -579,10 +579,17 @@ export function QuantitiesTab({ runId }: { runId: string }) {
   const [selectedScenarios, setSelectedScenarios] = useState<readonly string[] | null>(
     null,
   )
+  // The reference arm (fitted / as_fitted / baseline) is pinned always-on;
+  // the selection governs only the scenario overlays (see PredictiveTab).
+  const reference = useMemo(() => referenceScenario(scenarios), [scenarios])
+  const overlayOptions = useMemo(
+    () => scenarios.filter((s) => s !== reference),
+    [scenarios, reference],
+  )
   const activeScenarios = useMemo(() => {
     const set = new Set(selectedScenarios ?? scenarios)
-    return scenarios.filter((s) => set.has(s))
-  }, [selectedScenarios, scenarios])
+    return scenarios.filter((s) => s === reference || set.has(s))
+  }, [selectedScenarios, scenarios, reference])
   const toggleScenario = (s: string) =>
     setSelectedScenarios(
       activeScenarios.includes(s)
@@ -621,11 +628,12 @@ export function QuantitiesTab({ runId }: { runId: string }) {
       {showScenario && (
         <div className="px-1">
           <ScenarioChecks
-            options={scenarios}
-            selected={activeScenarios}
+            options={overlayOptions}
+            selected={activeScenarios.filter((s) => s !== reference)}
             colorOf={colorOf}
             onToggle={toggleScenario}
             onSetAll={setSelectedScenarios}
+            pinned={reference}
           />
         </div>
       )}
