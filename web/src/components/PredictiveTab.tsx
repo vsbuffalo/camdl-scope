@@ -3,7 +3,6 @@ import * as Plot from '@observablehq/plot'
 import type { ObservedPoint, PredictivePoint } from '@/api/client'
 import { usePredictive, useRun } from '@/api/queries'
 import { ForestSkeleton, MutedNotice, NoPosteriorNotice } from '@/components/States'
-import { ScenarioChecks } from '@/components/ScenarioChecks'
 import { Figure } from '@/components/Figure'
 import { ByIndexPlot, LevelLegend } from '@/components/ByIndexPlot'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
@@ -20,14 +19,9 @@ import {
 import { buildScenarioColors, referenceScenario, SCENARIO_REFERENCE } from '@/lib/scenario'
 import { cn } from '@/lib/utils'
 
-// Horizon ink (used when there is no scenario overlay): free_forward reads blue,
-// one_step green, anything else neutral.
-const HORIZON_MEDIAN: Record<string, string> = {
-  free_forward: '#2563eb',
-  one_step: '#16a34a',
-}
-const HORIZON_FALLBACK = '#737373'
-const horizonColor = (h: string) => HORIZON_MEDIAN[h] ?? HORIZON_FALLBACK
+// The one-step tracking check's ink. The fitted free-run draws in the dark
+// SCENARIO_REFERENCE; scenario overlays use the shared scenario palette.
+const ONE_STEP = '#16a34a'
 
 const OBSERVED = '#171717' // neutral-900 — the data, distinct from every prediction
 const AXIS = '#737373'
@@ -44,6 +38,23 @@ function stratumLabel(stratum: Record<string, string>): string {
 
 /** One overlaid ribbon (a scenario, or a horizon): its color + points. */
 type OverlaySeries = { key: string; color: string; pred: PredictivePoint[] }
+
+/**
+ * One selectable prediction: a `(scenario, horizon)` block that actually
+ * exists in the artifact. The selector lists these 1:1 — never a
+ * scenario × horizon filter grid, most of which doesn't exist (scenarios are
+ * free-running by nature; the one-step check is fitted-only by design) —
+ * so checking an entry always draws it. Fitted arms get plain-language
+ * labels: the free-run posterior predictive is `fitted`, the data-conditioned
+ * tracking check `one-step`; scenario overlays keep their names.
+ */
+type Arm = {
+  key: string // `${scenario}|${horizon}`
+  scenario: string
+  horizon: string
+  label: string
+  color: string
+}
 
 /** Independently toggleable layers of a predictive ribbon. */
 type PredLayer = 'median' | 'p50' | 'p90'
@@ -65,6 +76,8 @@ function PredictivePanel({
   observed,
   dense,
   hiddenLayers,
+  obsLine,
+  logY,
   toDate,
   windowMode,
 }: {
@@ -73,6 +86,11 @@ function PredictivePanel({
   observed: ObservedPoint[]
   dense: boolean
   hiddenLayers: ReadonlySet<PredLayer>
+  /** Join the observed dots with a faint line (off = dots only). */
+  obsLine: boolean
+  /** Log y-axis. Domain spans the positive plotted values; zeros (legal in
+   *  count streams) clamp to the axis floor rather than breaking the scale. */
+  logY: boolean
   toDate: ((t: number) => Date) | null
   /** 'data' clips the ribbons to the observed window (y rescales to the fit);
    *  'full' shows the whole predictive extent with a dashed rule at data end. */
@@ -117,12 +135,33 @@ function PredictivePanel({
     const showP90 = !hiddenLayers.has('p90')
     const showP50 = !hiddenLayers.has('p50')
     const showMedian = !hiddenLayers.has('median')
+    // For the log y-domain: track the positive extent of what's actually
+    // drawn (visible layers + observed). Zeros stay out of the domain and
+    // clamp to the floor.
+    let yLo = Infinity
+    let yHi = -Infinity
+    const see = (v: number) => {
+      if (!Number.isFinite(v)) return
+      if (v > 0 && v < yLo) yLo = v
+      if (v > yHi) yHi = v
+    }
     const marks: Plot.Markish[] = []
     let predEnd = -Infinity
     for (const s of series) {
       let pred = [...s.pred].sort((a, b) => a.time - b.time)
       if (pred.length) predEnd = Math.max(predEnd, pred[pred.length - 1]!.time)
       if (clip) pred = pred.filter((p) => p.time <= obsEnd!)
+      for (const p of pred) {
+        if (showP90) {
+          see(p.q05)
+          see(p.q95)
+        }
+        if (showP50) {
+          see(p.q25)
+          see(p.q75)
+        }
+        if (showMedian) see(p.q50)
+      }
       if (showP90) {
         marks.push(
           Plot.areaY(pred, {
@@ -162,14 +201,18 @@ function PredictivePanel({
         }),
       )
     }
+    if (obsLine) {
+      marks.push(
+        Plot.line(obs, {
+          x: xOf,
+          y: 'value',
+          stroke: OBSERVED,
+          strokeWidth: 0.75,
+          strokeOpacity: 0.4,
+        }),
+      )
+    }
     marks.push(
-      Plot.line(obs, {
-        x: xOf,
-        y: 'value',
-        stroke: OBSERVED,
-        strokeWidth: 0.75,
-        strokeOpacity: 0.4,
-      }),
       Plot.dot(obs, {
         x: xOf,
         y: 'value',
@@ -180,6 +223,14 @@ function PredictivePanel({
       }),
       Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }),
     )
+    for (const o of obs) see(o.value!)
+
+    // Log scale needs a strictly positive domain: span the positive plotted
+    // values (slightly padded) and clamp, so zero-valued points/band edges pin
+    // to the axis floor instead of vanishing. All-zero panels fall back to
+    // linear.
+    const logDomain: [number, number] | null =
+      logY && Number.isFinite(yLo) && yHi > 0 ? [yLo * 0.8, yHi * 1.1] : null
 
     const node = Plot.plot({
       width,
@@ -199,6 +250,9 @@ function PredictivePanel({
         ticks: 5,
         tickFormat: (d: number) => fmtTick(d),
         grid: true,
+        ...(logDomain
+          ? { type: 'log' as const, domain: logDomain, clamp: true }
+          : {}),
       },
       marks,
     })
@@ -207,7 +261,7 @@ function PredictivePanel({
     return () => {
       node.remove()
     }
-  }, [series, observed, width, dense, hiddenLayers, toDate, windowMode])
+  }, [series, observed, width, dense, hiddenLayers, obsLine, logY, toDate, windowMode])
 
   const figRef = useRef<HTMLDivElement>(null)
 
@@ -615,42 +669,92 @@ function PitPlot({ pit }: { pit: number[] }) {
   )
 }
 
-/** Flat, mono checkbox group — multi-select horizons that overlay in the panel. */
-function HorizonChecks({
-  options,
+/** Above this many predictions the checkbox row collapses behind a count
+ *  summary — a big scenario sweep otherwise floods the control strip. */
+const ARMS_COLLAPSE_OVER = 8
+
+/**
+ * The Predictions selector: one checkbox per {@link Arm}, with `all`/`none`
+ * quick actions. Flat — no horizon gate, no pinned entries: every checkbox
+ * maps to one existing `(scenario, horizon)` block and toggles exactly that.
+ */
+function ArmChecks({
+  arms,
   selected,
   onToggle,
+  onSetAll,
 }: {
-  options: readonly string[]
-  selected: readonly string[]
-  onToggle: (h: string) => void
+  arms: readonly Arm[]
+  selected: ReadonlySet<string>
+  onToggle: (key: string) => void
+  onSetAll: (keys: string[]) => void
 }) {
+  const many = arms.length > ARMS_COLLAPSE_OVER
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
+  const open = userOpen ?? !many
+
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
-        Horizon
+      {many ? (
+        <button
+          type="button"
+          onClick={() => setUserOpen(!open)}
+          aria-expanded={open}
+          className="flex items-baseline gap-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400 transition-colors hover:text-neutral-600"
+        >
+          <span>{open ? '▾' : '▸'}</span>
+          <span>Predictions</span>
+          <span className="font-mono tabular-nums normal-case">
+            ({selected.size}/{arms.length})
+          </span>
+        </button>
+      ) : (
+        <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+          Predictions
+        </span>
+      )}
+
+      <span className="flex items-center gap-2 font-mono text-[10px] text-neutral-400">
+        <button
+          type="button"
+          onClick={() => onSetAll(arms.map((a) => a.key))}
+          className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+        >
+          all
+        </button>
+        <button
+          type="button"
+          onClick={() => onSetAll([])}
+          className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+        >
+          none
+        </button>
       </span>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {options.map((opt) => {
-          const on = selected.includes(opt)
-          return (
-            <label
-              key={opt}
-              className="flex cursor-pointer items-center gap-1.5 font-mono text-xs"
-            >
-              <input
-                type="checkbox"
-                checked={on}
-                onChange={() => onToggle(opt)}
-                className="size-3 accent-neutral-800"
-              />
-              <span className={on ? 'text-neutral-900' : 'text-neutral-500'}>
-                {opt || '∅'}
-              </span>
-            </label>
-          )
-        })}
-      </div>
+
+      {open && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {arms.map((a) => {
+            const on = selected.has(a.key)
+            return (
+              <label
+                key={a.key}
+                className="flex cursor-pointer items-center gap-1.5 font-mono text-xs"
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => onToggle(a.key)}
+                  className="size-3"
+                  style={{ accentColor: a.color }}
+                />
+                <span className={on ? 'text-neutral-900' : 'text-neutral-500'}>
+                  {a.label}
+                </span>
+              </label>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -670,14 +774,25 @@ function LayerSwatch({ layer, on }: { layer: PredLayer; on: boolean }) {
   )
 }
 
-/** Checkbox group toggling each predictive layer (median / 50% / 90%). Checked =
- *  layer shown; unchecking rescales the panel y-axis to what remains + observed. */
+/** Checkbox group toggling each predictive layer (median / 50% / 90%) plus the
+ *  observed connecting line. Checked = shown; unchecking a predictive layer
+ *  rescales the panel y-axis to what remains + observed. The observed *dots*
+ *  are not a layer — they always draw; the toggle governs only the line
+ *  joining them (which can falsely suggest continuity between reports). */
 function LayerChecks({
   hidden,
   onToggle,
+  obsLine,
+  onToggleObsLine,
+  logY,
+  onToggleLogY,
 }: {
   hidden: ReadonlySet<PredLayer>
   onToggle: (layer: PredLayer) => void
+  obsLine: boolean
+  onToggleObsLine: () => void
+  logY: boolean
+  onToggleLogY: () => void
 }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -705,6 +820,32 @@ function LayerChecks({
             </label>
           )
         })}
+        <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
+          <input
+            type="checkbox"
+            checked={obsLine}
+            onChange={onToggleObsLine}
+            className="size-3 accent-neutral-800"
+          />
+          <span
+            className="inline-block h-[1.5px] w-3 rounded-full"
+            style={{ background: obsLine ? OBSERVED : '#a3a3a3', opacity: 0.5 }}
+          />
+          <span className={obsLine ? 'text-neutral-900' : 'text-neutral-500'}>
+            connect observed
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
+          <input
+            type="checkbox"
+            checked={logY}
+            onChange={onToggleLogY}
+            className="size-3 accent-neutral-800"
+          />
+          <span className={logY ? 'text-neutral-900' : 'text-neutral-500'}>
+            log y
+          </span>
+        </label>
       </div>
     </div>
   )
@@ -752,8 +893,11 @@ export function PredictiveTab({ runId }: { runId: string }) {
     activeStream,
   )
 
-  const [selected, setSelected] = useState<readonly string[] | null>(null)
-  const [selectedScenarios, setSelectedScenarios] = useState<readonly string[] | null>(null)
+  // Checked prediction arm keys (`scenario|horizon`); null = the default set.
+  // Arm keys are artifact-specific, so a run switch resets to the default —
+  // a stale key from another run would silently deselect everything.
+  const [selectedArms, setSelectedArms] = useState<readonly string[] | null>(null)
+  useEffect(() => setSelectedArms(null), [runId])
   const [treatment, setTreatment] = useState<string>()
   // Inner view: the time-series ribbons (default), the predicted-vs-observed
   // scatter, the PIT calibration histogram, or the by-index profile. All read
@@ -779,56 +923,81 @@ export function PredictiveTab({ runId }: { runId: string }) {
   const [hiddenLayers, setHiddenLayers] = useState<ReadonlySet<PredLayer>>(
     () => new Set(),
   )
+  // Whether the observed dots are joined by a line. On by default; a display
+  // preference, so it survives stream switches (unlike the layer set).
+  const [obsLine, setObsLine] = useState(true)
+  // Log y-axis for the time-series panels (a display preference, like
+  // obsLine). Exponential growth reads as a straight line.
+  const [logY, setLogY] = useState(false)
   // Time window of the series view: the full predictive extent (forecasts and
   // scenario runs past the data, with a dashed rule at data end), or clipped to
   // the observed window so the axes rescale to the fit itself. Only offered
   // when some prediction actually extends past the data.
   const [windowMode, setWindowMode] = useState<'data' | 'full'>('full')
 
-  const horizons = data?.horizons ?? []
   const scenarios = useMemo(() => data?.scenarios ?? [], [data])
-  // Color by scenario once there's more than one (the comparison axis); else by
-  // horizon, the original behaviour.
-  const byScenario = scenarios.length > 1
   const scenarioColors = useMemo(
     () => buildScenarioColors(scenarios),
     [scenarios],
   )
-
-  const selectedHorizons = useMemo(() => {
-    const set = new Set(selected ?? horizons)
-    return horizons.filter((h) => set.has(h))
-  }, [selected, horizons])
-
-  // The reference arm (fitted / as_fitted / baseline) is the posterior
-  // predictive itself — pinned always-on; the checkbox selection governs only
-  // the scenario overlays on top of it, so `none` never blanks the tab.
+  // The fitted arms (fitted / as_fitted) are not scenarios: they are the
+  // posterior predictive itself (free-run) and its data-conditioned tracking
+  // check (one-step). They get plain-language labels in the selector.
   const reference = useMemo(() => referenceScenario(scenarios), [scenarios])
-  const overlayOptions = useMemo(
-    () => scenarios.filter((s) => s !== reference),
-    [scenarios, reference],
-  )
-  const activeScenarios = useMemo(() => {
-    // Default: with a pinned reference, open on the clean posterior predictive
-    // (overlays deselected — add arms deliberately); without one, default to
-    // all arms so a scenario-only sidecar doesn't open empty.
-    const set = new Set(selectedScenarios ?? (reference ? [] : scenarios))
-    return scenarios.filter((s) => s === reference || set.has(s))
-  }, [selectedScenarios, scenarios, reference])
 
-  const toggleHorizon = (h: string) =>
-    setSelected(
-      selectedHorizons.includes(h)
-        ? selectedHorizons.filter((x) => x !== h)
-        : [...selectedHorizons, h],
-    )
+  // Every (scenario, horizon) block the artifact actually has, as a flat list
+  // of selectable predictions — see {@link Arm}. Fitted arms lead (free-run,
+  // then one-step); scenario overlays follow in artifact order.
+  const arms = useMemo((): Arm[] => {
+    if (!data) return []
+    const seen = new Map<string, Arm>()
+    for (const p of data.predictive) {
+      const key = `${p.scenario}|${p.horizon}`
+      if (seen.has(key)) continue
+      const isRef = p.scenario === reference
+      seen.set(key, {
+        key,
+        scenario: p.scenario,
+        horizon: p.horizon,
+        label: isRef
+          ? p.horizon === 'one_step'
+            ? 'one-step'
+            : 'fitted'
+          : p.horizon === 'free_forward'
+            ? p.scenario
+            : `${p.scenario} · ${p.horizon}`,
+        color: isRef
+          ? p.horizon === 'one_step'
+            ? ONE_STEP
+            : SCENARIO_REFERENCE
+          : (scenarioColors.get(p.scenario) ?? SCENARIO_REFERENCE),
+      })
+    }
+    const rank = (a: Arm) =>
+      a.scenario === reference ? (a.horizon === 'one_step' ? 1 : 0) : 2
+    return [...seen.values()]
+      .map((a, i) => [a, i] as const)
+      .sort((x, y) => rank(x[0]) - rank(y[0]) || x[1] - y[1])
+      .map(([a]) => a)
+  }, [data, reference, scenarioColors])
 
-  const toggleScenario = (s: string) =>
-    setSelectedScenarios(
-      activeScenarios.includes(s)
-        ? activeScenarios.filter((x) => x !== s)
-        : [...activeScenarios, s],
+  // Checked predictions. Default: the fitted arms only (the clean posterior
+  // predictive + tracking check — add overlays deliberately); when the
+  // artifact has no fitted arm, every arm, so a scenario-only sidecar
+  // doesn't open empty.
+  const activeArms = useMemo(() => {
+    const fitted = arms.filter((a) => a.scenario === reference)
+    const def = fitted.length ? fitted.map((a) => a.key) : arms.map((a) => a.key)
+    const set = new Set(selectedArms ?? def)
+    return arms.filter((a) => set.has(a.key))
+  }, [selectedArms, arms, reference])
+
+  const toggleArm = (key: string) => {
+    const cur = activeArms.map((a) => a.key)
+    setSelectedArms(
+      cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key],
     )
+  }
 
   const treatments = data?.treatments ?? []
   const needTreatment = treatments.length > 1
@@ -838,8 +1007,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
       : (treatments[0] ?? '')
 
   // Group the checked predictive points by stratum; within each stratum, one
-  // overlaid arm per (scenario, horizon). Colored by scenario when overlaying
-  // scenarios, else by horizon.
+  // overlaid ribbon per checked arm, in the arm's own ink.
   const strata = useMemo(() => {
     if (!data) return []
     const obsByKey = new Map<string, ObservedPoint[]>()
@@ -850,8 +1018,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
       else obsByKey.set(key, [o])
     }
 
-    const wanted = new Set(selectedHorizons)
-    const wantedScenarios = new Set(activeScenarios)
+    const wanted = new Map(activeArms.map((a) => [a.key, a]))
     const groups = new Map<
       string,
       {
@@ -861,8 +1028,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
       }
     >()
     for (const p of data.predictive) {
-      if (!wanted.has(p.horizon)) continue
-      if (byScenario && !wantedScenarios.has(p.scenario)) continue
+      if (!wanted.has(`${p.scenario}|${p.horizon}`)) continue
       if (needTreatment && p.treatment !== activeTreatment) continue
       const key = JSON.stringify(p.stratum)
       let g = groups.get(key)
@@ -876,27 +1042,37 @@ export function PredictiveTab({ runId }: { runId: string }) {
       else g.byArm.set(armKey, { scenario: p.scenario, horizon: p.horizon, pred: [p] })
     }
 
+    // The observed data is not an arm: it renders regardless of the arm
+    // selection, so a stratum with observations but no checked (or no existing)
+    // predictive series still gets a panel. Deselecting every prediction
+    // blanks the ribbons, never the data.
+    for (const [key, obs] of obsByKey) {
+      if (!groups.has(key))
+        groups.set(key, { key, stratum: obs[0]!.stratum, byArm: new Map() })
+    }
+
     return [...groups.values()].map((g) => ({
       key: g.key,
       stratum: g.stratum,
-      series: [...g.byArm.values()].map((a): OverlaySeries => ({
-        key: `${a.scenario}|${a.horizon}`,
-        color: byScenario
-          ? (scenarioColors.get(a.scenario) ?? SCENARIO_REFERENCE)
-          : horizonColor(a.horizon),
-        pred: a.pred,
-      })),
+      series: [...g.byArm.values()].map((a): OverlaySeries => {
+        const key = `${a.scenario}|${a.horizon}`
+        return {
+          key,
+          color: wanted.get(key)?.color ?? SCENARIO_REFERENCE,
+          pred: a.pred,
+        }
+      }),
       obs: obsByKey.get(g.key) ?? [],
     }))
-  }, [
-    data,
-    selectedHorizons,
-    activeScenarios,
-    needTreatment,
-    activeTreatment,
-    byScenario,
-    scenarioColors,
-  ])
+  }, [data, activeArms, needTreatment, activeTreatment])
+
+  // Every panel is observed-only (no arm checked, or no predictive points for
+  // the selection) — the series view then says so instead of leaving the
+  // ribbons' absence unexplained.
+  const noArms = useMemo(
+    () => strata.length > 0 && strata.every((s) => s.series.length === 0),
+    [strata],
+  )
 
   // Does any prediction extend past the observed window (a free-forward
   // forecast, or a scenario with a later `simulate { to }`)? Gates the window
@@ -975,24 +1151,25 @@ export function PredictiveTab({ runId }: { runId: string }) {
   const scatterHasPoints = points.length > 0
 
   // Per-arm R² for the scatter corner (accuracy is a property of the prediction,
-  // independent of how the points are coloured).
+  // independent of how the points are coloured). Labelled with the arm's
+  // selector label (`fitted`, `one-step`, or the scenario name).
   const r2Lines = useMemo((): R2Line[] => {
-    const byArm = new Map<string, { color: string; pts: { obs: number; pred: number }[]; scenario: string; horizon: string }>()
+    const labelOf = new Map(arms.map((a) => [a.key, a.label]))
+    const byArm = new Map<string, { color: string; pts: { obs: number; pred: number }[]; key: string }>()
     for (const p of matched) {
       let e = byArm.get(p.armKey)
       if (!e) {
-        const [sc, hz] = p.armKey.split('|')
-        e = { color: p.armColor, pts: [], scenario: sc ?? '', horizon: hz ?? '' }
+        e = { color: p.armColor, pts: [], key: p.armKey }
         byArm.set(p.armKey, e)
       }
       e.pts.push({ obs: p.obs, pred: p.pred })
     }
     return [...byArm.values()].map((e) => ({
-      label: byScenario ? e.scenario : e.horizon,
+      label: labelOf.get(e.key) ?? e.key,
       color: e.color,
       r2: rSquared(e.pts),
     }))
-  }, [matched, byScenario])
+  }, [matched, arms])
 
   // Per-group mean residual → the coloured mean line/tick in the residual plot.
   const groupMeans = useMemo(() => {
@@ -1072,18 +1249,14 @@ export function PredictiveTab({ runId }: { runId: string }) {
     return buildByIndexProfile(records, activeByX, activeByFacet, dimLevels)
   }, [strata, activeByX, activeByFacet, dimLevels, data])
 
-  // Legend arms: scenarios actually shown (in canonical order) when overlaying
-  // scenarios, else the checked horizons.
+  // Legend: the predictions actually drawn, in selector order.
   const legendArms = useMemo(() => {
-    if (byScenario) {
-      const shown = new Set<string>()
-      for (const s of strata) for (const a of s.series) shown.add(a.key.split('|')[0]!)
-      return scenarios
-        .filter((sc) => shown.has(sc))
-        .map((sc) => ({ label: sc, color: scenarioColors.get(sc) ?? SCENARIO_REFERENCE }))
-    }
-    return selectedHorizons.map((h) => ({ label: h, color: horizonColor(h) }))
-  }, [byScenario, strata, scenarios, scenarioColors, selectedHorizons])
+    const shown = new Set<string>()
+    for (const s of strata) for (const a of s.series) shown.add(a.key)
+    return arms
+      .filter((a) => shown.has(a.key))
+      .map((a) => ({ label: a.label, color: a.color }))
+  }, [strata, arms])
 
   if (run.isPending) {
     return (
@@ -1125,8 +1298,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
             value={activeStream ?? ''}
             onChange={(v) => {
               setStream(v)
-              setSelected(null)
-              setSelectedScenarios(null)
+              setSelectedArms(null)
               setTreatment(undefined)
               setColorBy(null)
               setByIndexX(null)
@@ -1135,21 +1307,12 @@ export function PredictiveTab({ runId }: { runId: string }) {
             }}
           />
         )}
-        {byScenario && (
-          <ScenarioChecks
-            options={overlayOptions}
-            selected={activeScenarios.filter((s) => s !== reference)}
-            colorOf={(s) => scenarioColors.get(s) ?? SCENARIO_REFERENCE}
-            onToggle={toggleScenario}
-            onSetAll={setSelectedScenarios}
-            pinned={reference}
-          />
-        )}
-        {horizons.length > 1 && (
-          <HorizonChecks
-            options={horizons}
-            selected={selectedHorizons}
-            onToggle={toggleHorizon}
+        {arms.length > 1 && (
+          <ArmChecks
+            arms={arms}
+            selected={new Set(activeArms.map((a) => a.key))}
+            onToggle={toggleArm}
+            onSetAll={setSelectedArms}
           />
         )}
         {needTreatment && (
@@ -1181,28 +1344,11 @@ export function PredictiveTab({ runId }: { runId: string }) {
 
       {data && strata.length === 0 && !isPending && (
         <div className="border-t border-neutral-100">
-          {byScenario && activeScenarios.length === 0 ? (
-            <MutedNotice
-              bordered={false}
-              title="No arms selected"
-              detail={
-                <>
-                  This sidecar carries no as-fitted posterior predictive to fall
-                  back on — predict ran with an explicit{' '}
-                  <span className="font-mono">--scenario</span> list. Check a
-                  scenario above, or include{' '}
-                  <span className="font-mono">fitted</span> in the list to
-                  always have the reference arm.
-                </>
-              }
-            />
-          ) : (
-            <MutedNotice
-              bordered={false}
-              title="No predictive points"
-              detail="This stream's predictive artifact has no points for the selected horizon(s)."
-            />
-          )}
+          <MutedNotice
+            bordered={false}
+            title="No predictive points"
+            detail="This stream's artifact has no observations and no points for the selected predictions."
+          />
         </div>
       )}
 
@@ -1238,6 +1384,27 @@ export function PredictiveTab({ runId }: { runId: string }) {
 
           {view === 'series' && (
             <>
+              {noArms && (
+                <div className="border-t border-neutral-100 px-3 py-2 font-mono text-[10px] text-neutral-400">
+                  showing observed data only — no prediction is selected
+                  {arms.length > 0 &&
+                    !arms.some(
+                      (a) =>
+                        a.scenario === reference &&
+                        a.horizon === 'free_forward',
+                    ) && (
+                      <>
+                        {' '}
+                        (this sidecar carries no free-running{' '}
+                        <span className="text-neutral-500">fitted</span>{' '}
+                        posterior predictive — likely a predict run with an
+                        explicit{' '}
+                        <span className="text-neutral-500">--scenario</span>{' '}
+                        list)
+                      </>
+                    )}
+                </div>
+              )}
               <div className="flex flex-col gap-2 border-t border-neutral-100 px-3 py-2">
                 <LayerChecks
                   hidden={hiddenLayers}
@@ -1249,6 +1416,10 @@ export function PredictiveTab({ runId }: { runId: string }) {
                       return next
                     })
                   }
+                  obsLine={obsLine}
+                  onToggleObsLine={() => setObsLine((v) => !v)}
+                  logY={logY}
+                  onToggleLogY={() => setLogY((v) => !v)}
                 />
                 {hasForecast && (
                   <>
@@ -1277,6 +1448,8 @@ export function PredictiveTab({ runId }: { runId: string }) {
                     observed={s.obs}
                     dense={s.series.length <= 2}
                     hiddenLayers={hiddenLayers}
+                    obsLine={obsLine}
+                    logY={logY}
                     toDate={toDate}
                     windowMode={windowMode}
                   />
