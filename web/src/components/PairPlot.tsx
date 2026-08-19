@@ -4,6 +4,7 @@ import type { DrawsResponse, PosteriorResponse } from '@/api/client'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { fmtTick } from '@/lib/format'
 import { chainColor } from '@/lib/colors'
+import { cn } from '@/lib/utils'
 
 // Cell sizing: square cells clamp between these so few params fill the width
 // while many params shrink toward MIN and the grid scrolls.
@@ -269,6 +270,21 @@ function AxisStrip({
  *  the prior's breadth so the posterior reads as a spike inside the prior. */
 export type PriorXlimMode = 'posterior' | 'prior'
 
+/** Built-in blurbs for the objective aux columns — they carry no model `#'`
+ *  docs, and what they mean (especially on a PGAS fit) is exactly the thing
+ *  worth being reminded of. Model params use their own docs instead. */
+const OBJECTIVE_DOCS: Record<string, string> = {
+  log_posterior:
+    'The sampler’s objective: log prior + log-likelihood. On a chain-binomial (PGAS) fit this is the COMPLETE-DATA log posterior — dominated by the latent-path mass, not the data fit; pair parameters against obs_ll for the data-fit signal.',
+  log_likelihood: 'The model log-likelihood p(y | θ) (marginal — MH/ODE fits).',
+  obs_ll:
+    'Data-fit term of the complete-data likelihood: log p(y | path, θ). On a PGAS fit, this — not log_posterior — is the target that shows which parameter values fit the data.',
+  transition_ll:
+    'Latent-path term of the complete-data likelihood: log p(path | θ). Together with obs_ll it composes log_complete_data_ll.',
+  log_complete_data_ll:
+    'The complete-data log-likelihood log p(y, path | θ) — path-dominated; see obs_ll for the data-fit part.',
+}
+
 interface PairPlotProps {
   draws: DrawsResponse
   posterior?: PosteriorResponse
@@ -331,10 +347,18 @@ export function PairPlot({
       (posterior?.params ?? []).map((p) => [p.name, p] as const),
     )
     return params.map((name) => ({
+      name,
       symbol: byName.get(name)?.symbol ?? name,
       median: byName.get(name)?.q50 ?? null,
+      description: byName.get(name)?.description ?? OBJECTIVE_DOCS[name] ?? null,
+      reference: byName.get(name)?.reference ?? null,
     }))
   }, [params, posterior])
+
+  // Doc lookup: clicking a row label opens this variable's description strip
+  // above the grid (click again, click another, or ✕ to change/close).
+  const [infoParam, setInfoParam] = useState<string | null>(null)
+  const info = infoParam ? meta.find((m) => m.name === infoParam) : undefined
 
   const anyPrior = useMemo(
     () => params.some((p) => (draws.prior_density?.[p]?.x.length ?? 0) > 1),
@@ -384,6 +408,40 @@ export function PairPlot({
         </p>
       ) : (
         <>
+        {info && (
+          <div className="mb-2 flex items-baseline gap-2 border border-neutral-200 bg-neutral-50 px-3 py-2">
+            <span className="shrink-0 font-mono text-[12px] font-semibold text-neutral-900">
+              {info.symbol}
+            </span>
+            {info.symbol !== info.name && (
+              <span className="shrink-0 font-mono text-[10px] text-neutral-400">
+                {info.name}
+              </span>
+            )}
+            <span className="min-w-0 text-[12px] leading-snug text-neutral-600">
+              {info.description ?? (
+                <span className="italic text-neutral-400">
+                  no description — add a{' '}
+                  <span className="font-mono not-italic">{"#'"}</span> doc
+                  comment above this parameter in the model
+                </span>
+              )}
+              {info.reference && (
+                <span className="ml-1.5 text-[11px] italic text-neutral-400">
+                  {info.reference}
+                </span>
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => setInfoParam(null)}
+              aria-label="close description"
+              className="ml-auto shrink-0 font-mono text-[11px] text-neutral-400 transition-colors hover:text-neutral-700"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <div ref={figRef} className="w-max bg-white">
           {anyPrior && <Legend />}
@@ -398,9 +456,19 @@ export function PairPlot({
           {params.map((rowName, r) => (
             // One matrix row: left symbol gutter, value y-axis strip, then N cells.
             <Row key={rowName}>
-              <div
-                className="flex items-center justify-center font-medium text-neutral-500"
-                title={meta[r]!.symbol}
+              <button
+                type="button"
+                onClick={() =>
+                  setInfoParam((cur) => (cur === rowName ? null : rowName))
+                }
+                aria-pressed={infoParam === rowName}
+                className={cn(
+                  'flex cursor-pointer items-center justify-center font-medium transition-colors',
+                  infoParam === rowName
+                    ? 'bg-neutral-100 text-neutral-900'
+                    : 'text-neutral-500 hover:text-neutral-900',
+                )}
+                title={`${meta[r]!.symbol} — click for description`}
               >
                 {/* rotate(-90deg) reads bottom-to-top (upright glyphs) — the
                     conventional y-axis direction; `sideways-lr` isn't in Chrome. */}
@@ -410,7 +478,7 @@ export function PairPlot({
                 >
                   {meta[r]!.symbol}
                 </span>
-              </div>
+              </button>
               {/* y-axis value ticks for this row's data. Row 0 is a marginal
                   density (no meaningful value y-axis) → blank. */}
               {r === 0 ? (
