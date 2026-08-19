@@ -10,6 +10,7 @@ import { Segmented } from '@/components/Segmented'
 import { Card } from '@/components/ui/card'
 import { fmtTick } from '@/lib/format'
 import { dayToDate } from '@/lib/calendar'
+import { loadJson, saveJson } from '@/lib/persist'
 import {
   buildByIndexProfile,
   LEVEL_PALETTE,
@@ -923,12 +924,23 @@ export function PredictiveTab({ runId }: { runId: string }) {
   const [hiddenLayers, setHiddenLayers] = useState<ReadonlySet<PredLayer>>(
     () => new Set(),
   )
-  // Whether the observed dots are joined by a line. On by default; a display
-  // preference, so it survives stream switches (unlike the layer set).
-  const [obsLine, setObsLine] = useState(true)
-  // Log y-axis for the time-series panels (a display preference, like
-  // obsLine). Exponential growth reads as a straight line.
-  const [logY, setLogY] = useState(false)
+  // Display preferences (not data selections): persisted, because the tab
+  // unmounts on every tab switch and these should feel like settings, not
+  // per-visit state. `obsLine` joins the observed dots (on by default);
+  // `logY` puts the panels on a log y-axis (exponential growth reads as a
+  // straight line).
+  const [obsLine, setObsLineState] = useState(() =>
+    loadJson('predictive:obs-line', true),
+  )
+  const [logY, setLogYState] = useState(() => loadJson('predictive:log-y', false))
+  const setObsLine = (v: boolean) => {
+    setObsLineState(v)
+    saveJson('predictive:obs-line', v)
+  }
+  const setLogY = (v: boolean) => {
+    setLogYState(v)
+    saveJson('predictive:log-y', v)
+  }
   // Time window of the series view: the full predictive extent (forecasts and
   // scenario runs past the data, with a dashed rule at data end), or clipped to
   // the observed window so the axes rescale to the fit itself. Only offered
@@ -1417,9 +1429,9 @@ export function PredictiveTab({ runId }: { runId: string }) {
                     })
                   }
                   obsLine={obsLine}
-                  onToggleObsLine={() => setObsLine((v) => !v)}
+                  onToggleObsLine={() => setObsLine(!obsLine)}
                   logY={logY}
-                  onToggleLogY={() => setLogY((v) => !v)}
+                  onToggleLogY={() => setLogY(!logY)}
                 />
                 {hasForecast && (
                   <>
