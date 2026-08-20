@@ -12,7 +12,10 @@ Read-only on the store — it never touches your fits.
 
 ## Install
 
-With [uv](https://docs.astral.sh/uv/):
+Installing from source builds the browser UI, so [Node.js](https://nodejs.org)
+(any recent version, for `npm`) must be on your PATH alongside
+[uv](https://docs.astral.sh/uv/). Without it the install fails with that
+message rather than producing a server with no UI.
 
 ```sh
 # Install the `camdl-watch` command on your PATH:
