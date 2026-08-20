@@ -183,6 +183,9 @@ function RenderedModel({ runId }: { runId: string }) {
  *  own loading/empty states so a slow or absent graph never blocks the source. */
 function RenderedGraph({ runId }: { runId: string }) {
   const { data, isPending, isError } = useModelGraph(runId, true)
+  // The equations artifact supplies the diagram's rate-symbol glossary. It is
+  // a nice-to-have, so the diagram renders whether or not it resolves.
+  const render = useModelRender(runId, true)
   if (isPending)
     return (
       <Card className="overflow-hidden">
@@ -197,7 +200,7 @@ function RenderedGraph({ runId }: { runId: string }) {
         detail="This run has no model.graph.json — see the equations or raw source instead."
       />
     )
-  return <FlowDiagram graph={data} />
+  return <FlowDiagram graph={data} render={render.data ?? undefined} />
 }
 
 export function SourceTab({ runId }: { runId: string }) {

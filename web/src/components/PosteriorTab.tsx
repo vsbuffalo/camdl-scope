@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useDraws, usePosterior, useQuantityScalars, useRun } from '@/api/queries'
+import { Description } from '@/components/Description'
 import { ForestRow } from '@/components/ForestRow'
 import { ChainSelect } from '@/components/ChainSelect'
 import { includedChains, type ChainControls } from '@/lib/chains'
@@ -60,22 +61,22 @@ function QuantityScalarSection({ runId }: { runId: string }) {
               key={`${r.name}-${JSON.stringify(r.stratum)}`}
               className="flex items-baseline justify-between gap-3 px-3 py-1.5"
             >
-              <span className="flex min-w-0 items-baseline gap-1.5">
-                <span className="shrink-0 font-mono text-[12px] font-semibold text-neutral-900">
-                  {info?.symbol ?? r.name}
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="flex min-w-0 items-baseline gap-1.5">
+                  <span className="shrink-0 font-mono text-[12px] font-semibold text-neutral-900">
+                    {info?.symbol ?? r.name}
+                  </span>
+                  {stratum && (
+                    <span className="shrink-0 font-mono text-[10px] text-neutral-400">
+                      {stratum}
+                    </span>
+                  )}
                 </span>
-                {stratum && (
-                  <span className="shrink-0 font-mono text-[10px] text-neutral-400">
-                    {stratum}
-                  </span>
-                )}
                 {info?.description && (
-                  <span
-                    className="truncate text-[11px] text-neutral-500"
-                    title={info.description}
-                  >
-                    {info.description}
-                  </span>
+                  <Description
+                    text={info.description}
+                    className="text-[11px] text-neutral-500"
+                  />
                 )}
               </span>
               <span className="shrink-0 font-mono text-[12px] tabular-nums">

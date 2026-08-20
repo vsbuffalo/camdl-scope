@@ -15,6 +15,7 @@ later optimization, not a correctness requirement.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -869,6 +870,30 @@ def _fnum(v: object) -> float:
     return f if np.isfinite(f) else 0.0
 
 
+def _opt_num(v: object) -> float | None:
+    """A finite float, or ``None`` for an absent / blank / non-finite cell.
+    Distinct from :func:`_fnum`: a missing diagnostic must stay missing rather
+    than reading as 0 (which a threshold would score as catastrophic)."""
+    if v is None or v == "":
+        return None
+    try:
+        f = float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return f if np.isfinite(f) else None
+
+
+def _worst(
+    acc: float | None, cell: object, pick: Callable[[float, float], float]
+) -> float | None:
+    """Fold ``cell`` into ``acc`` with ``pick`` (max for R̂, min for ESS),
+    ignoring absent cells."""
+    v = _opt_num(cell)
+    if v is None:
+        return acc
+    return v if acc is None else pick(acc, v)
+
+
 @router.get("/runs/{run_id}/predictive/{stream}", response_model=PredictiveResponse)
 def get_predictive(run_id: str, stream: str) -> PredictiveResponse:
     """One stream's posterior-predictive ribbons (``camdl fit predict`` output)
@@ -890,6 +915,13 @@ def get_predictive(run_id: str, stream: str) -> PredictiveResponse:
     treatments: set[str] = set()
     scenarios: list[str] = []
     pred_points: list[PredictivePoint] = []
+    # The artifact's convergence channel, reduced to its worst case across rows
+    # (normally constant — one producing stage per file). Blank/absent cells mean
+    # the stage reported no summary (upstream `NotAssessed`), which stays None
+    # rather than becoming a falsely-healthy number.
+    rhat_max: float | None = None
+    ess_min: float | None = None
+    n_draws: int | None = None
     for r in ps.table.to_dicts():
         h, t = str(r.get("horizon") or ""), str(r.get("treatment") or "")
         sc = str(r.get("scenario") or "as_fitted")
@@ -897,6 +929,11 @@ def get_predictive(run_id: str, stream: str) -> PredictiveResponse:
         treatments.add(t)
         if sc not in scenarios:
             scenarios.append(sc)
+        rhat_max = _worst(rhat_max, r.get("rhat_max"), max)
+        ess_min = _worst(ess_min, r.get("ess_min"), min)
+        nd = _opt_num(r.get("n_draws"))
+        if nd is not None:
+            n_draws = int(nd) if n_draws is None else min(n_draws, int(nd))
         pred_points.append(
             PredictivePoint(
                 time=_fnum(r.get("time")), stratum=stratum(r),
@@ -918,6 +955,7 @@ def get_predictive(run_id: str, stream: str) -> PredictiveResponse:
     return PredictiveResponse(
         run_id=run_id, stream=stream, index_dims=index_dims,
         scenarios=scenarios, horizons=sorted(horizons), treatments=sorted(treatments),
+        rhat_max=rhat_max, ess_min=ess_min, n_draws=n_draws,
         predictive=pred_points, observed=obs_points,
     )
 

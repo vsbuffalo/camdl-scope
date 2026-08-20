@@ -1,8 +1,10 @@
-import { useMemo } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
-import type { GraphEdge, ModelGraph } from '@/api/client'
+import type { GraphEdge, ModelGraph, ModelRender } from '@/api/client'
+import { Description } from '@/components/Description'
 import { Card } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 
 /**
  * The compartmental flow diagram (`model.graph.json`): a hand-rolled SVG
@@ -240,8 +242,105 @@ function backGeom(from: Placed, to: Placed, lift: number) {
   return { x1, x2, top, d }
 }
 
-export function FlowDiagram({ graph }: { graph: ModelGraph }) {
+/**
+ * Horizontally-scrolling canvas for the diagram, with an explicit affordance:
+ * macOS hides overlay scrollbars until you scroll, so a wide diagram simply
+ * looked truncated. Measures content against viewport and shows a right-edge
+ * fade + hint while there is more to the right.
+ */
+function ScrollCanvas({
+  width,
+  height,
+  children,
+}: {
+  width: number
+  height: number
+  children: React.ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () =>
+      setMore(el.scrollWidth - el.clientWidth - el.scrollLeft > 4)
+    measure()
+    el.addEventListener('scroll', measure, { passive: true })
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', measure)
+      ro.disconnect()
+    }
+  }, [width, height])
+
+  return (
+    <div className="relative">
+      <div ref={ref} className="overflow-x-auto px-3 py-3">
+        <div className="relative" style={{ width, height }}>
+          {children}
+        </div>
+      </div>
+      {more && (
+        <>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-white to-transparent"
+          />
+          <span className="pointer-events-none absolute bottom-1 right-2 font-mono text-[10px] text-neutral-400">
+            scroll →
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
+
+export function FlowDiagram({
+  graph,
+  render,
+}: {
+  graph: ModelGraph
+  /** The equations artifact, when present: supplies the parameter glossary the
+   *  legend explains the rate symbols with. The diagram renders fine without. */
+  render?: ModelRender
+}) {
   const L = useMemo(() => computeLayout(graph), [graph])
+  // Focused compartment: clicking one highlights its flows and names them
+  // below, so a reader can follow one compartment at a time through a busy
+  // diagram. Click again (or the same chip) to clear.
+  const [focus, setFocus] = useState<string | null>(null)
+
+  // The reactions touching the focused compartment, by direction. Edge ids are
+  // the model's reaction names (`infection`, `progression`), so this reads as
+  // the model's own vocabulary rather than invented labels.
+  const flows = useMemo(() => {
+    if (!focus) return null
+    const into = graph.edges.filter((e) => e.to === focus && e.from !== focus)
+    const out = graph.edges.filter((e) => e.from === focus && e.to !== focus)
+    return { into, out }
+  }, [focus, graph.edges])
+
+  /** Is this edge attached to the focused compartment? */
+  const lit = (e: GraphEdge) =>
+    focus == null || e.from === focus || e.to === focus
+
+  // Glossary for the symbols the arrows are labelled with: a model parameter
+  // whose KaTeX symbol (or bare name) occurs in some rate string. Substring
+  // matching against the rendered TeX is approximate, so when it matches
+  // nothing we fall back to the full parameter list rather than showing an
+  // empty key under a heading that promises one.
+  const glossary = useMemo(() => {
+    const params = render?.parameters ?? []
+    if (params.length === 0) return []
+    const rates = graph.edges.map((e) => e.rate).join(' ')
+    const used = params.filter(
+      (p) =>
+        (p.symbol && rates.includes(p.symbol)) || (p.name && rates.includes(p.name)),
+    )
+    return used.length > 0 ? used : params
+  }, [render?.parameters, graph.edges])
 
   // Tight bounding box of the node cluster — the plate enclosure wraps this, not
   // the (headroom-inflated) full canvas, so it doesn't balloon up into the arcs.
@@ -324,10 +423,9 @@ export function FlowDiagram({ graph }: { graph: ModelGraph }) {
         )}
       </div>
 
-      <div className="overflow-x-auto px-3 py-3">
-        {/* The SVG is drawn 1:1 and the KaTeX labels overlay it as absolutely-
-            positioned HTML at the same coordinates (see TexLabel). */}
-        <div className="relative" style={{ width: L.width, height: L.height }}>
+      {/* The SVG is drawn 1:1 and the KaTeX labels overlay it as absolutely-
+          positioned HTML at the same coordinates (see TexLabel). */}
+      <ScrollCanvas width={L.width} height={L.height}>
         <svg
           width={L.width}
           height={L.height}
@@ -386,8 +484,8 @@ export function FlowDiagram({ graph }: { graph: ModelGraph }) {
                 y1={g.y1}
                 x2={g.x2 - 7}
                 y2={g.y2}
-                stroke="#9ca3af"
-                strokeWidth={1.25}
+                stroke={lit(e) ? '#9ca3af' : '#e5e7eb'}
+                strokeWidth={lit(e) && focus ? 2 : 1.25}
                 markerEnd="url(#arrow)"
               />
             )
@@ -402,8 +500,8 @@ export function FlowDiagram({ graph }: { graph: ModelGraph }) {
                 key={e.id}
                 d={g.d}
                 fill="none"
-                stroke="#c7b9e0"
-                strokeWidth={1.25}
+                stroke={lit(e) ? '#c7b9e0' : '#eee9f5'}
+                strokeWidth={lit(e) && focus ? 2 : 1.25}
                 markerEnd="url(#arrow-back)"
               />
             )
@@ -485,28 +583,135 @@ export function FlowDiagram({ graph }: { graph: ModelGraph }) {
             )
           })}
 
-          {/* Nodes on top. */}
-          {cells.map((n) => (
-            <rect
-              key={n.id}
-              x={n.x}
-              y={n.y}
-              width={NODE_W}
-              height={NODE_H}
-              rx={7}
-              fill="#ffffff"
-              stroke="#1e3a8a"
-              strokeWidth={1.25}
-            />
-          ))}
+          {/* Nodes on top — clickable: focusing one lights its flows. */}
+          {cells.map((n) => {
+            const on = focus === n.id
+            const dim = focus != null && !on
+            return (
+              <rect
+                key={n.id}
+                x={n.x}
+                y={n.y}
+                width={NODE_W}
+                height={NODE_H}
+                rx={7}
+                fill={on ? '#eff6ff' : '#ffffff'}
+                stroke={dim ? '#c7d2e4' : '#1e3a8a'}
+                strokeWidth={on ? 2.25 : 1.25}
+                className="cursor-pointer"
+                onClick={() => setFocus(on ? null : n.id)}
+              >
+                <title>{n.id}</title>
+              </rect>
+            )
+          })}
         </svg>
 
         {/* KaTeX labels over the SVG (node names last so they sit on top). */}
         {labels.map((l) => (
           <TexLabel key={l.key} l={l} />
         ))}
+      </ScrollCanvas>
+
+      {/* Compartment key — click to follow one compartment's flows. Upstream
+          gives compartments a label but no prose, so rather than invent
+          definitions we name the reactions into and out of the focused one,
+          in the model's own vocabulary. */}
+      <div className="border-t border-neutral-100 px-3 py-2">
+        <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+          compartments
         </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {cells.map((n) => {
+            const on = focus === n.id
+            return (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => setFocus(on ? null : n.id)}
+                aria-pressed={on}
+                className={cn(
+                  'rounded-sm border px-1.5 py-0.5 font-mono text-[11px] transition-colors',
+                  on
+                    ? 'border-blue-300 bg-blue-50 text-blue-900'
+                    : 'border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:text-neutral-900',
+                )}
+              >
+                {n.id}
+              </button>
+            )
+          })}
+          {focus && (
+            <button
+              type="button"
+              onClick={() => setFocus(null)}
+              className="ml-1 font-mono text-[10px] text-neutral-400 underline-offset-2 hover:text-neutral-600 hover:underline"
+            >
+              clear
+            </button>
+          )}
+        </div>
+        {flows && (
+          <div className="mt-1.5 space-y-0.5 text-[11px] leading-snug text-neutral-600">
+            <div>
+              <span className="font-mono text-neutral-900">{focus}</span> —{' '}
+              {flows.into.length === 0 && flows.out.length === 0
+                ? 'no reactions touch this compartment.'
+                : null}
+            </div>
+            {flows.into.length > 0 && (
+              <div>
+                <span className="text-neutral-400">in ←</span>{' '}
+                {flows.into
+                  .map((e) => `${e.id}${e.from ? ` (from ${e.from})` : ' (exogenous)'}`)
+                  .join(', ')}
+              </div>
+            )}
+            {flows.out.length > 0 && (
+              <div>
+                <span className="text-neutral-400">out →</span>{' '}
+                {flows.out
+                  .map((e) => `${e.id}${e.to ? ` (to ${e.to})` : ' (exit)'}`)
+                  .join(', ')}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Rate symbol glossary, from the equations artifact when present: the
+          diagram's arrows are labelled with symbols, and this is where the
+          reader learns what each one means without leaving the view. */}
+      {glossary.length > 0 && (
+        <div className="border-t border-neutral-100 px-3 py-2">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+            rate parameters
+          </div>
+          <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1">
+            {glossary.map((p) => (
+              <Fragment key={p.name}>
+                <dt className="text-right text-[13px] text-neutral-900">
+                  <span
+                    // KaTeX output for a trusted, model-derived symbol.
+                    dangerouslySetInnerHTML={{ __html: katexHtml(p.symbol) }}
+                  />
+                </dt>
+                <dd className="min-w-0 text-[11px] text-neutral-600">
+                  <span className="font-mono text-[10px] text-neutral-400">
+                    {p.name}
+                  </span>
+                  {p.description && (
+                    <Description
+                      text={p.description}
+                      className="text-[11px] text-neutral-600"
+                    />
+                  )}
+                </dd>
+              </Fragment>
+            ))}
+          </dl>
+        </div>
+      )}
 
       {(L.iterator.length > 0 || pools.length > 0) && (
         <div className="space-y-1 border-t border-neutral-100 px-3 py-2 text-[11px] text-neutral-500">

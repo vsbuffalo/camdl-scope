@@ -12,6 +12,12 @@ import { fmtTick } from '@/lib/format'
 import { dayToDate } from '@/lib/calendar'
 import { loadJson, saveJson } from '@/lib/persist'
 import {
+  gradeConvergence,
+  gradeClasses,
+  isNoteworthy,
+  type Convergence,
+} from '@/lib/convergence'
+import {
   buildByIndexProfile,
   LEVEL_PALETTE,
   NEUTRAL,
@@ -852,6 +858,43 @@ function LayerChecks({
   )
 }
 
+/**
+ * The convergence badge: the artifact's own R̂ / ESS channel, graded. Sits at
+ * the top of the tab because an unconverged predictive is not a weaker result
+ * but a meaningless one — the reader must see that before the ribbons. Quiet
+ * chip when healthy; chip + explanatory line otherwise.
+ */
+function ConvergenceBadge({ conv }: { conv: Convergence }) {
+  const noteworthy = isNoteworthy(conv.grade)
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <span
+        className={cn(
+          'rounded-sm border px-1.5 py-0.5 font-mono text-[10px] font-medium',
+          gradeClasses(conv.grade),
+        )}
+      >
+        {conv.label}
+      </span>
+      {conv.rhat != null && (
+        <span className="font-mono text-[10px] text-neutral-400">
+          R̂max {conv.rhat.toFixed(conv.rhat < 10 ? 3 : 1)}
+        </span>
+      )}
+      {conv.ess != null && (
+        <span className="font-mono text-[10px] text-neutral-400">
+          ESSmin {Math.round(conv.ess).toLocaleString()}
+        </span>
+      )}
+      {noteworthy && (
+        <span className="basis-full text-[11px] leading-snug text-neutral-500">
+          {conv.detail}
+        </span>
+      )}
+    </div>
+  )
+}
+
 /** Swatch legend mapping each overlaid arm (+ observed) to its colour. */
 function Legend({ arms }: { arms: { label: string; color: string }[] }) {
   return (
@@ -946,6 +989,14 @@ export function PredictiveTab({ runId }: { runId: string }) {
   // the observed window so the axes rescale to the fit itself. Only offered
   // when some prediction actually extends past the data.
   const [windowMode, setWindowMode] = useState<'data' | 'full'>('full')
+
+  // The artifact's convergence channel, graded — see lib/convergence. Shown at
+  // the top of the tab: an unconverged predictive pools incompatible
+  // posteriors, which the reader must know before interpreting any ribbon.
+  const convergence = useMemo(
+    () => gradeConvergence(data?.rhat_max, data?.ess_min),
+    [data?.rhat_max, data?.ess_min],
+  )
 
   const scenarios = useMemo(() => data?.scenarios ?? [], [data])
   const scenarioColors = useMemo(
@@ -1336,6 +1387,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
           />
         )}
         {legendArms.length > 0 && <Legend arms={legendArms} />}
+        {data && <ConvergenceBadge conv={convergence} />}
       </div>
 
       {isPending && (

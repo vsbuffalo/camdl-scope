@@ -451,7 +451,14 @@ class ObservedPoint(BaseModel):
 class PredictiveResponse(BaseModel):
     """One stream's posterior-predictive ribbons + observed series. The frontend
     facets by ``stratum`` and filters by ``horizon`` (e.g. free_forward). Time is
-    dated via the fit-level ``RunDetail.calendar``."""
+    dated via the fit-level ``RunDetail.calendar``.
+
+    ``rhat_max`` / ``ess_min`` / ``n_draws`` surface the artifact's convergence
+    channel (worst case across rows — normally constant): the Gelman–Rubin
+    summary of the stage that produced the draws the predictive replays.
+    ``None`` when the stage reported no summary (upstream ``NotAssessed``,
+    e.g. a single-chain stage). Upstream reports the numbers only — the
+    converged/marginal/unconverged judgment is the consumer's."""
 
     run_id: str
     stream: str
@@ -459,6 +466,9 @@ class PredictiveResponse(BaseModel):
     scenarios: list[str]
     horizons: list[str]
     treatments: list[str]
+    rhat_max: float | None = None
+    ess_min: float | None = None
+    n_draws: int | None = None
     predictive: list[PredictivePoint]
     observed: list[ObservedPoint]
 

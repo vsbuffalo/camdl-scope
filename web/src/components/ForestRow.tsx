@@ -1,4 +1,5 @@
 import type { ParamPosterior } from '@/api/client'
+import { Description } from '@/components/Description'
 import { MarginalDensity } from '@/components/MarginalDensity'
 import { fmtEss, fmtRhat, fmtValue } from '@/lib/format'
 
@@ -44,7 +45,9 @@ export function ForestRow({
 
   return (
     <div className="px-4 py-2.5">
-      {/* label line — symbol, name, description (truncated), citation */}
+      {/* label line — symbol, name, citation. The doc comment gets its own
+          line below: it is prose, and clipping it to the tail of this row hid
+          the reasoning it exists to carry. */}
       <div className="flex min-w-0 items-baseline gap-2">
         <span className="shrink-0 text-base font-semibold leading-none text-neutral-900">
           {param.symbol ?? param.name}
@@ -54,20 +57,18 @@ export function ForestRow({
             {param.name}
           </span>
         )}
-        {param.description && (
-          <span
-            className="truncate text-xs font-medium text-neutral-500"
-            title={param.description}
-          >
-            {param.description}
-          </span>
-        )}
         {param.reference && (
           <span className="ml-auto hidden shrink-0 text-[11px] italic text-neutral-400 sm:inline">
             {param.reference}
           </span>
         )}
       </div>
+      {param.description && (
+        <Description
+          text={param.description}
+          className="text-xs font-medium text-neutral-500"
+        />
+      )}
 
       {/* data line — on a phone the density takes the FULL width with the stats
           stacked below it; on >=sm it sits left of the right-aligned stat columns

@@ -2,6 +2,7 @@ import { Fragment, useMemo, type ReactNode } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import type { ModelRender } from '@/api/client'
+import { Description } from '@/components/Description'
 import { Card } from '@/components/ui/card'
 
 /**
@@ -88,9 +89,14 @@ export function ModelView({ data }: { data: ModelRender }) {
                 <dt className="text-right text-neutral-900">
                   <Tex tex={p.symbol} />
                 </dt>
-                <dd className="text-xs text-neutral-600">
+                <dd className="min-w-0 text-xs text-neutral-600">
                   <span className="font-mono text-[10px] text-neutral-400">{p.name}</span>
-                  {p.description ? ` — ${p.description}` : ''}
+                  {p.description && (
+                    <Description
+                      text={p.description}
+                      className="text-xs text-neutral-600"
+                    />
+                  )}
                 </dd>
               </Fragment>
             ))}

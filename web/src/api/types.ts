@@ -1082,6 +1082,13 @@ export interface components {
          * @description One stream's posterior-predictive ribbons + observed series. The frontend
          *     facets by ``stratum`` and filters by ``horizon`` (e.g. free_forward). Time is
          *     dated via the fit-level ``RunDetail.calendar``.
+         *
+         *     ``rhat_max`` / ``ess_min`` / ``n_draws`` surface the artifact's convergence
+         *     channel (worst case across rows — normally constant): the Gelman–Rubin
+         *     summary of the stage that produced the draws the predictive replays.
+         *     ``None`` when the stage reported no summary (upstream ``NotAssessed``,
+         *     e.g. a single-chain stage). Upstream reports the numbers only — the
+         *     converged/marginal/unconverged judgment is the consumer's.
          */
         PredictiveResponse: {
             /** Run Id */
@@ -1096,6 +1103,12 @@ export interface components {
             horizons: string[];
             /** Treatments */
             treatments: string[];
+            /** Rhat Max */
+            rhat_max?: number | null;
+            /** Ess Min */
+            ess_min?: number | null;
+            /** N Draws */
+            n_draws?: number | null;
             /** Predictive */
             predictive: components["schemas"]["PredictivePoint"][];
             /** Observed */
