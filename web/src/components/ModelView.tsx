@@ -4,6 +4,7 @@ import 'katex/dist/katex.min.css'
 import type { ModelRender } from '@/api/client'
 import { Description } from '@/components/Description'
 import { Card } from '@/components/ui/card'
+import { normalizeTex } from '@/lib/tex'
 
 /**
  * Render one KaTeX-safe string. `throwOnError: false` renders a malformed
@@ -14,7 +15,7 @@ import { Card } from '@/components/ui/card'
 function Tex({ tex, display = false }: { tex: string; display?: boolean }) {
   const html = useMemo(
     () =>
-      katex.renderToString(tex, {
+      katex.renderToString(normalizeTex(tex), {
         throwOnError: false,
         displayMode: display,
         output: 'html',

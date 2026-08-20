@@ -1,10 +1,11 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import type { GraphEdge, ModelGraph, ModelRender } from '@/api/client'
 import { Description } from '@/components/Description'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { estimateTexWidth, normalizeTex } from '@/lib/tex'
 
 /**
  * The compartmental flow diagram (`model.graph.json`): a hand-rolled SVG
@@ -31,14 +32,25 @@ function backLift(fromCol: number, toCol: number): number {
   return 34 + Math.abs(fromCol - toCol) * 8
 }
 
-/** KaTeX → sanitized HTML for a trusted, model-derived string. */
+/** KaTeX → sanitized HTML for a trusted, model-derived string. Normalized
+ *  first: upstream emits word-like subscripts unbraced (`R_eff`), which TeX
+ *  reads as `R_e` + literal `ff` — see lib/tex. */
 function katexHtml(tex: string): string {
   try {
-    return katex.renderToString(tex, { throwOnError: false, output: 'html' })
+    return katex.renderToString(normalizeTex(tex), {
+      throwOnError: false,
+      output: 'html',
+    })
   } catch {
     return tex
   }
 }
+
+/** A rate expression wider than this (px, estimated) is not drawn on its
+ *  arrow: it would run across neighbouring compartments and be unreadable.
+ *  The arrow then carries the reaction's name and the full expression appears
+ *  in the reactions table below, where it has a whole row to itself. */
+const RATE_LABEL_MAX_W = 190
 
 /** An edge is "structural" (defines the layout DAG) iff both endpoints are real
  *  compartments — not the `"c"` iterator and not an exogenous `null`. */
@@ -195,6 +207,9 @@ type LabelSpec = {
   size: number
   color: string
   chip?: boolean // white backing chip (tight to the text) for on-edge rates
+  /** Render as plain text rather than KaTeX — used for the reaction-name
+   *  fallback when a rate expression is too wide to sit on its arrow. */
+  plain?: boolean
 }
 
 function TexLabel({ l }: { l: LabelSpec }) {
@@ -211,11 +226,22 @@ function TexLabel({ l }: { l: LabelSpec }) {
       }}
       className={`pointer-events-none flex items-center justify-center whitespace-nowrap text-center ${l.color}`}
     >
-      <span
-        className={l.chip ? 'rounded bg-white/85 px-0.5' : undefined}
-        // KaTeX output is sanitized markup for a trusted, model-derived string.
-        dangerouslySetInnerHTML={{ __html: katexHtml(l.tex) }}
-      />
+      {l.plain ? (
+        <span
+          className={cn(
+            'font-mono',
+            l.chip ? 'rounded bg-white/85 px-0.5' : undefined,
+          )}
+        >
+          {l.tex}
+        </span>
+      ) : (
+        <span
+          className={l.chip ? 'rounded bg-white/85 px-0.5' : undefined}
+          // KaTeX output is sanitized markup for a trusted, model-derived string.
+          dangerouslySetInnerHTML={{ __html: katexHtml(l.tex) }}
+        />
+      )}
     </div>
   )
 }
@@ -243,10 +269,10 @@ function backGeom(from: Placed, to: Placed, lift: number) {
 }
 
 /**
- * Horizontally-scrolling canvas for the diagram, with an explicit affordance:
- * macOS hides overlay scrollbars until you scroll, so a wide diagram simply
- * looked truncated. Measures content against viewport and shows a right-edge
- * fade + hint while there is more to the right.
+ * Horizontally-scrolling canvas for the diagram. `scroll-x-visible` (index.css)
+ * gives it a persistent, styled scrollbar rather than the macOS overlay one
+ * that stays hidden until you scroll — with `overflow-x: auto` the bar appears
+ * only when the diagram is actually wider than its column.
  */
 function ScrollCanvas({
   width,
@@ -257,42 +283,11 @@ function ScrollCanvas({
   height: number
   children: React.ReactNode
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [more, setMore] = useState(false)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const measure = () =>
-      setMore(el.scrollWidth - el.clientWidth - el.scrollLeft > 4)
-    measure()
-    el.addEventListener('scroll', measure, { passive: true })
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => {
-      el.removeEventListener('scroll', measure)
-      ro.disconnect()
-    }
-  }, [width, height])
-
   return (
-    <div className="relative">
-      <div ref={ref} className="overflow-x-auto px-3 py-3">
-        <div className="relative" style={{ width, height }}>
-          {children}
-        </div>
+    <div className="scroll-x-visible overflow-x-auto px-3 py-3">
+      <div className="relative" style={{ width, height }}>
+        {children}
       </div>
-      {more && (
-        <>
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-white to-transparent"
-          />
-          <span className="pointer-events-none absolute bottom-1 right-2 font-mono text-[10px] text-neutral-400">
-            scroll →
-          </span>
-        </>
-      )}
     </div>
   )
 }
@@ -325,6 +320,12 @@ export function FlowDiagram({
   /** Is this edge attached to the focused compartment? */
   const lit = (e: GraphEdge) =>
     focus == null || e.from === focus || e.to === focus
+
+  // Every reaction that carries a rate, for the table below.
+  const reactions = useMemo(
+    () => graph.edges.filter((e) => e.rate),
+    [graph.edges],
+  )
 
   // Glossary for the symbols the arrows are labelled with: a model parameter
   // whose KaTeX symbol (or bare name) occurs in some rate string. Substring
@@ -370,15 +371,19 @@ export function FlowDiagram({
     const to = L.placed.get(e.to!)
     if (!from || !to || !e.rate) continue
     const g = forwardGeom(from, to)
+    // Long rate expressions ran across their neighbours; those arrows carry the
+    // reaction name instead and the full rate is in the table below.
+    const wide = estimateTexWidth(e.rate, 11) > RATE_LABEL_MAX_W
     labels.push({
       key: `rate-${e.id}`,
       x: g.mx - COL_GAP,
       y: g.my - NODE_H - 2,
       w: COL_GAP * 2,
       h: NODE_H,
-      tex: e.rate,
-      size: 11,
-      color: 'text-neutral-600',
+      tex: wide ? e.id : e.rate,
+      plain: wide,
+      size: wide ? 10 : 11,
+      color: wide ? 'text-neutral-500' : 'text-neutral-600',
       chip: true,
     })
   }
@@ -387,14 +392,16 @@ export function FlowDiagram({
     const to = L.placed.get(e.to!)
     if (!from || !to || !e.rate) continue
     const g = backGeom(from, to, L.backLiftById.get(e.id) ?? 0)
+    const wide = estimateTexWidth(e.rate, 11) > RATE_LABEL_MAX_W
     labels.push({
       key: `rate-${e.id}`,
       x: (g.x1 + g.x2) / 2 - COL_GAP,
       y: g.top - NODE_H / 2,
       w: COL_GAP * 2,
       h: NODE_H,
-      tex: e.rate,
-      size: 11,
+      tex: wide ? e.id : e.rate,
+      plain: wide,
+      size: wide ? 10 : 11,
       color: 'text-violet-500',
     })
   }
@@ -653,14 +660,15 @@ export function FlowDiagram({
         </div>
         {flows && (
           <div className="mt-1.5 space-y-0.5 text-[11px] leading-snug text-neutral-600">
-            <div>
-              <span className="font-mono text-neutral-900">{focus}</span> —{' '}
-              {flows.into.length === 0 && flows.out.length === 0
-                ? 'no reactions touch this compartment.'
-                : null}
-            </div>
+            {flows.into.length === 0 && flows.out.length === 0 && (
+              <div>
+                <span className="font-mono text-neutral-900">{focus}</span> — no
+                reactions touch this compartment.
+              </div>
+            )}
             {flows.into.length > 0 && (
               <div>
+                <span className="font-mono text-neutral-900">{focus}</span>{' '}
                 <span className="text-neutral-400">in ←</span>{' '}
                 {flows.into
                   .map((e) => `${e.id}${e.from ? ` (from ${e.from})` : ' (exogenous)'}`)
@@ -669,6 +677,7 @@ export function FlowDiagram({
             )}
             {flows.out.length > 0 && (
               <div>
+                <span className="font-mono text-neutral-900">{focus}</span>{' '}
                 <span className="text-neutral-400">out →</span>{' '}
                 {flows.out
                   .map((e) => `${e.id}${e.to ? ` (to ${e.to})` : ' (exit)'}`)
@@ -678,6 +687,51 @@ export function FlowDiagram({
           </div>
         )}
       </div>
+
+      {/* Reactions in full. The arrows carry a rate expression only when it is
+          narrow enough to sit legibly on them; every rate is here regardless,
+          with a row to itself, so nothing is lost to the layout. */}
+      {reactions.length > 0 && (
+        <div className="border-t border-neutral-100 px-3 py-2">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+            reactions
+          </div>
+          <div className="scroll-x-visible overflow-x-auto">
+            <table className="text-[11px]">
+              <tbody>
+                {reactions.map((e) => {
+                  const on =
+                    focus != null && (e.from === focus || e.to === focus)
+                  return (
+                    <tr
+                      key={e.id}
+                      className={cn(
+                        'align-baseline',
+                        focus != null && !on && 'opacity-40',
+                      )}
+                    >
+                      <td className="py-0.5 pr-3 font-mono text-[10px] text-neutral-400">
+                        {e.id}
+                      </td>
+                      <td className="whitespace-nowrap py-0.5 pr-4 font-mono text-neutral-700">
+                        {e.from ?? '•'}
+                        <span className="mx-1 text-neutral-400">→</span>
+                        {e.to ?? '•'}
+                      </td>
+                      <td className="py-0.5 text-neutral-800">
+                        <span
+                          // Trusted, model-derived KaTeX.
+                          dangerouslySetInnerHTML={{ __html: katexHtml(e.rate) }}
+                        />
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Rate symbol glossary, from the equations artifact when present: the
           diagram's arrows are labelled with symbols, and this is where the
