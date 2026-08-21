@@ -15,6 +15,8 @@ import { Card } from '@/components/ui/card'
 import { fmtTick, fmtValue } from '@/lib/format'
 import { buildByIndexProfile, type IndexRecord } from '@/lib/byindex'
 import { dayToDate, fmtModelDate, isTimePointUnit } from '@/lib/calendar'
+import { logYOptions } from '@/lib/plot-scale'
+import { loadJson, saveJson } from '@/lib/persist'
 import { buildScenarioColors, referenceScenario, SCENARIO_REFERENCE } from '@/lib/scenario'
 import { cn } from '@/lib/utils'
 
@@ -63,10 +65,14 @@ function BandPanel({
   title,
   series,
   toDate,
+  logY,
 }: {
   title: string
   series: ScenarioSeries[]
   toDate: ((t: number) => Date) | null
+  /** Log y-axis. A quantity that goes non-positive (a difference, a log-ratio)
+   *  has no viable log domain and stays linear — see lib/plot-scale. */
+  logY: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -91,8 +97,14 @@ function BandPanel({
     // real dates; otherwise the raw numeric model-time index.
     const xOf = (d: { time: number }) => (toDate ? toDate(d.time) : d.time)
     const marks: Plot.Markish[] = []
+    // Values of the marks drawn, for the log domain (see lib/plot-scale).
+    const drawn: number[] = []
     for (const s of series) {
       const pts = [...s.points].sort((a, b) => a.time - b.time)
+      for (const p of pts) {
+        drawn.push(p.q05 ?? NaN, p.q95 ?? NaN, p.q50 ?? NaN)
+        if (solo) drawn.push(p.q25 ?? NaN, p.q75 ?? NaN)
+      }
       if (solo) {
         marks.push(
           Plot.areaY(pts, { x: xOf, y1: 'q05', y2: 'q95', fill: s.color, fillOpacity: 0.16 }),
@@ -124,6 +136,7 @@ function BandPanel({
         ticks: 5,
         tickFormat: (d: number) => fmtTick(d),
         grid: true,
+        ...logYOptions(logY, drawn),
       },
       marks,
     })
@@ -131,7 +144,7 @@ function BandPanel({
     return () => {
       node.remove()
     }
-  }, [series, width, solo, toDate])
+  }, [series, width, solo, toDate, logY])
 
   const figRef = useRef<HTMLDivElement>(null)
 
@@ -162,6 +175,7 @@ function SeriesQuantity({
   activeScenarios,
   toDate,
   dimLevels,
+  logY,
 }: {
   runId: string
   q: QuantityInfo
@@ -169,6 +183,7 @@ function SeriesQuantity({
   activeScenarios: string[]
   toDate: ((t: number) => Date) | null
   dimLevels: Map<string, string[]>
+  logY: boolean
 }) {
   const { data, isPending, isError } = useQuantitySeries(runId, q.name)
   const tag = sourceTag(q.source)
@@ -303,6 +318,7 @@ function SeriesQuantity({
               title={stratumLabel(p.stratum) || 'all'}
               series={p.series}
               toDate={toDate}
+              logY={logY}
             />
           ))
         ) : byIndex && byIndex.facets.some((f) => f.points.some((p) => p.pred != null)) ? (
@@ -600,6 +616,19 @@ export function QuantitiesTab({ runId }: { runId: string }) {
         : [...activeScenarios, s],
     )
 
+  // Log y for every series panel on the tab — a display preference like the
+  // Predictive tab's, persisted for the same reason (the tab unmounts on every
+  // tab switch, and this is a setting, not per-visit state). Kept tab-wide
+  // rather than per-quantity: reading several quantities on one scale is the
+  // point, and a quantity with no positive values just stays linear.
+  const [logY, setLogYState] = useState(() =>
+    loadJson('quantities:log-y', false),
+  )
+  const setLogY = (v: boolean) => {
+    setLogYState(v)
+    saveJson('quantities:log-y', v)
+  }
+
   if (run.isPending) {
     return (
       <Card className="overflow-hidden">
@@ -628,16 +657,36 @@ export function QuantitiesTab({ runId }: { runId: string }) {
 
   return (
     <div className="space-y-4">
-      {showScenario && (
-        <div className="px-1">
-          <ScenarioChecks
-            options={overlayOptions}
-            selected={activeScenarios.filter((s) => s !== reference)}
-            colorOf={colorOf}
-            onToggle={toggleScenario}
-            onSetAll={setSelectedScenarios}
-            pinned={reference}
-          />
+      {(showScenario || series.length > 0) && (
+        <div className="flex flex-col gap-2 px-1">
+          {showScenario && (
+            <ScenarioChecks
+              options={overlayOptions}
+              selected={activeScenarios.filter((s) => s !== reference)}
+              colorOf={colorOf}
+              onToggle={toggleScenario}
+              onSetAll={setSelectedScenarios}
+              pinned={reference}
+            />
+          )}
+          {series.length > 0 && (
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+                Show
+              </span>
+              <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
+                <input
+                  type="checkbox"
+                  checked={logY}
+                  onChange={() => setLogY(!logY)}
+                  className="size-3 accent-neutral-800"
+                />
+                <span className={logY ? 'text-neutral-900' : 'text-neutral-500'}>
+                  log y
+                </span>
+              </label>
+            </div>
+          )}
         </div>
       )}
       {scalars.length > 0 && (
@@ -659,6 +708,7 @@ export function QuantitiesTab({ runId }: { runId: string }) {
           activeScenarios={activeScenarios}
           toDate={toDate}
           dimLevels={dimLevels}
+          logY={logY}
         />
       ))}
     </div>

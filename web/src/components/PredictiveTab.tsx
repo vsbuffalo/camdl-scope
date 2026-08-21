@@ -10,6 +10,7 @@ import { Segmented } from '@/components/Segmented'
 import { Card } from '@/components/ui/card'
 import { fmtTick } from '@/lib/format'
 import { dayToDate } from '@/lib/calendar'
+import { logYOptions } from '@/lib/plot-scale'
 import { loadJson, saveJson } from '@/lib/persist'
 import {
   gradeConvergence,
@@ -142,15 +143,11 @@ function PredictivePanel({
     const showP90 = !hiddenLayers.has('p90')
     const showP50 = !hiddenLayers.has('p50')
     const showMedian = !hiddenLayers.has('median')
-    // For the log y-domain: track the positive extent of what's actually
-    // drawn (visible layers + observed). Zeros stay out of the domain and
-    // clamp to the floor.
-    let yLo = Infinity
-    let yHi = -Infinity
+    // Values of the marks actually drawn (visible layers + observed) — the log
+    // axis scales to these, so hiding the wild outer band rescales the panel.
+    const drawn: number[] = []
     const see = (v: number) => {
-      if (!Number.isFinite(v)) return
-      if (v > 0 && v < yLo) yLo = v
-      if (v > yHi) yHi = v
+      if (Number.isFinite(v)) drawn.push(v)
     }
     const marks: Plot.Markish[] = []
     let predEnd = -Infinity
@@ -232,13 +229,6 @@ function PredictivePanel({
     )
     for (const o of obs) see(o.value!)
 
-    // Log scale needs a strictly positive domain: span the positive plotted
-    // values (slightly padded) and clamp, so zero-valued points/band edges pin
-    // to the axis floor instead of vanishing. All-zero panels fall back to
-    // linear.
-    const logDomain: [number, number] | null =
-      logY && Number.isFinite(yLo) && yHi > 0 ? [yLo * 0.8, yHi * 1.1] : null
-
     const node = Plot.plot({
       width,
       height: PANEL_HEIGHT,
@@ -257,9 +247,7 @@ function PredictivePanel({
         ticks: 5,
         tickFormat: (d: number) => fmtTick(d),
         grid: true,
-        ...(logDomain
-          ? { type: 'log' as const, domain: logDomain, clamp: true }
-          : {}),
+        ...logYOptions(logY, drawn),
       },
       marks,
     })
