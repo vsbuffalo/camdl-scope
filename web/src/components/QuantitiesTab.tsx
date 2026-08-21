@@ -658,6 +658,15 @@ export function QuantitiesTab({ runId }: { runId: string }) {
     setLogYState(v)
     saveJson('quantities:log-y', v)
   }
+  // The figures section collapses like the scalar table — same treatment for
+  // the two halves of one quantity list, which differ only in shape.
+  const [seriesOpen, setSeriesOpenState] = useState(() =>
+    loadJson('quantities:series-open', true),
+  )
+  const setSeriesOpen = (v: boolean) => {
+    setSeriesOpenState(v)
+    saveJson('quantities:series-open', v)
+  }
 
   if (run.isPending) {
     return (
@@ -687,36 +696,19 @@ export function QuantitiesTab({ runId }: { runId: string }) {
 
   return (
     <div className="space-y-4">
-      {(showScenario || series.length > 0) && (
-        <div className="flex flex-col gap-2 px-1">
-          {showScenario && (
-            <ScenarioChecks
-              options={overlayOptions}
-              selected={activeScenarios.filter((s) => s !== reference)}
-              colorOf={colorOf}
-              onToggle={toggleScenario}
-              onSetAll={setSelectedScenarios}
-              pinned={reference}
-            />
-          )}
-          {series.length > 0 && (
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
-                Show
-              </span>
-              <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
-                <input
-                  type="checkbox"
-                  checked={logY}
-                  onChange={() => setLogY(!logY)}
-                  className="size-3 accent-neutral-800"
-                />
-                <span className={logY ? 'text-neutral-900' : 'text-neutral-500'}>
-                  log y
-                </span>
-              </label>
-            </div>
-          )}
+      {/* SCENARIO stays at the top: it is the one control whose scope spans
+          both sections (the scalar table AND the figures). Controls that only
+          change the figures live with the figures — see the series header. */}
+      {showScenario && (
+        <div className="px-1">
+          <ScenarioChecks
+            options={overlayOptions}
+            selected={activeScenarios.filter((s) => s !== reference)}
+            colorOf={colorOf}
+            onToggle={toggleScenario}
+            onSetAll={setSelectedScenarios}
+            pinned={reference}
+          />
         </div>
       )}
       {scalars.length > 0 && (
@@ -729,18 +721,61 @@ export function QuantitiesTab({ runId }: { runId: string }) {
           toDate={toDate}
         />
       )}
-      {series.map((q) => (
-        <SeriesQuantity
-          key={q.name}
-          runId={runId}
-          q={q}
-          colorOf={colorOf}
-          activeScenarios={activeScenarios}
-          toDate={toDate}
-          dimLevels={dimLevels}
-          logY={logY}
-        />
-      ))}
+      {series.length > 0 && (
+        <div>
+          {/* The figures' own control strip, directly above them and sticky, so
+              toggling a scale never scrolls the figure it changes off screen —
+              with several series quantities the last one is far from the top of
+              the tab. Sticks *below* the app header (--app-header-h) and under
+              its z-index, so the two stack rather than overlap. */}
+          <div
+            className="sticky z-30 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-neutral-200 bg-white px-1 py-2"
+            style={{ top: 'var(--app-header-h)' }}
+          >
+            <button
+              type="button"
+              onClick={() => setSeriesOpen(!seriesOpen)}
+              aria-expanded={seriesOpen}
+              className="flex items-baseline gap-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400 transition-colors hover:text-neutral-600"
+            >
+              <span>{seriesOpen ? '▾' : '▸'}</span>
+              <span>series quantities</span>
+              <span className="font-mono tabular-nums normal-case">
+                ({series.length})
+              </span>
+            </button>
+            {seriesOpen && (
+              <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
+                <input
+                  type="checkbox"
+                  checked={logY}
+                  onChange={() => setLogY(!logY)}
+                  className="size-3 accent-neutral-800"
+                />
+                <span className={logY ? 'text-neutral-900' : 'text-neutral-500'}>
+                  log y
+                </span>
+              </label>
+            )}
+          </div>
+          {seriesOpen && (
+            <div className="space-y-4 pt-4">
+              {series.map((q) => (
+                <SeriesQuantity
+                  key={q.name}
+                  runId={runId}
+                  q={q}
+                  colorOf={colorOf}
+                  activeScenarios={activeScenarios}
+                  toDate={toDate}
+                  dimLevels={dimLevels}
+                  logY={logY}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

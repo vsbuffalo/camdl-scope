@@ -9,6 +9,14 @@
     monospace;
 }
 
+:root {
+  /* Height of the sticky GlobalHeader. Anything that sticks *below* it offsets
+     by this (see QuantitiesTab's series header), so the two cannot overlap.
+     GlobalHeader's height is padding-driven and measures 45px at every
+     breakpoint; if that changes, change it here. */
+  --app-header-h: 45px;
+}
+
 html {
   /* Slightly sub-16px root scales every rem-based size down a notch — a global
      density lever for the terminal feel, including extra headroom on phones. */

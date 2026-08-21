@@ -31,6 +31,8 @@ export function GlobalHeader({
   onWorkspace: (w: Workspace) => void
 }) {
   return (
+    // Height is mirrored by --app-header-h (index.css) so anything sticking
+    // below this bar can offset by it; keep them in step.
     <header className="sticky top-0 z-40 border-b border-neutral-200 bg-white">
       {/* Match the main content container so the wordmark lines up with panels. */}
       <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
