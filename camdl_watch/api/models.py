@@ -704,6 +704,34 @@ class ChainMixing(BaseModel):
     band: tuple[float, float] | None = None
 
 
+class PanelColumn(BaseModel):
+    """One column of a sampler panel: the metric, what it means in one line,
+    and its healthy band when the metric has a conventional one."""
+
+    key: str
+    label: str
+    note: str | None = None
+    band: tuple[float, float] | None = None
+
+
+class SamplerPanel(BaseModel):
+    """A chain × metric table of method-specific sampler diagnostics.
+
+    Deliberately one shape for every sampler: PGAS's per-parameter block
+    acceptance and the per-chain telemetry (divergences, step size, tree depth,
+    trajectory renewal …) are both "a value per chain per column, some outside
+    a healthy band". A new sampler adds rows and columns, never a new response
+    type or a new component. ``rows`` are chain ids (1-based, as camdl names
+    them); ``values[r][c]`` is null where a chain has no value for a column."""
+
+    id: str
+    title: str
+    note: str | None = None
+    rows: list[int]
+    columns: list[PanelColumn]
+    values: list[list[float | None]]
+
+
 class DiagnosticsResponse(BaseModel):
     """The full convergence picture for a run: camdl's verdict (findings), a
     per-parameter R̂/ESS table, per-chain mixing, and the PMMH MAP if present.
@@ -720,6 +748,9 @@ class DiagnosticsResponse(BaseModel):
     # .ess_per_chain``), 1-based as camdl names them. Label from these, never
     # from the array index.
     chain_ids: list[int] = []
+    # Method-specific diagnostics (per-parameter block acceptance, sampler
+    # telemetry). Empty for a sampler that exposes none.
+    sampler_panels: list[SamplerPanel] = []
     stage: str | None = None
     source: str
     logpost_label: str

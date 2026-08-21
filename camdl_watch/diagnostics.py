@@ -15,6 +15,7 @@ minimum length (arviz wants a rectangular ``(chain, draw)`` array).
 from __future__ import annotations
 
 import warnings as _pywarnings
+from dataclasses import dataclass
 
 import arviz as az
 import numpy as np
@@ -22,6 +23,8 @@ import numpy as np
 import re
 
 from .state import (
+    DIAGNOSTIC_META,
+    SAMPLER_PANEL_EXCLUDE,
     ChainBuffer,
     ChainSummary,
     Diagnostics,
@@ -428,6 +431,155 @@ def per_chain_mixing(
     if vals:
         return "trajectory renewal", vals, ids, None
     return None
+
+
+@dataclass(frozen=True)
+class PanelColumn:
+    """One column of a sampler panel: the metric, what it means, and the
+    healthy band if the metric has a conventional one."""
+
+    key: str
+    label: str
+    note: str | None = None
+    band: tuple[float, float] | None = None
+
+
+@dataclass(frozen=True)
+class SamplerPanel:
+    """A chain × metric table of sampler-mechanism diagnostics.
+
+    One shape covers both panels the samplers produce — per-parameter block
+    acceptance (columns are parameters) and per-chain sampler telemetry
+    (columns are metrics) — because both are "a number per chain per column,
+    some of which fall outside a healthy band". Adding a sampler means adding
+    rows to a table, not a new component.
+    """
+
+    id: str
+    title: str
+    note: str | None
+    rows: list[int]  # chain ids
+    columns: list[PanelColumn]
+    values: list[list[float | None]]  # [row][column]
+
+
+def _block_acceptance_panel(run: RunState) -> SamplerPanel | None:
+    """PGAS writes acceptance PER PARAMETER BLOCK (``acceptance_rates`` is
+    ``[chain][param]``); the mixing bar collapses that to a chain mean, which
+    hides the case this panel is for — one badly-tuned block stuck at 0.99 or
+    0.02 while the chain average looks healthy."""
+    summ = run.summary
+    if summ is None or not summ.acceptance_rates:
+        return None
+    rates = summ.acceptance_rates
+    width = max((len(r) for r in rates), default=0)
+    # A single column per chain is PMMH's per-chain scalar — already the mixing
+    # bar, nothing per-parameter to add.
+    if width < 2:
+        return None
+    # Nor is there anything to add when a sampler replicates one chain-level
+    # rate across the parameter axis (PGAS does this today): every column would
+    # be identical and the grid would restate the mixing bar in 11 columns.
+    # The panel appears when the per-block detail genuinely exists.
+    if all(
+        max(row) - min(row) < 1e-9
+        for row in rates
+        if row and all(np.isfinite(v) for v in row)
+    ):
+        return None
+    # camdl orders the inner axis by the stage's estimated parameters.
+    names = list(run.meta.estimated)[:width]
+    if len(names) < width:
+        names += [f"block{i}" for i in range(len(names), width)]
+    band = (0.15, 0.50)
+    return SamplerPanel(
+        id="block-acceptance",
+        title="block acceptance",
+        note=(
+            "Metropolis acceptance for each parameter's update block, per "
+            "chain. The per-chain mixing bar is the average of a row — a "
+            "single block outside the band is invisible there."
+        ),
+        rows=chain_ids_for(run, len(rates)),
+        columns=[PanelColumn(key=n, label=n, band=band) for n in names],
+        values=[
+            [float(v) if np.isfinite(v) else None for v in row[:width]]
+            + [None] * (width - len(row))
+            for row in rates
+        ],
+    )
+
+
+def _sampler_telemetry_panel(run: RunState, warmup: int) -> SamplerPanel | None:
+    """Per-chain summary of every diagnostic column the trace declares.
+
+    Driven by camdl's declared column roles rather than a fixed list, so a
+    sampler that starts writing a new diagnostic surfaces it without a watcher
+    change; :data:`DIAGNOSTIC_META` only adds a label, a reduction and a
+    reading for the columns we can say something useful about. Counters (e.g.
+    ``n_divergent``) sum — averaging an event count over draws hides it."""
+    cols: list[str] = []
+    for buf in run.chains.values():
+        for c in buf.aux:
+            if c not in cols and c not in SAMPLER_PANEL_EXCLUDE:
+                cols.append(c)
+    if not cols:
+        return None
+    cols.sort(key=lambda c: (c not in DIAGNOSTIC_META, c))
+
+    columns: list[PanelColumn] = []
+    for c in cols:
+        meta = DIAGNOSTIC_META.get(c)
+        columns.append(
+            PanelColumn(
+                key=c,
+                label=meta[0] if meta else c,
+                note=meta[2] if meta else None,
+                band=meta[3] if meta else None,
+            )
+        )
+
+    rows = sorted(run.chains)
+    values: list[list[float | None]] = []
+    for cid in rows:
+        buf = run.chains[cid]
+        row: list[float | None] = []
+        for c in cols:
+            arr = buf.aux.get(c)
+            if arr is None or buf.n == 0:
+                row.append(None)
+                continue
+            a = arr[buf.iters >= warmup]
+            a = a[np.isfinite(a)]
+            if a.size == 0:
+                row.append(None)
+                continue
+            how = DIAGNOSTIC_META.get(c, (None, "mean", None, None))[1]
+            row.append(float(a.sum()) if how == "sum" else float(a.mean()))
+        values.append(row)
+
+    return SamplerPanel(
+        id="sampler-telemetry",
+        title="sampler diagnostics",
+        note=(
+            "Per-chain summary of the sampler's own telemetry, over the "
+            "retained draws. Counts are sums; everything else is a mean."
+        ),
+        rows=rows,
+        columns=columns,
+        values=values,
+    )
+
+
+def sampler_panels(run: RunState, warmup: int) -> list[SamplerPanel]:
+    """Every method-specific diagnostic panel this run can support, in reading
+    order. Empty when the run's sampler exposes none — the UI then shows
+    nothing rather than an empty frame."""
+    panels = [
+        _block_acceptance_panel(run),
+        _sampler_telemetry_panel(run, warmup),
+    ]
+    return [p for p in panels if p is not None]
 
 
 def effective_rhat(

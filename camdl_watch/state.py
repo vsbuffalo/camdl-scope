@@ -43,6 +43,95 @@ AUX_COLUMNS: tuple[str, ...] = (
     "obs_ll",
     "accepted",
 )
+"""Fallback list of non-parameter trace columns.
+
+Only a fallback: camdl declares a ``role`` for every trace column in the stage's
+``run.json`` (``output_schema``), and :func:`camdl_watch.ingest.read_column_roles`
+prefers that. A hardcoded list silently misfiles whatever a sampler adds — the
+PGAS parameter-block columns (``n_divergent``, ``step_size``, ``tree_depth``,
+``n_leapfrog``, ``accept_stat``, ``energy``) all landed in the *parameter*
+bucket, so divergences were read off disk and never surfaced. Use this only for
+runs whose ``run.json`` predates the schema.
+"""
+
+# How to reduce a diagnostic column over a chain's post-warm-up draws, and what
+# it means. A COUNTER sums (divergences are events, and a mean over draws hides
+# them); everything else averages. `band` is the healthy range where one is
+# conventional. Columns absent here still render — mean, no note — so a new
+# camdl diagnostic appears in the UI the day it is written rather than waiting
+# for this table to be updated.
+DIAGNOSTIC_META: dict[str, tuple[str, str, str, tuple[float, float] | None]] = {
+    # column: (label, reduce, note, band)
+    "n_divergent": (
+        "divergences",
+        "sum",
+        "Divergent transitions: the integrator failed where the posterior's "
+        "geometry is too sharp. Any nonzero count biases the region it "
+        "clusters in — reparameterise rather than sample longer.",
+        None,
+    ),
+    "accept_stat": (
+        "accept",
+        "mean",
+        "Average Metropolis acceptance of the parameter block. Far below "
+        "target wastes proposals; far above means steps too small to explore.",
+        (0.6, 0.95),
+    ),
+    "step_size": (
+        "step size",
+        "mean",
+        "Adapted leapfrog step. Chains that settle on very different step "
+        "sizes are exploring different geometry.",
+        None,
+    ),
+    "tree_depth": (
+        "tree depth",
+        "mean",
+        "NUTS doubling depth. Saturating at the maximum means trajectories "
+        "are being truncated before the U-turn.",
+        None,
+    ),
+    "n_leapfrog": (
+        "leapfrog",
+        "mean",
+        "Gradient evaluations per iteration — the cost side of ESS/second.",
+        None,
+    ),
+    "energy": (
+        "energy",
+        "mean",
+        "Hamiltonian energy; its marginal vs transition spread (E-BFMI) "
+        "detects a heavy-tailed posterior the sampler cannot traverse.",
+        None,
+    ),
+    "trajectory_renewal": (
+        "renewal",
+        "mean",
+        "Fraction of the conditional trajectory replaced per PGAS sweep — the "
+        "particle filter's mixing. Near zero means the ancestor path is stuck "
+        "and the latent state is barely updating.",
+        None,
+    ),
+    "accepted": (
+        "accept",
+        "mean",
+        "Metropolis acceptance rate.",
+        (0.15, 0.50),
+    ),
+}
+
+# Log-density columns are trajectory quantities shown in the Traces tab; they
+# are diagnostics but not *sampler-mechanism* diagnostics, so the sampler panel
+# leaves them out rather than repeating them as per-chain means.
+SAMPLER_PANEL_EXCLUDE: frozenset[str] = frozenset(
+    {
+        "log_likelihood",
+        "log_complete_data_ll",
+        "log_posterior",
+        "transition_ll",
+        "obs_ll",
+    }
+)
 
 # The iteration-index column, after normalization.
 ITER_COL = "draw"
@@ -131,6 +220,17 @@ class ChainBuffer:
     values: dict[str, np.ndarray] = field(default_factory=dict)  # param -> array
     aux: dict[str, np.ndarray] = field(default_factory=dict)  # aux col -> array
     header: list[str] | None = None  # raw column names (cached after first read)
+    # camdl's declared diagnostic columns for this run (from run.json). Empty
+    # means "not declared" — the reader then falls back to AUX_COLUMNS. Carried
+    # per buffer so the streaming appender can classify without the run meta.
+    diagnostic_cols: frozenset[str] = frozenset()
+
+    def is_diagnostic(self, col: str) -> bool:
+        return (
+            col in self.diagnostic_cols
+            if self.diagnostic_cols
+            else col in AUX_COLUMNS
+        )
 
     @property
     def n(self) -> int:
@@ -166,6 +266,20 @@ class RunMeta:
     # observation/dimension schema (None when the sidecar carried no model).
     docs: ModelDocs = field(default_factory=ModelDocs)
     schema: ObsSchema | None = None
+    # Trace column -> camdl's declared role ("iteration" | "diagnostic" |
+    # "param_estimated" | …), read from the stage's run.json output_schema.
+    # Empty for runs that predate the schema, which then fall back to
+    # AUX_COLUMNS. This is what lets a sampler add a diagnostic column and have
+    # it classified correctly without a watcher release.
+    column_roles: dict[str, str] = field(default_factory=dict)
+
+    def is_diagnostic_col(self, col: str) -> bool:
+        """Whether ``col`` is a non-parameter diagnostic, per camdl's declared
+        role when available, else the legacy hardcoded list."""
+        role = self.column_roles.get(col)
+        if role is not None:
+            return role == "diagnostic"
+        return col in AUX_COLUMNS
 
     @property
     def hash(self) -> str:

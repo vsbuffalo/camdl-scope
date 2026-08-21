@@ -241,3 +241,62 @@ def test_plateau_test_memory_is_bounded_on_long_traces():
     # Capped Theil–Sen intermediates are ~32 MB; leave generous headroom while
     # staying far below the quadratic regime (which would be gigabytes).
     assert peak < 200 * 1024 * 1024, f"plateau test allocated {peak/2**20:.0f} MB"
+
+
+def test_sampler_telemetry_panel_sums_counters_and_means_rates():
+    """Divergences are events: summing is the only reduction that shows them.
+    A mean over 10 draws turns 3 divergences into 0.3 and reads as healthy."""
+    meta = RunMeta(run_id="s", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+                   model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,
+                   estimated=["R0"], target_sweeps=None, declared_burn_in=None)
+    rs = RunState(meta=meta)
+    buf = ChainBuffer(cid=1, path=Path("/tmp"))
+    buf.iters = np.arange(10)
+    buf.aux = {
+        "n_divergent": np.array([1.0, 0, 0, 2.0, 0, 0, 0, 0, 0, 0]),
+        "step_size": np.full(10, 0.25),
+        "log_posterior": np.full(10, -3.0),  # excluded: shown in Traces
+    }
+    rs.chains[1] = buf
+    panels = {p.id: p for p in dmod.sampler_panels(rs, warmup=0)}
+    tel = panels["sampler-telemetry"]
+    cols = {c.key: i for i, c in enumerate(tel.columns)}
+    assert "log_posterior" not in cols
+    assert tel.rows == [1]
+    assert tel.values[0][cols["n_divergent"]] == pytest.approx(3.0)  # summed
+    assert tel.values[0][cols["step_size"]] == pytest.approx(0.25)  # mean
+
+
+def test_unknown_diagnostic_column_still_surfaces():
+    """A sampler column the watcher has never heard of must appear (mean, no
+    note) rather than be dropped — that silence is what hid divergences."""
+    meta = RunMeta(run_id="s", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+                   model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,
+                   estimated=["R0"], target_sweeps=None, declared_burn_in=None)
+    rs = RunState(meta=meta)
+    buf = ChainBuffer(cid=1, path=Path("/tmp"))
+    buf.iters = np.arange(4)
+    buf.aux = {"brand_new_metric": np.array([1.0, 2.0, 3.0, 4.0])}
+    rs.chains[1] = buf
+    tel = {p.id: p for p in dmod.sampler_panels(rs, warmup=0)}["sampler-telemetry"]
+    assert [c.key for c in tel.columns] == ["brand_new_metric"]
+    assert tel.values[0][0] == pytest.approx(2.5)
+
+
+def test_block_acceptance_panel_hidden_when_replicated_across_params():
+    """PGAS writes one chain-level rate across the parameter axis today; a grid
+    of identical columns would restate the mixing bar, so it stays hidden."""
+    cs = ChainSummary(stage="pgas", n_chains=2, rhat={}, ess={}, ess_per_chain={},
+                      acceptance_rates=[[0.9, 0.9, 0.9], [0.7, 0.7, 0.7]])
+    panels = {p.id for p in dmod.sampler_panels(_run_with_summary(cs), warmup=0)}
+    assert "block-acceptance" not in panels
+
+
+def test_block_acceptance_panel_shown_when_blocks_actually_differ():
+    cs = ChainSummary(stage="pgas", n_chains=1, rhat={}, ess={}, ess_per_chain={},
+                      acceptance_rates=[[0.02, 0.45, 0.99]])
+    rs = _run_with_summary(cs)
+    rs.meta.estimated = ["a", "b", "c"]
+    panel = {p.id: p for p in dmod.sampler_panels(rs, warmup=0)}["block-acceptance"]
+    assert [c.key for c in panel.columns] == ["a", "b", "c"]
+    assert panel.values[0] == pytest.approx([0.02, 0.45, 0.99])

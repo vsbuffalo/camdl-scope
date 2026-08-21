@@ -57,8 +57,14 @@ def build_run_state(meta: RunMeta) -> RunState:
     offset 0, attach priors / progress / authoritative summary, and classify."""
     rs = RunState(meta=meta)
     max_mtime = 0.0
+    # camdl's declared diagnostic columns, so a sampler column the watcher has
+    # never heard of is still classified as a diagnostic rather than mistaken
+    # for a parameter (see RunMeta.column_roles).
+    diag_cols = frozenset(
+        c for c, role in meta.column_roles.items() if role == "diagnostic"
+    )
     for cid, path in meta.chain_paths.items():
-        buf = ChainBuffer(cid=cid, path=path)
+        buf = ChainBuffer(cid=cid, path=path, diagnostic_cols=diag_cols)
         ingest.tail_chain(buf)  # full read from offset 0
         rs.chains[cid] = buf
         try:

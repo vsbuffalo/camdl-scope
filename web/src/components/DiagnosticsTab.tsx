@@ -4,6 +4,7 @@ import type {
   ChainMixing,
   DiagnosticsResponse,
   ParamDiagnostic,
+  SamplerPanel,
 } from '@/api/client'
 import { useDiagnostics } from '@/api/queries'
 import { ChainSelect } from '@/components/ChainSelect'
@@ -188,6 +189,87 @@ function MixingChart({ mixing }: { mixing: ChainMixing }) {
       />
       <PlotDownloadButton targetRef={ref} name="chain-mixing" />
     </div>
+  )
+}
+
+/**
+ * A method-specific sampler panel as a chain × metric table.
+ *
+ * One component for every sampler: the backend decides which panels a run
+ * supports and what each column means, so a new sampler diagnostic arrives as
+ * data — a column with a label, a note and an optional healthy band — rather
+ * than as a new component here. A value outside its band reads red; a counter
+ * that should be zero (divergences) reads red on any nonzero.
+ */
+function SamplerPanelTable({ panel }: { panel: SamplerPanel }) {
+  const flagged = (v: number | null, col: SamplerPanel['columns'][number]) => {
+    if (v == null) return false
+    if (col.key === 'n_divergent') return v > 0
+    return col.band ? v < col.band[0] || v > col.band[1] : false
+  }
+  return (
+    <>
+      <SectionLabel>{panel.title}</SectionLabel>
+      {panel.note && (
+        <p className="px-3 pt-1 text-[11px] leading-snug text-neutral-500">
+          {panel.note}
+        </p>
+      )}
+      <div className="scroll-x-visible overflow-x-auto px-3 py-2">
+        <table className="w-full border-collapse font-mono text-[11px] tabular-nums">
+          <thead>
+            <tr className="border-b border-neutral-200 text-[9px] uppercase tracking-wider text-neutral-400">
+              <th className="px-2 py-1.5 text-left font-medium">chain</th>
+              {panel.columns.map((c) => (
+                <th
+                  key={c.key}
+                  className="px-2 py-1.5 text-right font-medium"
+                  title={c.note ?? undefined}
+                >
+                  {c.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {panel.rows.map((chain, r) => (
+              <tr key={chain} className="border-t border-neutral-100">
+                <td className="px-2 py-1 text-left text-neutral-500">c{chain}</td>
+                {panel.columns.map((c, i) => {
+                  const v = panel.values[r]?.[i] ?? null
+                  return (
+                    <td
+                      key={c.key}
+                      className={cn(
+                        'px-2 py-1 text-right',
+                        flagged(v, c)
+                          ? 'font-medium text-red-600'
+                          : 'text-neutral-700',
+                      )}
+                    >
+                      {v == null ? '—' : fmtValue(v)}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* The columns worth a sentence explain themselves under the table —
+          a tooltip is not readable on a phone and not discoverable anywhere. */}
+      {panel.columns.some((c) => c.note) && (
+        <ul className="space-y-0.5 px-3 pb-2 text-[10px] leading-snug text-neutral-400">
+          {panel.columns
+            .filter((c) => c.note)
+            .map((c) => (
+              <li key={c.key}>
+                <span className="text-neutral-600">{c.label}</span> — {c.note}
+              </li>
+            ))}
+        </ul>
+      )}
+    </>
   )
 }
 
@@ -476,6 +558,10 @@ export function DiagnosticsTab({
                 </div>
               </>
             )}
+
+            {data.sampler_panels?.map((panel) => (
+              <SamplerPanelTable key={panel.id} panel={panel} />
+            ))}
 
             <SectionLabel>per-parameter convergence</SectionLabel>
             <ParamTable params={data.params} perChainCols={perChainCols} />

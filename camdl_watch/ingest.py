@@ -326,6 +326,35 @@ def _read_wall_time_secs(seed_dir: Path) -> float | None:
     return float(v) if isinstance(v, (int, float)) else None
 
 
+def read_column_roles(seed_dir: Path) -> dict[str, str]:
+    """camdl's declared role for each trace column, from the stage's
+    ``run.json`` (``output_schema["chain_{n}/trace.tsv"].columns``): e.g.
+    ``sweep -> iteration``, ``n_divergent -> diagnostic``, ``r_eff ->
+    param_estimated``.
+
+    This is the contract that lets the watcher classify a column it has never
+    heard of. ``{}`` when the file is absent or predates the schema — the
+    caller then falls back to :data:`camdl_watch.state.AUX_COLUMNS`."""
+    try:
+        rec = json.loads((seed_dir / "run.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    schema = rec.get("output_schema") if isinstance(rec, dict) else None
+    if not isinstance(schema, dict):
+        return {}
+    out: dict[str, str] = {}
+    for entry in schema.values():
+        cols = entry.get("columns") if isinstance(entry, dict) else None
+        if not isinstance(cols, list):
+            continue
+        for c in cols:
+            if isinstance(c, dict) and isinstance(c.get("name"), str):
+                role = c.get("role")
+                if isinstance(role, str):
+                    out[c["name"]] = role
+    return out
+
+
 def _pick_posterior_dir(
     run_dir: Path, *, include_warming: bool = False
 ) -> tuple[Path, Path, dict[int, Path], bool] | None:
@@ -578,6 +607,7 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
                 user_label=labels.get(run_dir.name),
                 docs=ModelDocs.from_meta(meta),
                 schema=ObsSchema.from_meta(meta),
+                column_roles=read_column_roles(seed_dir),
             )
         )
     return out
@@ -686,7 +716,7 @@ def _append_df(buf: ChainBuffer, df: pl.DataFrame) -> None:
         if col == ITER_COL:
             continue
         arr = df[col].cast(pl.Float64, strict=False).to_numpy()
-        target = buf.aux if col in AUX_COLUMNS else buf.values
+        target = buf.aux if buf.is_diagnostic(col) else buf.values
         if col in target:
             target[col] = np.concatenate([target[col], arr])
         else:

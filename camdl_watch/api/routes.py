@@ -45,6 +45,8 @@ from ..state import (
 from .models import (
     Calendar,
     ChainMixing,
+    PanelColumn,
+    SamplerPanel,
     CompareResponse,
     CompareRow,
     DiagnosticsResponse,
@@ -1260,9 +1262,22 @@ def get_diagnostics(
     per_chain_n = max((len(p.ess_per_chain) for p in params_out), default=0)
     chain_ids_out = diag_mod.chain_ids_for(rs, per_chain_n) if per_chain_n else []
 
+    panels_out = [
+        SamplerPanel(
+            id=p.id, title=p.title, note=p.note, rows=p.rows,
+            columns=[
+                PanelColumn(key=c.key, label=c.label, note=c.note, band=c.band)
+                for c in p.columns
+            ],
+            values=[[_finite_or_none(v) for v in row] for row in p.values],
+        )
+        for p in diag_mod.sampler_panels(rs, cutoff)
+    ]
+
     source = "camdl" if (summ is not None and summ.rhat) else "live"
     return DiagnosticsResponse(
         **base, n_tail=diag.n_tail, source=source, chain_ids=chain_ids_out,
+        sampler_panels=panels_out,
         findings=findings, params=params_out, mixing=mixing,
         map_loglik=(_finite_or_none(summ.map_loglik) if summ is not None else None),
         map_chain=(summ.map_chain if summ is not None else None),

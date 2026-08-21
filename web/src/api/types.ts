@@ -590,6 +590,11 @@ export interface components {
              * @default []
              */
             chain_ids: number[];
+            /**
+             * Sampler Panels
+             * @default []
+             */
+            sampler_panels: components["schemas"]["SamplerPanel"][];
             /** Stage */
             stage?: string | null;
             /** Source */
@@ -913,6 +918,24 @@ export interface components {
             };
             /** Value */
             value?: number | null;
+        };
+        /**
+         * PanelColumn
+         * @description One column of a sampler panel: the metric, what it means in one line,
+         *     and its healthy band when the metric has a conventional one.
+         */
+        PanelColumn: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Note */
+            note?: string | null;
+            /** Band */
+            band?: [
+                number,
+                number
+            ] | null;
         };
         /**
          * ParamDiagnostic
@@ -1546,6 +1569,31 @@ export interface components {
             target_sweeps?: number | null;
             /** Updated At */
             updated_at: number;
+        };
+        /**
+         * SamplerPanel
+         * @description A chain × metric table of method-specific sampler diagnostics.
+         *
+         *     Deliberately one shape for every sampler: PGAS's per-parameter block
+         *     acceptance and the per-chain telemetry (divergences, step size, tree depth,
+         *     trajectory renewal …) are both "a value per chain per column, some outside
+         *     a healthy band". A new sampler adds rows and columns, never a new response
+         *     type or a new component. ``rows`` are chain ids (1-based, as camdl names
+         *     them); ``values[r][c]`` is null where a chain has no value for a column.
+         */
+        SamplerPanel: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Note */
+            note?: string | null;
+            /** Rows */
+            rows: number[];
+            /** Columns */
+            columns: components["schemas"]["PanelColumn"][];
+            /** Values */
+            values: (number | null)[][];
         };
         /**
          * SimBandPoint
