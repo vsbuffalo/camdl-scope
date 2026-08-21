@@ -1248,15 +1248,21 @@ def get_diagnostics(
     mixing = None
     mix = diag_mod.per_chain_mixing(rs, cutoff)
     if mix is not None:
-        label, values, _labels, band = mix
+        label, values, chain_ids, band = mix
         mixing = ChainMixing(
             label=label, values=[_fnum(v) for v in values],
+            chains=[int(c) for c in chain_ids],
             band=((float(band[0]), float(band[1])) if band and len(band) == 2 else None),
         )
 
+    # Chain ids behind the positional per-chain ESS columns — camdl's 1-based
+    # names, so the table labels agree with the chain selector.
+    per_chain_n = max((len(p.ess_per_chain) for p in params_out), default=0)
+    chain_ids_out = diag_mod.chain_ids_for(rs, per_chain_n) if per_chain_n else []
+
     source = "camdl" if (summ is not None and summ.rhat) else "live"
     return DiagnosticsResponse(
-        **base, n_tail=diag.n_tail, source=source,
+        **base, n_tail=diag.n_tail, source=source, chain_ids=chain_ids_out,
         findings=findings, params=params_out, mixing=mixing,
         map_loglik=(_finite_or_none(summ.map_loglik) if summ is not None else None),
         map_chain=(summ.map_chain if summ is not None else None),

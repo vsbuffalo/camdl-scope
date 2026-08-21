@@ -118,10 +118,24 @@ def _run_with_summary(summary):
 def test_per_chain_mixing_prefers_camdl_acceptance():
     cs = ChainSummary(stage="pgas", n_chains=2, rhat={}, ess={}, ess_per_chain={},
                       acceptance_rates=[[0.99, 0.99], [0.86, 0.86]])
-    label, values, labels, band = dmod.per_chain_mixing(_run_with_summary(cs), warmup=0)
+    label, values, ids, band = dmod.per_chain_mixing(_run_with_summary(cs), warmup=0)
     assert label == "acceptance"
     assert values == pytest.approx([0.99, 0.86])
-    assert band == (0.15, 0.50) and labels == ["c0", "c1"]
+    # camdl names chains chain_1…chain_n, so a summary's positional array maps
+    # to 1-based ids — never c0, which names no chain.
+    assert band == (0.15, 0.50) and ids == [1, 2]
+
+
+def test_per_chain_mixing_ids_come_from_the_run_not_the_position():
+    """A summary array is positional; the ids must be the chains actually
+    present, so a run whose chains are 3 and 7 does not get relabelled 1, 2."""
+    cs = ChainSummary(stage="pgas", n_chains=2, rhat={}, ess={}, ess_per_chain={},
+                      acceptance_rates=[[0.4], [0.45]])
+    rs = _run_with_summary(cs)
+    for cid in (3, 7):
+        rs.chains[cid] = ChainBuffer(cid=cid, path=Path("/tmp"))
+    _label, _values, ids, _band = dmod.per_chain_mixing(rs, warmup=0)
+    assert ids == [3, 7]
 
 
 def test_per_chain_mixing_live_renewal_when_no_summary():
@@ -135,9 +149,10 @@ def test_per_chain_mixing_live_renewal_when_no_summary():
         buf.iters = np.arange(10)
         buf.aux = {"trajectory_renewal": np.full(10, r)}
         rs.chains[cid] = buf
-    label, values, labels, band = dmod.per_chain_mixing(rs, warmup=0)
+    label, values, ids, band = dmod.per_chain_mixing(rs, warmup=0)
     assert label == "trajectory renewal" and band is None
     assert values == pytest.approx([0.3, 0.5])
+    assert ids == [1, 2]  # the live path carries the real chain ids
 
 
 def test_effective_rhat_ess_prefer_summary():

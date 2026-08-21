@@ -691,10 +691,16 @@ class ParamDiagnostic(BaseModel):
 
 class ChainMixing(BaseModel):
     """Per-chain mixing metric — MH/PMMH acceptance rate or PGAS trajectory
-    renewal — with an optional healthy band ``(lo, hi)``."""
+    renewal — with an optional healthy band ``(lo, hi)``.
+
+    ``chains`` carries the chain id of each value, parallel to ``values``.
+    camdl's chains are 1-based (``chain_1 …``) and a mixing series may cover a
+    subset (chains still warming up contribute nothing), so a consumer must
+    label from this list rather than from the array position."""
 
     label: str
     values: list[float]
+    chains: list[int] = []
     band: tuple[float, float] | None = None
 
 
@@ -710,6 +716,10 @@ class DiagnosticsResponse(BaseModel):
     n_tail: int
     n_chains: int  # chains actually diagnosed (excludes any still warming up)
     n_chains_warming: int = 0  # chains dropped for lacking post-warm-up draws
+    # Chain ids for the positional per-chain columns (``ParamDiagnostic
+    # .ess_per_chain``), 1-based as camdl names them. Label from these, never
+    # from the array index.
+    chain_ids: list[int] = []
     stage: str | None = None
     source: str
     logpost_label: str

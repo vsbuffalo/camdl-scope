@@ -102,8 +102,11 @@ function MixingChart({ mixing }: { mixing: ChainMixing }) {
     if (!el || width <= 0) return
 
     const band = mixing.band
-    const rows: MixRow[] = mixing.values.map((value, chain) => ({
-      chain,
+    // Label by the chain id the API sends, not by array position: camdl's
+    // chains are 1-based and a mixing series may cover a subset (a chain still
+    // warming up contributes no value), so position names the wrong chain.
+    const rows: MixRow[] = mixing.values.map((value, i) => ({
+      chain: mixing.chains?.[i] ?? i + 1,
       value,
       out: band ? value < band[0] || value > band[1] : false,
     }))
@@ -294,7 +297,9 @@ function ParamTable({
   perChainCols,
 }: {
   params: ParamDiagnostic[]
-  perChainCols: number[]
+  /** Per-chain ESS columns: `at` is the position in `ess_per_chain`, `id` the
+   *  chain it belongs to (camdl's 1-based name) — they are not the same. */
+  perChainCols: { at: number; id: number }[]
 }) {
   return (
     // The per-chain columns make this wide; let it scroll on a phone rather than
@@ -310,8 +315,8 @@ function ParamTable({
             <th className="px-2 py-1.5 text-right font-medium">mcse</th>
             <th className="px-2 py-1.5 text-right font-medium">sep</th>
             {perChainCols.map((c) => (
-              <th key={c} className="px-2 py-1.5 text-right font-medium">
-                c{c}
+              <th key={c.at} className="px-2 py-1.5 text-right font-medium">
+                c{c.id}
               </th>
             ))}
           </tr>
@@ -350,10 +355,10 @@ function ParamTable({
                   {fmtValue(p.sep)}
                 </td>
                 {perChainCols.map((c) => {
-                  const v = p.ess_per_chain[c]
+                  const v = p.ess_per_chain[c.at]
                   return (
                     <td
-                      key={c}
+                      key={c.at}
                       className={cn(
                         'px-2 py-1.5 text-right',
                         v != null && v < ESS_LOW
@@ -400,7 +405,13 @@ export function DiagnosticsTab({
   const perChainN = data
     ? data.params.reduce((m, p) => Math.max(m, p.ess_per_chain.length), 0)
     : 0
-  const perChainCols = Array.from({ length: perChainN }, (_, i) => i)
+  // Column position → chain id. The ids come from the API (camdl names chains
+  // 1-based), so these headers read the same as the chain selector's; the
+  // fallback keeps a column labelled if an older response omits the ids.
+  const perChainCols = Array.from({ length: perChainN }, (_, i) => ({
+    at: i,
+    id: data?.chain_ids?.[i] ?? i + 1,
+  }))
 
   return (
     <div className="max-w-4xl">

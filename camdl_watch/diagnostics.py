@@ -376,22 +376,40 @@ def summarize_findings(findings: list[Finding]) -> list[FindingGroup]:
     return groups
 
 
+def chain_ids_for(run: RunState, n: int) -> list[int]:
+    """The chain ids behind ``n`` positionally-ordered per-chain values.
+
+    camdl names chains ``chain_1 … chain_n`` on disk, so ids are 1-based and a
+    positional array index is NOT a chain id — labelling a summary-derived
+    array by position produced a `c0` that names no chain and disagrees with
+    every other chain control in the app. Prefer the ids actually discovered in
+    the run; fall back to camdl's 1-based convention when the counts disagree
+    (a summary written for chains whose trace dirs are not all present yet)."""
+    ids = sorted(run.chains)
+    if len(ids) == n:
+        return ids
+    return list(range(1, n + 1))
+
+
 def per_chain_mixing(
     run: RunState, warmup: int
-) -> tuple[str, list[float], list[str], tuple[float, float] | None] | None:
-    """``(label, values, chain_labels, band)`` for a per-chain mixing bar,
+) -> tuple[str, list[float], list[int], tuple[float, float] | None] | None:
+    """``(label, values, chain_ids, band)`` for a per-chain mixing bar,
     best-source-first: camdl's authoritative acceptance; else live acceptance
     from the MH ``accepted`` column; else live PGAS ``trajectory_renewal``
-    (no universal healthy band). ``None`` if nothing is available."""
+    (no universal healthy band). ``None`` if nothing is available.
+
+    ``chain_ids`` is parallel to ``values`` — the consumer labels with these,
+    never with the array position."""
     summ = run.summary
     if summ is not None:
         acc = summ.per_chain_acceptance
         if acc:
-            return "acceptance", acc, [f"c{i}" for i in range(len(acc))], (0.15, 0.50)
+            return "acceptance", acc, chain_ids_for(run, len(acc)), (0.15, 0.50)
 
-    def _live(col: str) -> tuple[list[float], list[str]]:
+    def _live(col: str) -> tuple[list[float], list[int]]:
         vals: list[float] = []
-        labs: list[str] = []
+        ids: list[int] = []
         for cid in sorted(run.chains):
             buf = run.chains[cid]
             if col not in buf.aux or buf.n == 0:
@@ -400,15 +418,15 @@ def per_chain_mixing(
             a = a[np.isfinite(a)]
             if a.size:
                 vals.append(float(np.mean(a)))
-                labs.append(f"c{cid}")
-        return vals, labs
+                ids.append(cid)
+        return vals, ids
 
-    vals, labs = _live("accepted")
+    vals, ids = _live("accepted")
     if vals:
-        return "acceptance", vals, labs, (0.15, 0.50)
-    vals, labs = _live("trajectory_renewal")
+        return "acceptance", vals, ids, (0.15, 0.50)
+    vals, ids = _live("trajectory_renewal")
     if vals:
-        return "trajectory renewal", vals, labs, None
+        return "trajectory renewal", vals, ids, None
     return None
 
 

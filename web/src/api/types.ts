@@ -460,12 +460,22 @@ export interface components {
          * ChainMixing
          * @description Per-chain mixing metric — MH/PMMH acceptance rate or PGAS trajectory
          *     renewal — with an optional healthy band ``(lo, hi)``.
+         *
+         *     ``chains`` carries the chain id of each value, parallel to ``values``.
+         *     camdl's chains are 1-based (``chain_1 …``) and a mixing series may cover a
+         *     subset (chains still warming up contribute nothing), so a consumer must
+         *     label from this list rather than from the array position.
          */
         ChainMixing: {
             /** Label */
             label: string;
             /** Values */
             values: number[];
+            /**
+             * Chains
+             * @default []
+             */
+            chains: number[];
             /** Band */
             band?: [
                 number,
@@ -575,6 +585,11 @@ export interface components {
              * @default 0
              */
             n_chains_warming: number;
+            /**
+             * Chain Ids
+             * @default []
+             */
+            chain_ids: number[];
             /** Stage */
             stage?: string | null;
             /** Source */
