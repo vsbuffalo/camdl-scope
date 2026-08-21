@@ -433,6 +433,13 @@ function ScalarTable({
     () => (data?.rows ?? []).some((r) => Object.keys(r.stratum).length > 0),
     [data],
   )
+  const [open, setOpenState] = useState(() =>
+    loadJson('quantities:scalars-open', true),
+  )
+  const setOpen = (v: boolean) => {
+    setOpenState(v)
+    saveJson('quantities:scalars-open', v)
+  }
 
   // Group the selected scenarios' rows by quantity (the name shows once per
   // group), preserving order.
@@ -461,7 +468,30 @@ function ScalarTable({
 
   return (
     <Card className="overflow-hidden">
-      <div className="overflow-x-auto">
+      {/* Collapsible: this table runs to ~650px on a real fit, which pushes the
+          series figures below the fold and separates them from the controls
+          that change them. Collapsed state persists — a reader working on the
+          trajectories should not have to re-collapse it every visit. */}
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex w-full items-baseline gap-2 px-3 py-2 text-left transition-colors hover:bg-neutral-50"
+      >
+        <span className="text-[10px] text-neutral-400">{open ? '▾' : '▸'}</span>
+        <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+          scalar quantities
+        </span>
+        <span className="font-mono text-[10px] tabular-nums text-neutral-400">
+          ({groups.length})
+        </span>
+        {!open && (
+          <span className="truncate font-mono text-[10px] text-neutral-400">
+            {groups.map(([name]) => name).join(' · ')}
+          </span>
+        )}
+      </button>
+      <div className={cn('overflow-x-auto border-t border-neutral-200', !open && 'hidden')}>
         <table className="w-full border-collapse font-mono text-[12px] tabular-nums">
           <thead>
             <tr className="border-b border-neutral-200 text-[10px] uppercase tracking-wide text-neutral-400">
