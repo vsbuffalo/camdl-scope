@@ -3,6 +3,7 @@ import * as Plot from '@observablehq/plot'
 import type { ObservedPoint, PredictivePoint } from '@/api/client'
 import { usePredictive, useRun } from '@/api/queries'
 import { ForestSkeleton, MutedNotice, NoPosteriorNotice } from '@/components/States'
+import { BandLayerChecks, type BandLayer } from '@/components/BandLayers'
 import { Figure } from '@/components/Figure'
 import { ByIndexPlot, LevelLegend } from '@/components/ByIndexPlot'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
@@ -64,13 +65,9 @@ type Arm = {
   color: string
 }
 
-/** Independently toggleable layers of a predictive ribbon. */
-type PredLayer = 'median' | 'p50' | 'p90'
-const PRED_LAYERS: { key: PredLayer; label: string }[] = [
-  { key: 'median', label: 'median' },
-  { key: 'p50', label: '50%' },
-  { key: 'p90', label: '90%' },
-]
+/** Independently toggleable layers of a predictive ribbon — the shared band
+ *  vocabulary (see components/BandLayers), aliased for local readability. */
+type PredLayer = BandLayer
 
 /**
  * One stratum's posterior-predictive check. Each overlaid arm draws its own
@@ -754,21 +751,6 @@ function ArmChecks({
   )
 }
 
-/** Swatch hinting a predictive layer: a line for the median, a filled band for
- *  the 50%/90% intervals (opacity scaled so 90% reads lighter than 50%). */
-function LayerSwatch({ layer, on }: { layer: PredLayer; on: boolean }) {
-  const base = on ? '#525252' : '#a3a3a3'
-  if (layer === 'median') {
-    return <span className="inline-block h-[2px] w-3 rounded-full" style={{ background: base }} />
-  }
-  return (
-    <span
-      className="inline-block h-2 w-3 rounded-[1px]"
-      style={{ background: base, opacity: layer === 'p90' ? 0.3 : 0.55 }}
-    />
-  )
-}
-
 /** Checkbox group toggling each predictive layer (median / 50% / 90%) plus the
  *  observed connecting line. Checked = shown; unchecking a predictive layer
  *  rescales the panel y-axis to what remains + observed. The observed *dots*
@@ -795,26 +777,7 @@ function LayerChecks({
         Show
       </span>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {PRED_LAYERS.map(({ key, label }) => {
-          const on = !hidden.has(key)
-          return (
-            <label
-              key={key}
-              className="flex cursor-pointer items-center gap-1.5 font-mono text-xs"
-            >
-              <input
-                type="checkbox"
-                checked={on}
-                onChange={() => onToggle(key)}
-                className="size-3 accent-neutral-800"
-              />
-              <LayerSwatch layer={key} on={on} />
-              <span className={on ? 'text-neutral-900' : 'text-neutral-500'}>
-                {label}
-              </span>
-            </label>
-          )
-        })}
+        <BandLayerChecks hidden={hidden} onToggle={onToggle} />
         <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
           <input
             type="checkbox"

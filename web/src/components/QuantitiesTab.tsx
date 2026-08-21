@@ -7,6 +7,7 @@ import type {
 } from '@/api/client'
 import { useQuantityScalars, useQuantitySeries, useRun } from '@/api/queries'
 import { ForestSkeleton, MutedNotice, NoPosteriorNotice } from '@/components/States'
+import { BandLayerChecks, type BandLayer } from '@/components/BandLayers'
 import { ScenarioChecks } from '@/components/ScenarioChecks'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { Segmented } from '@/components/Segmented'
@@ -58,14 +59,15 @@ interface ScenarioSeries {
   points: QuantityBandPoint[]
 }
 
-/** One stratum's banded trajectory, overlaid by scenario. A lone scenario gets
- *  the full 90%/IQR ribbon; multiple scenarios get a faint 90% band + a colored
- *  median line each (so 5 arms stay legible). */
+/** One stratum's banded trajectory, overlaid by scenario. Which layers draw is
+ *  the caller's choice (median / 50% / 90%); with several arms overlaid the
+ *  fills lighten so five ribbons stay legible rather than mixing to mud. */
 function BandPanel({
   title,
   series,
   toDate,
   logY,
+  hiddenLayers,
 }: {
   title: string
   series: ScenarioSeries[]
@@ -73,6 +75,7 @@ function BandPanel({
   /** Log y-axis. A quantity that goes non-positive (a difference, a log-ratio)
    *  has no viable log domain and stays linear — see lib/plot-scale. */
   logY: boolean
+  hiddenLayers: ReadonlySet<BandLayer>
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -99,23 +102,41 @@ function BandPanel({
     const marks: Plot.Markish[] = []
     // Values of the marks drawn, for the log domain (see lib/plot-scale).
     const drawn: number[] = []
+    const showP90 = !hiddenLayers.has('p90')
+    const showP50 = !hiddenLayers.has('p50')
+    const showMedian = !hiddenLayers.has('median')
     for (const s of series) {
       const pts = [...s.points].sort((a, b) => a.time - b.time)
       for (const p of pts) {
-        drawn.push(p.q05 ?? NaN, p.q95 ?? NaN, p.q50 ?? NaN)
-        if (solo) drawn.push(p.q25 ?? NaN, p.q75 ?? NaN)
+        if (showP90) drawn.push(p.q05 ?? NaN, p.q95 ?? NaN)
+        if (showP50) drawn.push(p.q25 ?? NaN, p.q75 ?? NaN)
+        if (showMedian) drawn.push(p.q50 ?? NaN)
       }
-      if (solo) {
+      if (showP90) {
         marks.push(
-          Plot.areaY(pts, { x: xOf, y1: 'q05', y2: 'q95', fill: s.color, fillOpacity: 0.16 }),
-          Plot.areaY(pts, { x: xOf, y1: 'q25', y2: 'q75', fill: s.color, fillOpacity: 0.22 }),
-        )
-      } else {
-        marks.push(
-          Plot.areaY(pts, { x: xOf, y1: 'q05', y2: 'q95', fill: s.color, fillOpacity: 0.1 }),
+          Plot.areaY(pts, {
+            x: xOf,
+            y1: 'q05',
+            y2: 'q95',
+            fill: s.color,
+            fillOpacity: solo ? 0.16 : 0.1,
+          }),
         )
       }
-      marks.push(Plot.line(pts, { x: xOf, y: 'q50', stroke: s.color, strokeWidth: 1.3 }))
+      if (showP50) {
+        marks.push(
+          Plot.areaY(pts, {
+            x: xOf,
+            y1: 'q25',
+            y2: 'q75',
+            fill: s.color,
+            fillOpacity: solo ? 0.22 : 0.16,
+          }),
+        )
+      }
+      if (showMedian) {
+        marks.push(Plot.line(pts, { x: xOf, y: 'q50', stroke: s.color, strokeWidth: 1.3 }))
+      }
     }
     marks.push(Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }))
 
@@ -144,7 +165,7 @@ function BandPanel({
     return () => {
       node.remove()
     }
-  }, [series, width, solo, toDate, logY])
+  }, [series, width, solo, toDate, logY, hiddenLayers])
 
   const figRef = useRef<HTMLDivElement>(null)
 
@@ -176,6 +197,7 @@ function SeriesQuantity({
   toDate,
   dimLevels,
   logY,
+  hiddenLayers,
 }: {
   runId: string
   q: QuantityInfo
@@ -184,6 +206,7 @@ function SeriesQuantity({
   toDate: ((t: number) => Date) | null
   dimLevels: Map<string, string[]>
   logY: boolean
+  hiddenLayers: ReadonlySet<BandLayer>
 }) {
   const { data, isPending, isError } = useQuantitySeries(runId, q.name)
   const tag = sourceTag(q.source)
@@ -319,6 +342,7 @@ function SeriesQuantity({
               series={p.series}
               toDate={toDate}
               logY={logY}
+              hiddenLayers={hiddenLayers}
             />
           ))
         ) : byIndex && byIndex.facets.some((f) => f.points.some((p) => p.pred != null)) ? (
@@ -658,6 +682,19 @@ export function QuantitiesTab({ runId }: { runId: string }) {
     setLogYState(v)
     saveJson('quantities:log-y', v)
   }
+  // Which band layers draw, shared across every quantity panel (the same
+  // median / 50% / 90% vocabulary as the Predictive check). Persisted like the
+  // other display preferences; stored as an array since a Set is not JSON.
+  const [hiddenLayers, setHiddenLayersState] = useState<ReadonlySet<BandLayer>>(
+    () => new Set(loadJson<BandLayer[]>('quantities:hidden-layers', [])),
+  )
+  const toggleLayer = (layer: BandLayer) => {
+    const next = new Set(hiddenLayers)
+    if (next.has(layer)) next.delete(layer)
+    else next.add(layer)
+    setHiddenLayersState(next)
+    saveJson('quantities:hidden-layers', [...next])
+  }
   // The figures section collapses like the scalar table — same treatment for
   // the two halves of one quantity list, which differ only in shape.
   const [seriesOpen, setSeriesOpenState] = useState(() =>
@@ -745,17 +782,20 @@ export function QuantitiesTab({ runId }: { runId: string }) {
               </span>
             </button>
             {seriesOpen && (
-              <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
-                <input
-                  type="checkbox"
-                  checked={logY}
-                  onChange={() => setLogY(!logY)}
-                  className="size-3 accent-neutral-800"
-                />
-                <span className={logY ? 'text-neutral-900' : 'text-neutral-500'}>
-                  log y
-                </span>
-              </label>
+              <>
+                <BandLayerChecks hidden={hiddenLayers} onToggle={toggleLayer} />
+                <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
+                  <input
+                    type="checkbox"
+                    checked={logY}
+                    onChange={() => setLogY(!logY)}
+                    className="size-3 accent-neutral-800"
+                  />
+                  <span className={logY ? 'text-neutral-900' : 'text-neutral-500'}>
+                    log y
+                  </span>
+                </label>
+              </>
             )}
           </div>
           {seriesOpen && (
@@ -770,6 +810,7 @@ export function QuantitiesTab({ runId }: { runId: string }) {
                   toDate={toDate}
                   dimLevels={dimLevels}
                   logY={logY}
+                  hiddenLayers={hiddenLayers}
                 />
               ))}
             </div>
