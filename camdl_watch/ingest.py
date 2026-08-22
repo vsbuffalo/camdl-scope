@@ -355,6 +355,39 @@ def read_column_roles(seed_dir: Path) -> dict[str, str]:
     return out
 
 
+def _read_algorithm_config(seed_dir: Path) -> dict[str, str | float | int]:
+    """The sampler's static configuration from the stage leaf's ``run.json``
+    (``inputs.algorithm``) — particle count, sweep budget, optimizer tolerance.
+
+    The keys differ by algorithm (PGAS records ``particles``/``sweeps``, MH
+    ``iterations``, an NLopt scout ``max_evals``/``tolerance``), so we pass
+    through whatever camdl wrote instead of naming a fixed set: a sampler that
+    starts recording a new knob surfaces without a change here. Empty on runs
+    that predate the field and when ``run.json`` is absent/unreadable."""
+    p = seed_dir / "run.json"
+    try:
+        rec = json.loads(p.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    inputs = rec.get("inputs") if isinstance(rec, dict) else None
+    if not isinstance(inputs, dict):
+        return {}
+    cfg = inputs.get("algorithm")
+    if not isinstance(cfg, dict):
+        return {}
+    out: dict[str, str | float | int] = {}
+    for k, v in cfg.items():
+        if isinstance(v, bool):
+            # A JSON bool would validate against the numeric arm of the wire
+            # union and reach the UI as a meaningless 1/0; keep it a word.
+            out[str(k)] = str(v).lower()
+        elif isinstance(v, (str, int, float)):
+            out[str(k)] = v
+        # Anything structured (a list, a nested block) has no compact rendering
+        # in a one-line header strip, so it is dropped rather than stringified.
+    return out
+
+
 def _pick_posterior_dir(
     run_dir: Path, *, include_warming: bool = False
 ) -> tuple[Path, Path, dict[int, Path], bool] | None:
@@ -543,6 +576,7 @@ def _mle_run_meta(run_dir: Path, mle_seed: Path, labels: dict[str, str]) -> RunM
         docs=ModelDocs.from_meta(meta),
         schema=ObsSchema.from_meta(meta),
         fit_kind="mle",
+        algorithm_config=_read_algorithm_config(mle_seed),
     )
 
 
@@ -608,6 +642,7 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
                 docs=ModelDocs.from_meta(meta),
                 schema=ObsSchema.from_meta(meta),
                 column_roles=read_column_roles(seed_dir),
+                algorithm_config=_read_algorithm_config(seed_dir),
             )
         )
     return out

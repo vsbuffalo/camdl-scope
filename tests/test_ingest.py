@@ -317,6 +317,65 @@ def test_read_chain_summary_absent_is_none(tmp_path: Path):
     assert ingest.read_chain_summary(seed) is None
 
 
+def test_read_algorithm_config_pgas(tmp_path: Path):
+    """PGAS records the particle count and sweep budget; every key passes
+    through, including the ones the header strip won't end up showing."""
+    seed = tmp_path / "seed_1"
+    seed.mkdir()
+    (seed / "run.json").write_text(json.dumps({
+        "inputs": {
+            "algorithm": {"algorithm": "pgas", "backend": "chain_binomial",
+                          "chains": 8, "particles": 1200, "sweeps": 40000},
+            "wall_time_seconds": 13426.3,
+        },
+    }))
+    cfg = ingest._read_algorithm_config(seed)
+    assert cfg["particles"] == 1200
+    assert cfg["sweeps"] == 40000
+    assert cfg["algorithm"] == "pgas" and cfg["chains"] == 8
+
+
+def test_read_algorithm_config_keys_are_algorithm_specific(tmp_path: Path):
+    """An MH stage has no particles and counts `iterations`; an NLopt scout
+    carries `max_evals`/`tolerance`. Nothing is invented or dropped."""
+    mh = tmp_path / "mh"
+    mh.mkdir()
+    (mh / "run.json").write_text(json.dumps({"inputs": {"algorithm": {
+        "algorithm": "mh", "backend": "ode", "chains": 8, "iterations": 60000,
+    }}}))
+    cfg = ingest._read_algorithm_config(mh)
+    assert "particles" not in cfg
+    assert cfg["iterations"] == 60000
+
+    scout = tmp_path / "scout"
+    scout.mkdir()
+    (scout / "run.json").write_text(json.dumps({"inputs": {"algorithm": {
+        "algorithm": "nl-sbplx", "backend": "ode", "chains": 600,
+        "max_evals": 60000, "tolerance": 1e-6,
+    }}}))
+    cfg = ingest._read_algorithm_config(scout)
+    assert cfg["max_evals"] == 60000
+    assert cfg["tolerance"] == pytest.approx(1e-6)
+
+
+def test_read_algorithm_config_degrades_to_empty(tmp_path: Path):
+    """No run.json, unparseable bytes, or a run predating the field — all read
+    as "nothing recorded" rather than raising and taking the run down."""
+    seed = tmp_path / "seed_1"
+    seed.mkdir()
+    assert ingest._read_algorithm_config(seed) == {}
+
+    (seed / "run.json").write_text("{not json")
+    assert ingest._read_algorithm_config(seed) == {}
+
+    (seed / "run.json").write_text(json.dumps({"inputs": {"seed": 1}}))
+    assert ingest._read_algorithm_config(seed) == {}
+
+    # Present but the wrong shape (a bare string where the block should be).
+    (seed / "run.json").write_text(json.dumps({"inputs": {"algorithm": "pgas"}}))
+    assert ingest._read_algorithm_config(seed) == {}
+
+
 def test_sample_prior_respects_bounds():
     from camdl_watch.state import PriorSpec
 

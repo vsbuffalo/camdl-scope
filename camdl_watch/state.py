@@ -272,6 +272,11 @@ class RunMeta:
     # AUX_COLUMNS. This is what lets a sampler add a diagnostic column and have
     # it classified correctly without a watcher release.
     column_roles: dict[str, str] = field(default_factory=dict)
+    # The sampler's static configuration as camdl recorded it (run.json
+    # ``inputs.algorithm``): particle count, sweep budget, tolerance. Keys are
+    # algorithm-specific and deliberately not enumerated. Empty for runs whose
+    # leaf predates the field.
+    algorithm_config: dict[str, str | float | int] = field(default_factory=dict)
 
     def is_diagnostic_col(self, col: str) -> bool:
         """Whether ``col`` is a non-parameter diagnostic, per camdl's declared

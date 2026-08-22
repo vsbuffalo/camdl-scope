@@ -402,6 +402,7 @@ def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
         ),
         has_model_render=model_render_mod.has_model_render(meta.run_dir),
         has_model_graph=model_graph_mod.has_model_graph(meta.run_dir),
+        algorithm_config=dict(meta.algorithm_config),
     )
 
 

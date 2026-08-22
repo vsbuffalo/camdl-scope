@@ -255,6 +255,11 @@ class RunDetail(BaseModel):
     # Whether the run carries a ``model.graph.json`` (compartmental flow graph) —
     # gates the Model tab's diagram view. False for runs predating it.
     has_model_graph: bool = False
+    # The sampler's static configuration exactly as camdl recorded it — e.g.
+    # ``{"particles": 1200, "sweeps": 40000}`` for PGAS, ``{"iterations": …}``
+    # for MH. The key set is the algorithm's, not ours: a new knob reaches the
+    # UI without a schema change. Empty for runs predating the field.
+    algorithm_config: dict[str, str | float | int] = {}
 
 
 # --- Source tab --------------------------------------------------------------
