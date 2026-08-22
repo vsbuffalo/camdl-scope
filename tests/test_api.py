@@ -283,11 +283,34 @@ def test_diagnostics_survive_a_warming_chain(client, tmp_path):
 
     body = client.get(f"/api/runs/{RUN_DIR}/diagnostics?warmup_pct=50").json()
     assert body["n_chains"] == 2  # the two chains with draws
-    assert body["n_chains_warming"] == 1  # chain_2, still warming
     assert body["source"] == "live"  # a dropped chain forces the live path
     assert body["n_tail"] > 0
     assert len(body["params"]) > 0
     assert any(p["rhat"] is not None for p in body["params"])
+    # The golden store's run has stopped, so a chain that never wrote a draw is
+    # DEAD, not warming — reporting it as warming tells the reader to wait for
+    # draws that will never arrive (see _dead_chain_ids).
+    assert body["n_chains_dead"] == 1
+    assert body["dead_chain_ids"] == [2]
+    assert body["n_chains_warming"] == 0
+
+
+def test_zero_draw_chain_is_warming_not_dead_while_the_run_is_live(
+    client, tmp_path, monkeypatch
+):
+    """The same header-only chain in a RUNNING fit is still starting up. Only
+    the run's status separates the two readings."""
+    from camdl_watch.api import routes as routes_mod
+    from camdl_watch.state import Status
+
+    _add_warming_chain(tmp_path)
+    monkeypatch.setattr(
+        routes_mod, "_dead_chain_ids",
+        lambda rs: [] if rs.status in (Status.RUNNING, Status.WARMING)
+        else sorted(c for c, b in rs.chains.items() if b.n == 0),
+    )
+    body = client.get(f"/api/runs/{RUN_DIR}/diagnostics?warmup_pct=50").json()
+    assert body["n_chains_dead"] + body["n_chains_warming"] == 1
 
 
 def _add_warming_chain(tmp_path):

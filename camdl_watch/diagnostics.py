@@ -22,6 +22,7 @@ import numpy as np
 
 import re
 
+from . import ingest
 from .state import (
     DIAGNOSTIC_META,
     SAMPLER_PANEL_EXCLUDE,
@@ -31,6 +32,7 @@ from .state import (
     Finding,
     FindingGroup,
     ParamDiag,
+    PriorSpec,
     RunState,
     Severity,
     Warning_,
@@ -349,10 +351,36 @@ def _headline_tree_depth(fs: list[Finding]) -> tuple[str, list[str]]:
     return f.message or "max tree depth hit", []
 
 
+def _headline_bad_init(fs: list[Finding]) -> tuple[str, list[str]]:
+    """camdl emits one ``bad_init`` per skipped chain; the default aggregation
+    would show the first message and hide the count, which is the number that
+    matters — half a fit's chains can be missing while the run reports done.
+    Lead with how many and which."""
+    ids = sorted(
+        {
+            int(c)
+            for f in fs
+            if (c := f.detail.get("chain_id")) is not None
+        }
+    )
+    who = f" (chains {', '.join(str(i) for i in ids)})" if ids else ""
+    n = len(ids) or len(fs)
+    reason = next((str(f.detail.get("reason")) for f in fs if f.detail.get("reason")), "")
+    # The reason is one long sentence; its head names the actual pathology
+    # (typically a non-finite initial log-posterior).
+    head = reason.split(",")[0].strip() if reason else ""
+    return (
+        f"{n} chain{'s' if n != 1 else ''} never sampled — skipped at "
+        f"initialisation{who}" + (f": {head}" if head else ""),
+        [],
+    )
+
+
 _HEADLINERS = {
     "rhat_high": _headline_rhat_high,
     "acceptance_rate_unhealthy": _headline_acceptance,
     "max_tree_depth_hits": _headline_tree_depth,
+    "bad_init": _headline_bad_init,
 }
 
 
@@ -431,6 +459,131 @@ def per_chain_mixing(
     if vals:
         return "trajectory renewal", vals, ids, None
     return None
+
+
+@dataclass(frozen=True)
+class PriorPosterior:
+    """What the data did to one parameter's prior.
+
+    The three numbers of the prior→posterior half of a Bayesian workflow
+    (Gelman et al. 2020, *Bayesian Workflow*, §6; Betancourt, *Towards a
+    Principled Bayesian Workflow*):
+
+    * ``contraction`` = 1 − σ²_post / σ²_prior. How much the data narrowed the
+      parameter. Near 1, the likelihood determines it; near 0, the posterior is
+      the prior restated and any "estimate" is an assumption. Negative means the
+      posterior is WIDER than the prior, which is a modelling error worth
+      seeing rather than clamping away.
+    * ``z`` = (μ_post − μ_prior) / σ_prior. How far the posterior moved, in
+      prior standard deviations — prior/data conflict. Read WITH contraction:
+      high contraction + small |z| is the healthy case; large |z| says the data
+      pulled hard against where the prior was centred; low contraction + large
+      |z| means the prior is fighting the likelihood and neither wins.
+    * ``bound_pressure`` — the fraction of posterior draws sitting within 1% of
+      a declared bound. A posterior pinned to its box is not an estimate; the
+      constraint is doing the work, and the interval is meaningless.
+
+    ``prior_mean``/``prior_sd`` are Monte-Carlo estimates from the resolved
+    prior (deterministic seed), which is what makes this work uniformly across
+    families and truncations rather than needing a closed form per family.
+    """
+
+    param: str
+    symbol: str | None
+    prior_label: str | None
+    prior_mean: float | None
+    prior_sd: float | None
+    post_mean: float | None
+    post_sd: float | None
+    contraction: float | None
+    z: float | None
+    bound_pressure: float | None
+
+
+#: Draws used to estimate a prior's moments. Large enough that the reported
+#: contraction is stable in its 3rd digit; small enough to stay instant.
+_PRIOR_MOMENT_DRAWS = 20_000
+
+
+def prior_posterior(
+    run: RunState, warmup: int, priors: dict[str, PriorSpec] | None = None
+) -> list[PriorPosterior]:
+    """Per-parameter prior→posterior comparison over the post-warm-up draws.
+
+    Parameters with no resolved prior, or an improper FLAT prior with no bounds
+    (nothing to draw from, so no prior scale exists), report ``None`` for the
+    prior-relative columns rather than a fabricated number — "we cannot say" is
+    a different statement from "no shrinkage"."""
+    specs = priors if priors is not None else run.priors
+    rng = np.random.default_rng(0)
+    out: list[PriorPosterior] = []
+    for name in run.meta.estimated:
+        post = _tail_arrays(run, name, warmup)
+        post_mean = post_sd = None
+        if post is not None:
+            flat = post[np.isfinite(post)]
+            if flat.size:
+                post_mean = float(flat.mean())
+                post_sd = float(flat.std(ddof=1)) if flat.size > 1 else 0.0
+
+        spec = (specs or {}).get(name)
+        prior_mean = prior_sd = None
+        if spec is not None:
+            draws = ingest.sample_prior(spec, _PRIOR_MOMENT_DRAWS, rng)
+            draws = draws[np.isfinite(draws)]
+            if draws.size > 1:
+                prior_mean = float(draws.mean())
+                prior_sd = float(draws.std(ddof=1))
+
+        contraction = z = None
+        if prior_sd and prior_sd > 0 and post_sd is not None:
+            contraction = 1.0 - (post_sd / prior_sd) ** 2
+            if post_mean is not None and prior_mean is not None:
+                z = (post_mean - prior_mean) / prior_sd
+
+        bound_pressure = None
+        if spec is not None and spec.bounds is not None and post is not None:
+            lo, hi = spec.bounds
+            flat = post[np.isfinite(post)]
+            if flat.size and hi > lo:
+                edge = 0.01 * (hi - lo)
+                near = (flat <= lo + edge) | (flat >= hi - edge)
+                bound_pressure = float(near.mean())
+
+        block = run.meta.docs.for_param(name)
+        out.append(
+            PriorPosterior(
+                param=name,
+                symbol=(block.symbol if block else None),
+                prior_label=_prior_label(spec),
+                prior_mean=prior_mean,
+                prior_sd=prior_sd,
+                post_mean=post_mean,
+                post_sd=post_sd,
+                contraction=contraction,
+                z=z,
+                bound_pressure=bound_pressure,
+            )
+        )
+    return out
+
+
+def _prior_label(spec: PriorSpec | None) -> str | None:
+    """``LogNormal(mu=-0.6, sigma=0.4)`` — the prior as written, so the reader
+    can see what the contraction is relative to."""
+    if spec is None:
+        return None
+    if spec.args:
+        args = ", ".join(f"{k}={_fmt_num(v)}" for k, v in spec.args.items())
+        return f"{spec.family.value}({args})"
+    if spec.bounds is not None:
+        lo, hi = spec.bounds
+        return f"{spec.family.value}[{_fmt_num(lo)}, {_fmt_num(hi)}]"
+    return spec.family.value
+
+
+def _fmt_num(v: float) -> str:
+    return f"{v:g}"
 
 
 @dataclass(frozen=True)

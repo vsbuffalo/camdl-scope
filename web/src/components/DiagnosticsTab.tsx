@@ -292,6 +292,29 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
         </span>
       </div>
 
+      {/* Dead chains get a banner, not a line: a run can report "done" with
+          half its chains never having sampled, and the posterior you are
+          reading is then built from the survivors only — a selected sample,
+          since the chains that died are exactly those whose starting points
+          the model could not evaluate. */}
+      {data.n_chains_dead > 0 && (
+        <div className="mt-1.5 rounded-sm border border-red-300 bg-red-50 px-2 py-1.5">
+          <p className="font-mono text-[11px] font-medium text-red-700">
+            {data.n_chains_dead} of{' '}
+            {data.n_chains + data.n_chains_dead} chains produced no draws
+            {data.dead_chain_ids.length > 0 && (
+              <> — c{data.dead_chain_ids.join(', c')}</>
+            )}
+          </p>
+          <p className="mt-0.5 text-[11px] leading-snug text-red-700/80">
+            Everything below is computed from the {data.n_chains} surviving
+            chain{data.n_chains === 1 ? '' : 's'}. Chains skipped at
+            initialisation are not a random subset — see the findings for the
+            reason camdl gave.
+          </p>
+        </div>
+      )}
+
       {data.n_chains_warming > 0 && (
         <p className="mt-1 font-mono text-[11px] text-amber-600">
           {data.n_chains_warming} chain{data.n_chains_warming > 1 ? 's' : ''} still

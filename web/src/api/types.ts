@@ -292,6 +292,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/prior-posterior": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Prior Posterior
+         * @description What the data did to each prior: contraction, movement in prior SDs, and
+         *     pressure against declared bounds, over the retained draws. Shares the
+         *     warm-up / chain-selection lens with the other tabs so the numbers are
+         *     comparable to what the Posterior and Diagnostics tabs show.
+         */
+        get: operations["get_prior_posterior_api_runs__run_id__prior_posterior_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/diagnostics": {
         parameters: {
             query?: never;
@@ -585,6 +608,16 @@ export interface components {
              * @default 0
              */
             n_chains_warming: number;
+            /**
+             * N Chains Dead
+             * @default 0
+             */
+            n_chains_dead: number;
+            /**
+             * Dead Chain Ids
+             * @default []
+             */
+            dead_chain_ids: number[];
             /**
              * Chain Ids
              * @default []
@@ -1161,6 +1194,52 @@ export interface components {
             x: number[];
             /** Y */
             y: number[];
+        };
+        /**
+         * PriorPosteriorResponse
+         * @description The prior→posterior table for a run, over the retained draws.
+         *     ``warmup_cutoff`` is the iteration the tail starts at, so the numbers can be
+         *     read against the same warm-up lens the other tabs use.
+         */
+        PriorPosteriorResponse: {
+            /** Run Id */
+            run_id: string;
+            /** Warmup Pct */
+            warmup_pct: number;
+            /** Warmup Cutoff */
+            warmup_cutoff: number;
+            /** N Tail */
+            n_tail: number;
+            /** Rows */
+            rows: components["schemas"]["PriorPosteriorRow"][];
+        };
+        /**
+         * PriorPosteriorRow
+         * @description One parameter's prior→posterior comparison — see
+         *     :class:`camdl_watch.diagnostics.PriorPosterior` for what each number means
+         *     and why a null is not a zero.
+         */
+        PriorPosteriorRow: {
+            /** Param */
+            param: string;
+            /** Symbol */
+            symbol?: string | null;
+            /** Prior Label */
+            prior_label?: string | null;
+            /** Prior Mean */
+            prior_mean?: number | null;
+            /** Prior Sd */
+            prior_sd?: number | null;
+            /** Post Mean */
+            post_mean?: number | null;
+            /** Post Sd */
+            post_sd?: number | null;
+            /** Contraction */
+            contraction?: number | null;
+            /** Z */
+            z?: number | null;
+            /** Bound Pressure */
+            bound_pressure?: number | null;
         };
         /**
          * ProfilePoint
@@ -2183,6 +2262,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TracesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_prior_posterior_api_runs__run_id__prior_posterior_get: {
+        parameters: {
+            query?: {
+                warmup_pct?: number;
+                chains?: string | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriorPosteriorResponse"];
                 };
             };
             /** @description Validation Error */

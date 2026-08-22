@@ -40,6 +40,8 @@ export const qk = {
     ['traces', id, warmupPct, chains] as const,
   diagnostics: (id: string, warmupPct: number, chains: string) =>
     ['diagnostics', id, warmupPct, chains] as const,
+  priorPosterior: (id: string, warmupPct: number, chains: string) =>
+    ['prior-posterior', id, warmupPct, chains] as const,
 }
 
 /** Stable cache-key fragment for a chain include-list (`null` → all chains). */

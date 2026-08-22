@@ -41,11 +41,14 @@ from ..state import (
     PriorSpec,
     RunMeta,
     RunState,
+    Status,
 )
 from .models import (
     Calendar,
     ChainMixing,
     PanelColumn,
+    PriorPosteriorResponse,
+    PriorPosteriorRow,
     SamplerPanel,
     CompareResponse,
     CompareRow,
@@ -134,6 +137,36 @@ def _select_chains(rs: RunState, chains: str | None) -> bool:
         rs.chains = kept
         return True
     return False
+
+
+def _camdl_findings(summary: ChainSummary | None) -> list[FindingGroup]:
+    """camdl's stage findings, aggregated for display. Empty when the stage
+    wrote no summary (a run still sampling)."""
+    if summary is None or not summary.findings:
+        return []
+    return [
+        FindingGroup(
+            kind=g.kind, severity=g.severity.value,
+            headline=g.headline, params=list(g.params),
+        )
+        for g in diag_mod.summarize_findings(summary.findings)
+    ]
+
+
+def _dead_chain_ids(rs: RunState) -> list[int]:
+    """Chains that produced NO draws and never will — a trace file with a
+    header and nothing under it, in a run that has stopped.
+
+    The run's status is what separates dead from merely behind: while sampling
+    is live a header-only chain may still be starting up, but once the run is
+    done/failed/stalled it never sampled at all. camdl skips a chain whose
+    initial complete-data log-posterior is non-finite (``bad_init`` — e.g. an
+    observation term of -inf) and completes the run regardless, so a finished
+    fit can be missing half its chains while reporting ``done``. Calling those
+    "warming up" told the reader to wait for draws that will never come."""
+    if rs.status in (Status.RUNNING, Status.WARMING):
+        return []
+    return sorted(cid for cid, buf in rs.chains.items() if buf.n == 0)
 
 
 def _drop_warming_chains(rs: RunState, cutoff: int, floor: int = 4) -> int:
@@ -1166,6 +1199,44 @@ def _live_findings(diag: diag_mod.Diagnostics, rs: RunState) -> list[FindingGrou
     return groups
 
 
+@router.get("/runs/{run_id}/prior-posterior", response_model=PriorPosteriorResponse)
+def get_prior_posterior(
+    run_id: str,
+    warmup_pct: int = Query(default=50, ge=0, le=100),
+    chains: str | None = Query(default=None),
+) -> PriorPosteriorResponse:
+    """What the data did to each prior: contraction, movement in prior SDs, and
+    pressure against declared bounds, over the retained draws. Shares the
+    warm-up / chain-selection lens with the other tabs so the numbers are
+    comparable to what the Posterior and Diagnostics tabs show."""
+    store = _store()
+    meta = _find_meta(store, run_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
+    rs = build_run_state(meta)
+    _select_chains(rs, chains)
+    cutoff = _warmup_cutoff(rs, warmup_pct)
+    _drop_warming_chains(rs, cutoff)
+    rows = [
+        PriorPosteriorRow(
+            param=r.param, symbol=r.symbol, prior_label=r.prior_label,
+            prior_mean=_finite_or_none(r.prior_mean),
+            prior_sd=_finite_or_none(r.prior_sd),
+            post_mean=_finite_or_none(r.post_mean),
+            post_sd=_finite_or_none(r.post_sd),
+            contraction=_finite_or_none(r.contraction),
+            z=_finite_or_none(r.z),
+            bound_pressure=_finite_or_none(r.bound_pressure),
+        )
+        for r in diag_mod.prior_posterior(rs, cutoff)
+    ]
+    n_tail = sum(int((b.iters >= cutoff).sum()) for b in rs.chains.values())
+    return PriorPosteriorResponse(
+        run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
+        n_tail=n_tail, rows=rows,
+    )
+
+
 @router.get("/runs/{run_id}/diagnostics", response_model=DiagnosticsResponse)
 def get_diagnostics(
     run_id: str,
@@ -1190,23 +1261,37 @@ def get_diagnostics(
     )
     filtered = _select_chains(rs, chains)
     cutoff = _warmup_cutoff(rs, warmup_pct)
+    # Chains that never sampled at all, captured BEFORE pruning — otherwise they
+    # vanish into the "warming" count and the run looks merely slow.
+    dead = _dead_chain_ids(rs)
     # Prune chains still warming up (no usable post-warm-up draws) so one lagging
     # chain doesn't suppress R̂/ESS for the whole run; diagnose the ready ones.
-    warming = _drop_warming_chains(rs, cutoff)
+    warming = _drop_warming_chains(rs, cutoff) - len(dead)
     # camdl's stage summary (R̂/ESS/per-chain) is over ALL chains and can't be
     # recomputed for a subset, so once we drop a chain — user-chosen or still
     # warming — we fall back to the live arviz estimate over the retained chains.
-    summ = None if (filtered or warming) else rs.summary
+    summ = None if (filtered or warming or dead) else rs.summary
+    # camdl's FINDINGS, though, describe what the sampler did — a chain skipped
+    # for a non-finite initial log-posterior is a fact about the run, not about
+    # the chains this view retained. Keeping them even when R̂/ESS falls back to
+    # the live estimate is the whole fix: dropping the dead chains used to
+    # discard the `bad_init` errors that explain why they are missing.
+    reported = rs.summary
     base = dict(
         run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
         n_chains=len(rs.chains), n_chains_warming=warming,
-        stage=(summ.stage if summ is not None and summ.stage else None),
+        n_chains_dead=len(dead), dead_chain_ids=dead,
+        stage=(
+            summ.stage if summ is not None and summ.stage
+            else (reported.stage if reported is not None else None)
+        ),
         logpost_label=meta.backend.logpost_label,
         ess_per_iter=ess_per_iter, ess_per_sec=ess_per_sec,
     )
     if rs.max_iter() is None:
         return DiagnosticsResponse(
-            **base, n_tail=0, source="live", findings=[], params=[],
+            **base, n_tail=0, source="live",
+            findings=_camdl_findings(reported), params=[],
         )
 
     diag = diag_mod.compute_diagnostics(rs, cutoff, params=rs.params)
@@ -1217,17 +1302,11 @@ def get_diagnostics(
     if base["ess_per_iter"] is None:
         base["ess_per_iter"] = _live_ess_per_iter(diag, len(rs.chains), meta.thin)
 
-    findings: list[FindingGroup] = []
-    if summ is not None:
-        for g in diag_mod.summarize_findings(summ.findings):
-            findings.append(FindingGroup(
-                kind=g.kind, severity=g.severity.value,
-                headline=g.headline, params=list(g.params),
-            ))
-    else:
-        # No authoritative summary yet (still sampling) — synthesize the verdict
-        # from live diagnostics so the strip isn't falsely green.
-        findings = _live_findings(diag, rs)
+    # camdl's own findings whenever the stage wrote any — including when R̂/ESS
+    # fell back to live because chains were dropped. Only a run with no summary
+    # at all (still sampling) needs the synthesized verdict, and even then the
+    # strip must not read green.
+    findings = _camdl_findings(reported) or _live_findings(diag, rs)
 
     params_out: list[ParamDiagnostic] = []
     for p in meta.estimated:

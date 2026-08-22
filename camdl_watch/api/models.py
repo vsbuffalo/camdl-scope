@@ -704,6 +704,35 @@ class ChainMixing(BaseModel):
     band: tuple[float, float] | None = None
 
 
+class PriorPosteriorRow(BaseModel):
+    """One parameter's prior→posterior comparison — see
+    :class:`camdl_watch.diagnostics.PriorPosterior` for what each number means
+    and why a null is not a zero."""
+
+    param: str
+    symbol: str | None = None
+    prior_label: str | None = None
+    prior_mean: float | None = None
+    prior_sd: float | None = None
+    post_mean: float | None = None
+    post_sd: float | None = None
+    contraction: float | None = None
+    z: float | None = None
+    bound_pressure: float | None = None
+
+
+class PriorPosteriorResponse(BaseModel):
+    """The prior→posterior table for a run, over the retained draws.
+    ``warmup_cutoff`` is the iteration the tail starts at, so the numbers can be
+    read against the same warm-up lens the other tabs use."""
+
+    run_id: str
+    warmup_pct: int
+    warmup_cutoff: int
+    n_tail: int
+    rows: list[PriorPosteriorRow]
+
+
 class PanelColumn(BaseModel):
     """One column of a sampler panel: the metric, what it means in one line,
     and its healthy band when the metric has a conventional one."""
@@ -744,6 +773,13 @@ class DiagnosticsResponse(BaseModel):
     n_tail: int
     n_chains: int  # chains actually diagnosed (excludes any still warming up)
     n_chains_warming: int = 0  # chains dropped for lacking post-warm-up draws
+    # Chains that produced NO draws at all. camdl skips a chain whose initial
+    # complete-data log-posterior is non-finite (``bad_init``) and still
+    # completes the run, so these are dead, not slow — a distinction the UI has
+    # to make loudly, since half a fit's chains can be missing while the run
+    # reports "done".
+    n_chains_dead: int = 0
+    dead_chain_ids: list[int] = []
     # Chain ids for the positional per-chain columns (``ParamDiagnostic
     # .ess_per_chain``), 1-based as camdl names them. Label from these, never
     # from the array index.

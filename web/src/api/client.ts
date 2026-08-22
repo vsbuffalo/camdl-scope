@@ -38,6 +38,8 @@ export type DiagnosticsResponse = components['schemas']['DiagnosticsResponse']
 export type ParamDiagnostic = components['schemas']['ParamDiagnostic']
 export type ChainMixing = components['schemas']['ChainMixing']
 export type SamplerPanel = components['schemas']['SamplerPanel']
+export type PriorPosteriorResponse = components['schemas']['PriorPosteriorResponse']
+export type PriorPosteriorRow = components['schemas']['PriorPosteriorRow']
 export type CompareResponse = components['schemas']['CompareResponse']
 export type CompareRow = components['schemas']['CompareRow']
 export type QuantityInfo = components['schemas']['QuantityInfo']
@@ -238,6 +240,17 @@ export function getTraces(
  * authoritative verdict (findings) and R̂/ESS where a stage summary exists, else
  * the watcher's live arviz estimate; plus per-chain mixing and the PMMH MAP.
  */
+export function getPriorPosterior(
+  runId: string,
+  warmupPct: number,
+  chains: number[] | null = null,
+): Promise<PriorPosteriorResponse> {
+  const id = encodeURIComponent(runId)
+  return getJson<PriorPosteriorResponse>(
+    `/api/runs/${id}/prior-posterior?warmup_pct=${warmupPct}${chainsParam(chains)}`,
+  )
+}
+
 export function getDiagnostics(
   runId: string,
   warmupPct: number,
