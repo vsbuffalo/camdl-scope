@@ -1,4 +1,6 @@
+import { Fragment } from 'react'
 import type { RunSummary } from '@/api/client'
+import { useRun } from '@/api/queries'
 import { RunSelect } from '@/components/RunSelect'
 import { StatusBadge } from '@/components/StatusBadge'
 
@@ -30,12 +32,37 @@ function RunArea({ runs, value, onChange, loading, error }: RunBarProps) {
 }
 
 /**
+ * Sampler config keys the ticker already reports in another form — the
+ * algorithm/backend pair and the chain count. Repeating them would only
+ * lengthen the line.
+ */
+const CONFIG_ALREADY_SHOWN = new Set(['algorithm', 'backend', 'chains'])
+
+/**
+ * Digit-group an integer knob (`1200` → `1,200`). Non-integers are left as
+ * written: an optimizer tolerance of `1e-6` would group to `0`.
+ */
+function formatConfigValue(v: string | number): string {
+  if (typeof v !== 'number') return v
+  return Number.isInteger(v) ? v.toLocaleString() : String(v)
+}
+
+/**
  * Dense monospace identity line — the "ticker" — reading the selected run's
  * identity and shape: `run_id · ALGO/BACKEND · N CHAINS · M PARAMS` plus a
  * status light. Flows and wraps on narrow screens so it never overflows.
+ *
+ * The sampler's static configuration follows, whatever camdl recorded for the
+ * algorithm — a PGAS filter's particle count decides whether its trajectories
+ * degenerate, so reading a fit means knowing it.
  */
 function Ticker({ run }: { run: RunSummary }) {
   const sep = <span className="text-neutral-300">·</span>
+  // Every tab already loads this run's detail, so this shares that cache entry.
+  const config = useRun(run.run_id).data?.algorithm_config ?? {}
+  const knobs = Object.entries(config).filter(
+    ([key]) => !CONFIG_ALREADY_SHOWN.has(key),
+  )
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 font-mono text-[11px] text-neutral-500">
       <span className="text-neutral-700">{run.run_id}</span>
@@ -51,6 +78,14 @@ function Ticker({ run }: { run: RunSummary }) {
       )}
       {sep}
       <span className="tabular-nums">{run.n_params} PARAMS</span>
+      {knobs.map(([key, value]) => (
+        <Fragment key={key}>
+          {sep}
+          <span className="uppercase tabular-nums">
+            {formatConfigValue(value)} {key.replace(/_/g, ' ')}
+          </span>
+        </Fragment>
+      ))}
     </div>
   )
 }

@@ -166,6 +166,11 @@ class RunMeta:
     # observation/dimension schema (None when the sidecar carried no model).
     docs: ModelDocs = field(default_factory=ModelDocs)
     schema: ObsSchema | None = None
+    # The sampler's static configuration as camdl recorded it (run.json
+    # ``inputs.algorithm``): particle count, sweep budget, tolerance. Keys are
+    # algorithm-specific and deliberately not enumerated. Empty for runs whose
+    # leaf predates the field.
+    algorithm_config: dict[str, str | float | int] = field(default_factory=dict)
 
     @property
     def hash(self) -> str:

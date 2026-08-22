@@ -1487,6 +1487,13 @@ export interface components {
              * @default false
              */
             has_model_graph: boolean;
+            /**
+             * Algorithm Config
+             * @default {}
+             */
+            algorithm_config: {
+                [key: string]: string | number;
+            };
         };
         /**
          * RunSummary
