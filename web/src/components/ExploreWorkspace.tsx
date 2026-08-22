@@ -4,6 +4,7 @@ import type { RunSummary } from '@/api/client'
 import { useRun, useRuns } from '@/api/queries'
 import { RunBar } from '@/components/RunBar'
 import { PosteriorTab } from '@/components/PosteriorTab'
+import { PriorTab } from '@/components/PriorTab'
 import { EstimateTab } from '@/components/EstimateTab'
 import { RestartsTab } from '@/components/RestartsTab'
 import { PairTab } from '@/components/PairTab'
@@ -122,6 +123,7 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
 
   const tabs = [
     { value: 'posterior', label: 'Posterior' },
+    { value: 'prior', label: 'Prior' },
     { value: 'pair', label: 'Pair' },
     { value: 'predictive', label: 'Predictive' },
     ...(hasQuantities ? [{ value: 'quantities', label: 'Quantities' }] : []),
@@ -152,6 +154,9 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
 
       <TabsContent value="posterior">
         <PosteriorTab runId={run.run_id} {...chainProps} />
+      </TabsContent>
+      <TabsContent value="prior">
+        <PriorTab runId={run.run_id} {...chainProps} />
       </TabsContent>
       <TabsContent value="pair">
         <PairTab runId={run.run_id} {...chainProps} />

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   getCompare,
   getDiagnostics,
+  getPriorPosterior,
   getDraws,
   getPosterior,
   getPredictive,
@@ -238,6 +239,21 @@ export function useTraces(
  * per-parameter R̂/ESS table, per-chain mixing, and the MAP. Recomputes when the
  * cutoff moves, so it mirrors {@link usePosterior}'s warm-up dependence.
  */
+/** Prior → posterior comparison (contraction, movement in prior SDs, bound
+ *  pressure) over the retained draws — same warm-up/chain lens as the others. */
+export function usePriorPosterior(
+  runId: string | undefined,
+  warmupPct: number,
+  chains: number[] | null = null,
+) {
+  return useQuery({
+    queryKey: qk.priorPosterior(runId ?? '∅', warmupPct, chainKey(chains)),
+    queryFn: () => getPriorPosterior(runId as string, warmupPct, chains),
+    enabled: Boolean(runId),
+    placeholderData: (prev) => prev,
+  })
+}
+
 export function useDiagnostics(
   runId: string | undefined,
   warmupPct: number,
