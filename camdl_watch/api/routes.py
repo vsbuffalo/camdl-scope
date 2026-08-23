@@ -1396,7 +1396,13 @@ def get_diagnostics(
     # Still-sampling run with no authoritative summary: fall back to a live
     # ESS/iteration from the arviz diagnostics just computed (the Verdict already
     # frames these numbers as a live estimate). Done runs keep the summary value.
-    if base["ess_per_iter"] is None:
+    # ...but never over a DELIBERATE withholding. An absent metric has two
+    # causes and they want opposite treatment: no summary yet (estimate it) and
+    # a summary that declined to state a minimum because chains disagree
+    # (respect it). Substituting a live arviz number for the second would
+    # restore exactly the confident-but-inverted figure #4 was about, since the
+    # live estimate has no notion of suppression.
+    if base["ess_per_iter"] is None and not ess_missing:
         base["ess_per_iter"] = _live_ess_per_iter(diag, len(rs.chains), meta.thin)
 
     # camdl's own findings whenever the stage wrote any — including when R̂/ESS
