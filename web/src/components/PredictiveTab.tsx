@@ -8,8 +8,8 @@ import { ByIndexPlot, LevelLegend } from '@/components/ByIndexPlot'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { Segmented } from '@/components/Segmented'
 import { Card } from '@/components/ui/card'
-import { fmtTick } from '@/lib/format'
-import { dayToDate } from '@/lib/calendar'
+import { fmtTick, fmtValue } from '@/lib/format'
+import { dayToDate, fmtModelDate } from '@/lib/calendar'
 import { loadJson, saveJson } from '@/lib/persist'
 import {
   gradeConvergence,
@@ -62,6 +62,15 @@ type Arm = {
   label: string
   color: string
 }
+
+/**
+ * The tab's inner views, all reading the same stream/prediction selection.
+ * `series` draws the ribbons over time; `interval` is that same check at a
+ * single time, for a stream whose time axis has no extent; `scatter` and
+ * `calibration` summarise accuracy and coverage; `byindex` profiles across an
+ * index dimension.
+ */
+type View = 'series' | 'interval' | 'scatter' | 'calibration' | 'byindex'
 
 /** Independently toggleable layers of a predictive ribbon. */
 type PredLayer = 'median' | 'p50' | 'p90'
@@ -310,6 +319,10 @@ function rSquared(points: { obs: number; pred: number }[]): number {
   }
   return ssTot > 0 ? 1 - ssRes / ssTot : Number.NaN
 }
+
+/** Probability levels of the stored quantiles (q05 … q95), ascending — the CDF
+ *  points every PIT interpolation runs through. */
+const PIT_LEVELS = [0.05, 0.25, 0.5, 0.75, 0.95]
 
 /** Where ``value`` falls in the predictive CDF described by quantile ``vals`` at
  *  probability ``levels`` (both ascending, same length). Piecewise-linear
@@ -676,6 +689,145 @@ function PitPlot({ pit }: { pit: number[] }) {
   )
 }
 
+/** One prediction's interval at the stream's single observation time, matched
+ *  against the observation there. */
+type IntervalRow = {
+  label: string // `<stratum> · <arm>`, or the arm alone when unstratified
+  color: string
+  q05: number
+  q25: number
+  q50: number
+  q75: number
+  q95: number
+  obs: number | null
+  /** The observation's quantile in this predictive — null where no observation
+   *  matches. Outside [0.05, 0.95] is outside the drawn 90% interval. */
+  pit: number | null
+}
+
+/** Vertical room per interval row; the plot sizes itself from the row count. */
+const INTERVAL_ROW_HEIGHT = 26
+
+/**
+ * The predictive interval against the observation, one row per (stratum ×
+ * prediction): the 90% interval as a thin rule, the 50% as a thick one, the
+ * median as a tick, the observation as a dot in neutral-dark.
+ *
+ * This is the check for a stream observed at a single time — an equilibrium
+ * scored after burn-in, a dose-response endpoint, an age profile. Such a stream
+ * has no series (one point spans nothing, and a band needs two points to fill
+ * between), and the scatter reduces the check to a median-vs-observed pair,
+ * discarding the interval that is the whole question when there is one
+ * observation. The numbers repeat under the plot because with a handful of rows
+ * the exact interval is as readable as the mark.
+ */
+function IntervalReadout({ rows }: { rows: IntervalRow[] }) {
+  return (
+    <>
+      <Figure
+        name="predictive-interval"
+        aria="predictive interval against the observed value"
+        deps={[rows]}
+        render={(el, width) => {
+          if (rows.length === 0) {
+            el.replaceChildren()
+            return
+          }
+          let lo = Infinity
+          let hi = -Infinity
+          for (const r of rows) {
+            lo = Math.min(lo, r.q05, r.obs ?? Infinity)
+            hi = Math.max(hi, r.q95, r.obs ?? -Infinity)
+          }
+          const pad = (hi - lo) * 0.06 || Math.abs(hi) * 0.06 || 1
+          // Row labels live in the left margin, which must hold the longest of
+          // them — 10px mono runs ~6.4px per character, and a label wider than
+          // the margin is clipped at the SVG edge, not wrapped.
+          const labelWidth = Math.min(
+            260,
+            Math.max(46, ...rows.map((r) => r.label.length * 6.4 + 14)),
+          )
+          const node = Plot.plot({
+            width,
+            height: rows.length * INTERVAL_ROW_HEIGHT + 44,
+            marginTop: 10,
+            marginBottom: 34,
+            marginLeft: labelWidth,
+            marginRight: 16,
+            style: { background: 'transparent', color: AXIS, fontSize: '10px', fontFamily: MONO },
+            x: {
+              label: 'value →',
+              labelAnchor: 'center',
+              domain: [lo - pad, hi + pad],
+              ticks: 6,
+              tickFormat: (d: number) => fmtTick(d),
+              grid: true,
+            },
+            y: { label: null, domain: rows.map((r) => r.label), tickSize: 0 },
+            marks: [
+              Plot.ruleY(rows, {
+                y: 'label',
+                x1: 'q05',
+                x2: 'q95',
+                stroke: 'color',
+                strokeWidth: 1.5,
+                strokeOpacity: 0.5,
+              }),
+              Plot.ruleY(rows, {
+                y: 'label',
+                x1: 'q25',
+                x2: 'q75',
+                stroke: 'color',
+                strokeWidth: 7,
+                strokeOpacity: 0.28,
+                strokeLinecap: 'round',
+              }),
+              // The median is a tick, not a dot: the fitted arm's ink is the
+              // same neutral-dark the observed value carries, and two dots on
+              // one row would not say which is the data.
+              Plot.tickX(rows, {
+                x: 'q50',
+                y: 'label',
+                stroke: 'color',
+                strokeWidth: 1.6,
+                insetTop: 6,
+                insetBottom: 6,
+              }),
+              Plot.dot(
+                rows.filter((r) => r.obs != null),
+                { x: 'obs', y: 'label', fill: OBSERVED, r: 3.5, stroke: 'white', strokeWidth: 0.6 },
+              ),
+            ],
+          })
+          el.replaceChildren(node)
+        }}
+      />
+      <div className="flex flex-col gap-0.5 px-3 pb-2 font-mono text-[10px] text-neutral-500">
+        {rows.map((r) => (
+          <div key={r.label} className="flex flex-wrap items-baseline gap-x-2">
+            <span
+              className="inline-block size-2 shrink-0 rounded-[1px]"
+              style={{ background: r.color }}
+            />
+            <span className="text-neutral-700">{r.label}</span>
+            <span className="tabular-nums">
+              {fmtValue(r.q50)} [{fmtValue(r.q05)}, {fmtValue(r.q95)}]
+            </span>
+            {r.obs != null && (
+              <span className="tabular-nums text-neutral-900">
+                observed {fmtValue(r.obs)}
+              </span>
+            )}
+            {r.pit != null && (
+              <span className="tabular-nums">PIT {r.pit.toFixed(2)}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
 /** Above this many predictions the checkbox row collapses behind a count
  *  summary — a big scenario sweep otherwise floods the control strip. */
 const ARMS_COLLAPSE_OVER = 8
@@ -943,11 +1095,14 @@ export function PredictiveTab({ runId }: { runId: string }) {
   const [selectedArms, setSelectedArms] = useState<readonly string[] | null>(null)
   useEffect(() => setSelectedArms(null), [runId])
   const [treatment, setTreatment] = useState<string>()
-  // Inner view: the time-series ribbons (default), the predicted-vs-observed
-  // scatter, the PIT calibration histogram, or the by-index profile. All read
-  // the same stream/scenario/horizon selection above.
-  const [view, setView] = useState<'series' | 'scatter' | 'calibration' | 'byindex'>(
-    'series',
+  // The reader's explicit view choice, tagged with the (run, stream) it was made
+  // under. A choice must hold while nothing else changes, but which view is
+  // worth landing on follows from the stream's shape — see `defaultView` — so a
+  // stream switch re-derives it rather than carrying a choice made about a
+  // differently-shaped stream. Tagging beats resetting in an effect: the default
+  // is computed, never a frame of the wrong view.
+  const [chosenView, setChosenView] = useState<{ key: string; view: View } | null>(
+    null,
   )
   // By-index profile: which index dimension goes on x, and which (if any) facets
   // the lines by colour.
@@ -1154,6 +1309,45 @@ export function PredictiveTab({ runId }: { runId: string }) {
   const indexDims = useMemo(() => data?.index_dims ?? [], [data])
   const activeColorBy = colorBy && indexDims.includes(colorBy) ? colorBy : null
 
+  // The distinct times this stream carries, across every prediction and the
+  // observed series — a property of the stream, not of the arm selection, so
+  // checking a scenario never moves the tab out from under the reader. Exactly
+  // one is a cross-sectional stream (an equilibrium scored after burn-in, a
+  // dose-response endpoint): its structure runs across the index, not time.
+  // Zero means no artifact rows at all, which is not the same claim.
+  const times = useMemo(() => {
+    const t = new Set<number>()
+    for (const p of data?.predictive ?? []) t.add(p.time)
+    for (const o of data?.observed ?? []) t.add(o.time)
+    return [...t]
+  }, [data])
+  const singleTime = times.length === 1
+
+  // The views this stream can answer. `interval` stands in for the series when
+  // there is no extent to draw one over; `byindex` needs an index to profile.
+  const viewTabs = useMemo(
+    (): (readonly [View, string])[] => [
+      ['series', 'Time series'],
+      ...(singleTime ? ([['interval', 'Interval']] as const) : []),
+      ['scatter', 'Pred vs obs'],
+      ['calibration', 'Calibration'],
+      ...(indexDims.length > 0 ? ([['byindex', 'By index']] as const) : []),
+    ],
+    [singleTime, indexDims],
+  )
+
+  // Where the tab lands before anyone clicks. A cross-sectional stream drawn as
+  // a time series is a chart of one x: every stratum on the same tick, no second
+  // point for a band to span. Its check is the profile across the index, or —
+  // with no index to profile — the interval against the single observation.
+  const viewKey = `${runId}|${activeStream ?? ''}`
+  const defaultView: View = singleTime
+    ? indexDims.length > 0
+      ? 'byindex'
+      : 'interval'
+    : 'series'
+  const view = chosenView?.key === viewKey ? chosenView.view : defaultView
+
   // Numeric time → Date via the fit-level calendar (null for a relative-time
   // fit); feeds the shared time-series x-axis and the residuals-vs-time view.
   const toDate = useMemo(() => dayToDate(run.data?.calendar), [run.data?.calendar])
@@ -1266,7 +1460,6 @@ export function PredictiveTab({ runId }: { runId: string }) {
   // own predictive CDF, interpolated through the stored quantiles. A calibrated
   // model gives uniform PITs; a U-shape is overconfident, a dome underconfident.
   const pit = useMemo(() => {
-    const levels = [0.05, 0.25, 0.5, 0.75, 0.95]
     const vals: number[] = []
     for (const st of strata) {
       // One predictive quantile set per (arm, time); index by time within arm.
@@ -1278,12 +1471,43 @@ export function PredictiveTab({ runId }: { runId: string }) {
           const p = byTime.get(o.time)
           if (!p) continue
           const q = [p.q05, p.q25, p.q50, p.q75, p.q95]
-          vals.push(pitOf(o.value, q, levels))
+          vals.push(pitOf(o.value, q, PIT_LEVELS))
         }
       }
     }
     return vals
   }, [strata])
+
+  // The interval readout's rows: one per (stratum × checked prediction) at the
+  // stream's single time. Built only for a cross-sectional stream, which is the
+  // only shape the view is offered for, so each series holds exactly one point.
+  const intervalRows = useMemo((): IntervalRow[] => {
+    if (!singleTime) return []
+    const labelOf = new Map(arms.map((a) => [a.key, a.label]))
+    const rows: IntervalRow[] = []
+    for (const st of strata) {
+      const lbl = stratumLabel(st.stratum)
+      for (const s of st.series) {
+        const p = s.pred[0]
+        if (!p) continue
+        const o = st.obs.find(
+          (o) => o.time === p.time && o.value != null && Number.isFinite(o.value),
+        )
+        const arm = labelOf.get(s.key) ?? s.key
+        rows.push({
+          label: lbl ? `${lbl} · ${arm}` : arm,
+          color: s.color,
+          q05: p.q05, q25: p.q25, q50: p.q50, q75: p.q75, q95: p.q95,
+          obs: o?.value ?? null,
+          pit:
+            o?.value != null
+              ? pitOf(o.value, [p.q05, p.q25, p.q50, p.q75, p.q95], PIT_LEVELS)
+              : null,
+        })
+      }
+    }
+    return rows
+  }, [singleTime, strata, arms])
 
   // Available index dims for the by-index profile, and the resolved x / facet.
   const activeByX =
@@ -1419,20 +1643,11 @@ export function PredictiveTab({ runId }: { runId: string }) {
       {strata.length > 0 && (
         <>
           <div className="flex gap-4 border-t border-neutral-200 px-3 pt-2">
-            {(
-              [
-                ['series', 'Time series'],
-                ['scatter', 'Pred vs obs'],
-                ['calibration', 'Calibration'],
-                ...(indexDims.length > 0
-                  ? ([['byindex', 'By index']] as const)
-                  : []),
-              ] as const
-            ).map(([v, label]) => (
+            {viewTabs.map(([v, label]) => (
               <button
                 key={v}
                 type="button"
-                onClick={() => setView(v)}
+                onClick={() => setChosenView({ key: viewKey, view: v })}
                 aria-pressed={v === view}
                 className={cn(
                   '-mb-px border-b-2 py-1.5 font-mono text-xs transition-colors',
@@ -1448,6 +1663,16 @@ export function PredictiveTab({ runId }: { runId: string }) {
 
           {view === 'series' && (
             <>
+              {singleTime && (
+                <div className="border-t border-neutral-100 px-3 py-2 font-mono text-[10px] text-neutral-400">
+                  this stream is observed at a single time — the series has no
+                  extent, and a band needs two points to span. The check is{' '}
+                  <span className="text-neutral-500">
+                    {indexDims.length > 0 ? 'By index' : 'Interval'}
+                  </span>
+                  .
+                </div>
+              )}
               {noArms && (
                 <div className="border-t border-neutral-100 px-3 py-2 font-mono text-[10px] text-neutral-400">
                   showing observed data only — no prediction is selected
@@ -1521,6 +1746,31 @@ export function PredictiveTab({ runId }: { runId: string }) {
               })}
             </>
           )}
+
+          {view === 'interval' &&
+            (intervalRows.length > 0 ? (
+              <>
+                <div className="flex flex-col gap-2 border-t border-neutral-100 px-3 py-2">
+                  <span className="font-mono text-[10px] text-neutral-400">
+                    at t = {fmtTick(times[0]!)}
+                    {toDate && ` · ${fmtModelDate(toDate, times[0]!)}`} · thin
+                    rule = 90% · thick = 50% · tick = predicted median · dot =
+                    observed
+                  </span>
+                  <span className="font-mono text-[10px] text-neutral-400">
+                    PIT = the observation’s quantile in that predictive; outside
+                    0.05–0.95 is outside the 90% interval
+                  </span>
+                </div>
+                <IntervalReadout rows={intervalRows} />
+              </>
+            ) : (
+              <MutedNotice
+                bordered={false}
+                title="No interval to show"
+                detail="No prediction is selected, so this stream's single observation has nothing to be checked against."
+              />
+            ))}
 
           {view === 'scatter' &&
             (scatterHasPoints ? (
