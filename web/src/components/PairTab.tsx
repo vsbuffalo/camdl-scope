@@ -24,12 +24,12 @@ export function PairTab({
 }: { runId: string } & ChainControls) {
   const [warmupPct, setWarmupPct] = useState(DEFAULT_WARMUP_PCT)
   const [priorXlimMode, setPriorXlimMode] = useState<PriorXlimMode>('posterior')
-  // On by default: a pooled marginal hides the failure it is most likely to be
-  // asked about. Splitting each bar by chain makes a stuck chain — one colour
-  // owning a region the others never visit — visible without leaving the tab.
-  // Persisted like the other display preferences.
+  // Splitting each bar by chain makes a stuck chain — one colour owning a
+  // region the others never visit — visible without leaving the tab, which a
+  // pooled marginal cannot show. Off by default so the corner plot opens on the
+  // posterior's shape rather than on a diagnostic; persisted once turned on.
   const [marginalsByChain, setMarginalsByChainState] = useState(() =>
-    loadJson('pair:marginals-by-chain', true),
+    loadJson('pair:marginals-by-chain', false),
   )
   const setMarginalsByChain = (v: boolean) => {
     setMarginalsByChainState(v)

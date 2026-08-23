@@ -405,7 +405,7 @@ export function PairPlot({
   posterior,
   params,
   priorXlimMode = 'posterior',
-  marginalsByChain = true,
+  marginalsByChain = false,
 }: PairPlotProps) {
   const n = params.length
 
