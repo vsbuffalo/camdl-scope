@@ -7,6 +7,7 @@ import { includedChains, type ChainControls } from '@/lib/chains'
 import { WarmupControl } from '@/components/WarmupControl'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
+import { loadJson, saveJson } from '@/lib/persist'
 import { cn } from '@/lib/utils'
 
 const DEFAULT_WARMUP_PCT = 50
@@ -23,6 +24,17 @@ export function PairTab({
 }: { runId: string } & ChainControls) {
   const [warmupPct, setWarmupPct] = useState(DEFAULT_WARMUP_PCT)
   const [priorXlimMode, setPriorXlimMode] = useState<PriorXlimMode>('posterior')
+  // On by default: a pooled marginal hides the failure it is most likely to be
+  // asked about. Splitting each bar by chain makes a stuck chain — one colour
+  // owning a region the others never visit — visible without leaving the tab.
+  // Persisted like the other display preferences.
+  const [marginalsByChain, setMarginalsByChainState] = useState(() =>
+    loadJson('pair:marginals-by-chain', true),
+  )
+  const setMarginalsByChain = (v: boolean) => {
+    setMarginalsByChainState(v)
+    saveJson('pair:marginals-by-chain', v)
+  }
   const run = useRun(runId)
   const chains = includedChains({ chainIds, excludedChains, onToggleChain, onResetChains })
   const draws = useDraws(runId, warmupPct, PAIR_MAX_DRAWS, chains)
@@ -162,19 +174,37 @@ export function PairTab({
 
       {draws.data && draws.data.n_draws > 0 && (
         <div className="p-3">
-          {anyPrior && (
-            <div className="mb-2 flex items-center gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-neutral-400">
-                x-axis
+          <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+            {anyPrior && (
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[10px] uppercase tracking-wide text-neutral-400">
+                  x-axis
+                </span>
+                <XlimToggle value={priorXlimMode} onChange={setPriorXlimMode} />
+              </div>
+            )}
+            <label className="flex cursor-pointer items-center gap-1.5 font-mono text-[11px]">
+              <input
+                type="checkbox"
+                checked={marginalsByChain}
+                onChange={() => setMarginalsByChain(!marginalsByChain)}
+                className="size-3 accent-neutral-800"
+              />
+              <span
+                className={
+                  marginalsByChain ? 'text-neutral-900' : 'text-neutral-500'
+                }
+              >
+                marginals by chain
               </span>
-              <XlimToggle value={priorXlimMode} onChange={setPriorXlimMode} />
-            </div>
-          )}
+            </label>
+          </div>
           <PairPlot
             draws={draws.data}
             posterior={posterior.data}
             params={visibleParams}
             priorXlimMode={priorXlimMode}
+            marginalsByChain={marginalsByChain}
           />
         </div>
       )}

@@ -35,11 +35,80 @@ type CellSpec =
   | {
       kind: 'diag'
       values: number[]
+      /** Chain id per value, row-aligned with `values`. Empty when unavailable
+       *  (the by-chain fill then falls back to a single-colour histogram). */
+      chain: number[]
       priorDensity: { x: number[]; y: number[] } | null
       median: number | null
       symbol: string
       domain: Domain
+      /** Subdivide each bar by the chains that contributed to it. */
+      byChain: boolean
     }
+
+/** One stacked segment of a by-chain marginal bar. */
+type ChainSegment = {
+  x1: number
+  x2: number
+  y1: number
+  y2: number
+  chain: number
+}
+
+/**
+ * Bin `values` and split each bar by chain, stacked.
+ *
+ * Bar heights stay in the same `proportion` units Plot's binX reducer produces
+ * (count / total), so a by-chain bar is exactly as tall as the plain bar it
+ * replaces and remains comparable to the prior curve drawn behind it. Within a
+ * bar, each chain's segment is its share of that bin — which is the point: a
+ * healthy set of chains contributes evenly to every bar, and a stuck chain
+ * shows as one colour owning a region no other chain reaches.
+ */
+function chainSegments(
+  values: number[],
+  chain: number[],
+  thresholds: number[],
+): ChainSegment[] {
+  const nb = thresholds.length - 1
+  if (nb < 1 || values.length === 0) return []
+  const lo = thresholds[0]!
+  const hi = thresholds[nb]!
+  const width = (hi - lo) / nb
+  // bin -> chain -> count, kept sparse; chain ids are camdl's, not indices.
+  const bins = new Map<number, Map<number, number>>()
+  let total = 0
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i]!
+    if (!Number.isFinite(v) || v < lo || v > hi) continue
+    // The last bin is closed on the right so the maximum lands inside it.
+    const b = Math.min(nb - 1, Math.floor((v - lo) / width))
+    const cid = chain[i] ?? 0
+    let m = bins.get(b)
+    if (!m) bins.set(b, (m = new Map()))
+    m.set(cid, (m.get(cid) ?? 0) + 1)
+    total++
+  }
+  if (total === 0) return []
+  const out: ChainSegment[] = []
+  for (const [b, m] of bins) {
+    let y = 0
+    // Ascending chain order so the stack is in the same order in every bar —
+    // otherwise a colour appears to move up and down across the histogram.
+    for (const cid of [...m.keys()].sort((a, z) => a - z)) {
+      const h = m.get(cid)! / total
+      out.push({
+        x1: lo + b * width,
+        x2: lo + (b + 1) * width,
+        y1: y,
+        y2: y + h,
+        chain: cid,
+      })
+      y += h
+    }
+  }
+  return out
+}
 
 function extent(xs: number[]): [number, number] {
   let lo = Infinity
@@ -134,24 +203,45 @@ function PairCell({
             }),
           )
         }
-        // Posterior on top: darker solid bars. Same bins + `proportion` reducer
-        // ⇒ equal bin width ⇒ proportion ∝ density, height-comparable to prior.
-        marks.push(
-          Plot.rectY(
-            spec.values,
-            Plot.binX<Plot.RectYOptions>(
-              { y: 'proportion' },
-              {
-                x: (d: number) => d,
-                thresholds,
-                fill: POST_BAR,
-                fillOpacity: 0.82,
-                insetLeft: 0.5,
-                insetRight: 0.5,
-              },
+        // Posterior on top. Same bins + `proportion` units either way ⇒ equal
+        // bin width ⇒ proportion ∝ density, height-comparable to the prior.
+        const segments =
+          spec.byChain && spec.chain.length === spec.values.length
+            ? chainSegments(spec.values, spec.chain, thresholds)
+            : []
+        if (segments.length > 0) {
+          // Each bar split by the chains that built it — a stuck chain owns a
+          // region alone instead of hiding inside a pooled bar.
+          marks.push(
+            Plot.rect(segments, {
+              x1: 'x1',
+              x2: 'x2',
+              y1: 'y1',
+              y2: 'y2',
+              fill: (d: ChainSegment) => d.chain,
+              fillOpacity: 0.9,
+              insetLeft: 0.5,
+              insetRight: 0.5,
+            }),
+          )
+        } else {
+          marks.push(
+            Plot.rectY(
+              spec.values,
+              Plot.binX<Plot.RectYOptions>(
+                { y: 'proportion' },
+                {
+                  x: (d: number) => d,
+                  thresholds,
+                  fill: POST_BAR,
+                  fillOpacity: 0.82,
+                  insetLeft: 0.5,
+                  insetRight: 0.5,
+                },
+              ),
             ),
-          ),
-        )
+          )
+        }
       }
 
       if (spec.median != null) {
@@ -172,6 +262,13 @@ function PairCell({
         ...base,
         x: { axis: null, domain },
         y: { axis: null },
+        // Same chain→colour mapping the scatters use, so a colour means the
+        // same chain everywhere in the corner plot.
+        color: {
+          type: 'categorical',
+          domain: chainDomain,
+          range: chainDomain.map(chainColor),
+        },
         marks,
       })
     }
@@ -291,6 +388,8 @@ interface PairPlotProps {
   /** Ordered, already-filtered visible params (the selection, in estimated order). */
   params: string[]
   priorXlimMode?: PriorXlimMode
+  /** Split each diagonal bar by the chains that contributed to it. */
+  marginalsByChain?: boolean
 }
 
 /**
@@ -306,6 +405,7 @@ export function PairPlot({
   posterior,
   params,
   priorXlimMode = 'posterior',
+  marginalsByChain = true,
 }: PairPlotProps) {
   const n = params.length
 
@@ -505,10 +605,12 @@ export function PairPlot({
                       spec={{
                         kind: 'diag',
                         values: draws.draws[rowName] ?? [],
+                        chain: draws.chain,
                         priorDensity: draws.prior_density?.[rowName] ?? null,
                         median: meta[r]!.median,
                         symbol: meta[r]!.symbol,
                         domain: domainOf.get(rowName),
+                        byChain: marginalsByChain,
                       }}
                     />
                   )
