@@ -80,6 +80,42 @@ error-bar plot.
 While a fit is still sampling, the open run shows a live progress blurb and its
 tabs refresh.
 
+## What to run so a fit is fully viewable
+
+The 'scope is read-only: it shows the artifacts a run directory contains and
+nothing else. A tab is missing because its artifact is missing, not because the
+viewer is hiding it. Everything here is a camdl command run from your project
+root — the 'scope never generates anything.
+
+| Run this | Artifacts it writes | Tabs it lights up |
+|---|---|---|
+| `camdl fit run <fit.toml>` | `chain_*/trace.tsv`, `diagnostics.json`, `<stage>_summary.json`, `model.render.json`, `model.graph.json` | Posterior, Pair, Traces, Diagnostics, Model |
+| `camdl fit predict <run_dir>` | `predictive/`, `observed/`, `predictive.json`, `quantities/` | Predictive, Quantities |
+| `camdl simulate <model> --draws prior --fit <fit.toml> --obs-dir <run_dir>/prior_predictive` | `prior_predictive/<stream>.tsv` | Prior (the predictive-check plot) |
+
+The Prior tab's prior→posterior contraction table needs no extra command — it
+reads the priors from the fit config and the draws from the trace. Only the
+plot needs the third row.
+
+Two traps worth knowing, both of which produce a viewer that looks wrong when
+the artifact is:
+
+- **A filtered re-run overwrites, it does not merge.** `camdl fit predict
+  --stream X` (or `--horizon`) rewrites that stream's files *whole*, discarding
+  the scenarios and horizons the invocation did not run. A narrow re-check
+  against a run directory silently destroys the broad artifact beside it
+  ([camdl#627](https://github.com/vsbuffalo/camdl/issues/627)). Re-run predict
+  in full, or expect to.
+- **Naming scenarios drops the fitted arm.** `camdl fit predict --scenario A
+  --scenario B` emits A and B and *not* the as-fitted posterior predictive, so
+  the scenarios have nothing to be compared against
+  ([camdl#625](https://github.com/vsbuffalo/camdl/issues/625)). Running both
+  horizons restores a `fitted` block via the one-step section — unless one-step
+  aborts, which is how a sidecar ends up scenario-only.
+
+If a tab is empty, the fastest diagnosis is `ls` on the run directory: the
+table above says which name should be there.
+
 ## Develop
 
 ```sh
