@@ -12,10 +12,48 @@ side by side via ``make dev`` instead of this launcher.
 from __future__ import annotations
 
 import os
+import shutil
+import socket
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
 import defopt
+
+
+def _port_holder(port: int) -> str | None:
+    """One line describing what already listens on ``port``, via ``lsof``, or
+    ``None`` when it cannot be determined. Best-effort: naming the holder turns
+    "it served the wrong fits" into "that tmux pane is already serving"."""
+    exe = shutil.which("lsof")
+    if exe is None:
+        return None
+    try:
+        out = subprocess.run(
+            [exe, "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = [ln for ln in out.stdout.splitlines() if ln.strip()]
+    return lines[1] if len(lines) > 1 else None
+
+
+def _port_is_free(host: str, port: int) -> bool:
+    """Whether ``(host, port)`` can be bound right now.
+
+    A plain bind, deliberately without ``SO_REUSEADDR``: a listening socket
+    still refuses the address, which is exactly the condition we want to
+    detect. Racy in principle — uvicorn binds a moment later — but the race
+    loses nothing, since uvicorn's own failure remains the backstop."""
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as s:
+            s.bind((host, port))
+        return True
+    except OSError:
+        return False
 
 
 def main(
@@ -43,6 +81,22 @@ def main(
     # URL goes to stdout first — uvicorn's own banner goes to stderr later.
     resolved = Path(os.environ.get("CAMDL_WATCH_STORE", "results/fits")).resolve()
     shown_host = "localhost" if host in ("0.0.0.0", "::") else host
+
+    # Refuse a held port instead of announcing one we will not get. uvicorn
+    # fails to bind AND EXITS 0, so the announcement below would name a URL
+    # served by whatever else is listening — a different store, silently, with
+    # a success exit code that a script or an agent will believe.
+    if not _port_is_free(host, port):
+        holder = _port_holder(port)
+        print(
+            f"camdl-watch: port {port} is already in use — refusing to start.\n"
+            + (f"camdl-watch: held by  {holder}\n" if holder else "")
+            + f"camdl-watch: pick another port (--port {port + 1}), or stop that "
+            "process first.",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise SystemExit(1)
     print(
         f"camdl-watch: serving {resolved} on http://{shown_host}:{port}"
         f"{' (all interfaces)' if host in ('0.0.0.0', '::') else ''}\n"

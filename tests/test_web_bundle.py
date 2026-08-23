@@ -131,3 +131,37 @@ def test_cli_announces_the_url_before_importing_the_app(capsys, tmp_path, host):
     assert "8899" in out
     assert str(tmp_path) in out
     assert calls.get("ran") is True
+
+
+def test_refuses_a_held_port_instead_of_announcing_one_it_cannot_get(capsys):
+    """uvicorn fails to bind a held port AND EXITS 0, so without a pre-check the
+    CLI announces a URL served by whatever else is listening — a different fit
+    store, silently, under a success exit code a script would believe."""
+    import socket
+
+    from camdl_watch import cli
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
+        held.bind(("127.0.0.1", 0))
+        held.listen(1)
+        port = held.getsockname()[1]
+        with pytest.raises(SystemExit) as exc:
+            cli.main(host="127.0.0.1", port=port)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert f"port {port} is already in use" in err
+    # The announcement must NOT have been printed: a URL we cannot serve is the
+    # whole defect.
+    assert "camdl-watch: serving" not in capsys.readouterr().out
+
+
+def test_a_free_port_is_reported_free():
+    from camdl_watch.cli import _port_is_free
+
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    # Socket closed -> the port is bindable again.
+    assert _port_is_free("127.0.0.1", port) is True
