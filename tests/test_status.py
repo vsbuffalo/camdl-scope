@@ -19,6 +19,13 @@ from camdl_watch import assembly, ingest
 from camdl_watch.state import RunState
 
 
+def _trace(rows: int) -> str:
+    return (
+        "step\tlog_posterior\tR0\n"
+        + "".join(f"{i}\t-5.0\t1.{i}\n" for i in range(rows))
+    )
+
+
 def _mkrun(
     store: Path, name: str, *, rows: int, lock_pid: int, draws: bool = True
 ) -> Path:
@@ -26,10 +33,7 @@ def _mkrun(
     (seed / "chain_1").mkdir(parents=True)
     tp = seed / "chain_1" / "trace.tsv"
     if rows:
-        tp.write_text(
-            "step\tlog_posterior\tR0\n"
-            + "".join(f"{i}\t-5.0\t1.{i}\n" for i in range(rows))
-        )
+        tp.write_text(_trace(rows))
         # A finished stage writes the pooled posterior; a killed one (draws=False)
         # leaves only the partial per-chain trace above.
         if draws:
@@ -203,6 +207,71 @@ def test_pick_prefers_completed_stage_over_newer_stub(tmp_path):
     os.utime(stub_stage / "chain_1" / "trace.tsv", (newer, newer))
     picked = ingest._pick_posterior_dir(run)
     assert picked is not None and picked[1] == done_stage
+
+
+def _relaunch_stage(store: Path, name: str, *, rows: int) -> Path:
+    """A second posterior stage in an existing run dir, newer than the first —
+    what re-running a fit under revised sampler settings leaves behind (camdl
+    hashes the settings into the stage name, so it is a new dir, not an
+    overwrite). Returns the new seed dir."""
+    seed = store / name / "01-posterior-cccc3333" / "seed_1-bbbb2222"
+    (seed / "chain_1").mkdir(parents=True)
+    tp = seed / "chain_1" / "trace.tsv"
+    tp.write_text(_trace(rows) if rows else "")
+    newer = time.time() + 100
+    os.utime(tp, (newer, newer))
+    return seed
+
+
+def test_relaunch_beside_completed_stage_reads_live_not_done(tmp_path):
+    # The friction case: a re-run adds a stage next to the finished one and is
+    # still in burn-in. The run is live because *a* stage is live; the finished
+    # stage's draws stay on screen because the new one has nothing to show yet.
+    store = tmp_path / "fits"
+    _mkrun(store, "relaunch-aaaa", rows=72, lock_pid=_DEAD_PID)
+    _write_progress(_seed(store, "relaunch-aaaa"), "done", updated_at=time.time())
+    new = _relaunch_stage(store, "relaunch-aaaa", rows=0)
+    _write_progress(new, {"running": {"phase": "burn_in", "step": 319, "total": 40000}},
+                    updated_at=time.time())
+    rs = _registry(store)["relaunch-aaaa"]
+    assert rs.status.value == "warming"
+    assert (rs.progress.step, rs.progress.total) == (319, 40000)
+    assert rs.meta.posterior_dir == _seed(store, "relaunch-aaaa")
+    assert sum(b.n for b in rs.chains.values()) == 72
+
+
+def test_relaunch_with_rows_is_the_stage_we_read(tmp_path):
+    # Once the live stage has rows they are the ones to show: reporting
+    # "running" over the superseded stage's traces would pass off the old fit's
+    # sweep count and mixing as the new sampler's.
+    store = tmp_path / "fits"
+    _mkrun(store, "relaunch-bbbb", rows=72, lock_pid=_DEAD_PID)
+    _write_progress(_seed(store, "relaunch-bbbb"), "done", updated_at=time.time())
+    new = _relaunch_stage(store, "relaunch-bbbb", rows=9)
+    _write_progress(new, {"running": {"phase": "sampling", "step": 9, "total": 40000}},
+                    updated_at=time.time())
+    rs = _registry(store)["relaunch-bbbb"]
+    assert rs.status.value == "running"
+    assert rs.meta.posterior_dir == new
+    assert sum(b.n for b in rs.chains.values()) == 9
+
+
+def test_dead_relaunch_stub_keeps_the_completed_stage(tmp_path):
+    # The mirror image (and the shape the ebola store is in today): the newest
+    # stage started as many chains as the finished one and has a newer mtime,
+    # but its "running" heartbeat went stale and it never wrote draws.tsv. A
+    # dead stub speaks for neither the draws nor the status.
+    store = tmp_path / "fits"
+    _mkrun(store, "relaunch-cccc", rows=72, lock_pid=_DEAD_PID)
+    _write_progress(_seed(store, "relaunch-cccc"), "done", updated_at=time.time())
+    dead = _relaunch_stage(store, "relaunch-cccc", rows=40)
+    _write_progress(dead, {"running": {"phase": "burn_in", "step": 319, "total": 40000}},
+                    updated_at=time.time() - 600)
+    rs = _registry(store)["relaunch-cccc"]
+    assert rs.status.value == "done"
+    assert rs.meta.live_stage_dir is None
+    assert rs.meta.posterior_dir == _seed(store, "relaunch-cccc")
+    assert sum(b.n for b in rs.chains.values()) == 72
 
 
 def test_live_burn_in_is_warming_dead_burn_in_hidden(tmp_path):

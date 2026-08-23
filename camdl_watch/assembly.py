@@ -8,6 +8,11 @@ heartbeat (terminal states win; a fresh ``running`` beat is live) or, absent a
 heartbeat, the seed ``.lock`` PID plus whether the stage wrote its pooled
 ``draws.tsv`` — a dead process with only partial per-chain traces and no
 ``draws.tsv`` is ``stalled`` (killed mid-run), not ``done``.
+
+The heartbeat is read from ``meta.status_dir``, which is the stage that is
+sampling now rather than the stage whose draws we read: a re-run under new
+settings leaves a finished stage and a live one side by side in the same run
+dir, and the run is live if *any* of its stages is.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ def classify(rs: RunState, now: float) -> Status:
                 return Status.STALLED
             return Status.WARMING if prog.phase == "burn_in" else Status.RUNNING
         return Status.DONE
-    live = ingest.stage_is_live(rs.meta.posterior_dir)
+    live = ingest.stage_is_live(rs.meta.status_dir)
     has_rows = any(buf.n for buf in rs.chains.values())
     if has_rows:
         if live:
@@ -73,7 +78,9 @@ def build_run_state(meta: RunMeta) -> RunState:
         except OSError:
             pass
     rs.priors = ingest.extract_priors(meta)
-    rs.progress = ingest.read_progress(meta.posterior_dir)
+    # Progress comes from the stage that is sampling; the summary from the stage
+    # we read — camdl's R̂/ESS describe the draws on screen, not the new sampler.
+    rs.progress = ingest.read_progress(meta.status_dir)
     rs.summary = ingest.read_chain_summary(meta.posterior_dir)
     rs.updated_at = max_mtime
     rs.status = classify(rs, time.time())
