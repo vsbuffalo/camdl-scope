@@ -247,7 +247,7 @@ class RunMeta:
 
     run_id: str  # dir name, e.g. natbc_dens_hierk_nc_pgas_long-754f3fe8
     run_dir: Path  # the <run>-<hash> directory
-    posterior_dir: Path  # the chosen non-empty 01-posterior-*/seed_*/ dir
+    posterior_dir: Path  # the stage we read: a non-empty NN-posterior-*/seed_*/
     chain_paths: dict[int, Path]  # cid -> trace.tsv
     model: str  # model file stem
     algorithm: str  # pgas | mh | pmmh | ...
@@ -258,6 +258,12 @@ class RunMeta:
     thin: int = 1  # thinning factor from fit.toml — denominator for a live ESS/iter
     fit_toml_stem: str = ""  # config stem, e.g. natbc_dens_hierk_nc_pgas_long
     user_label: str | None = None  # camdl-native user-display label, if set
+    # The stage whose heartbeat is running *now*, when the run has one. A re-run
+    # under new sampler settings adds a stage beside the finished one, and until
+    # that stage writes rows we still read the finished stage's draws — so the
+    # stage holding the posterior and the stage doing the sampling can differ.
+    # None when they coincide (the ordinary single-stage case).
+    live_stage_dir: Path | None = None
     # How the fit summarizes: "posterior" (chains/draws — the default path) or
     # "mle" (a point estimate from an optimization 'scout' stage; no draws).
     fit_kind: str = "posterior"
@@ -290,6 +296,14 @@ class RunMeta:
     def hash(self) -> str:
         """The content-hash suffix of the run dir name (after the last '-')."""
         return self.run_id.rsplit("-", 1)[-1] if "-" in self.run_id else ""
+
+    @property
+    def status_dir(self) -> Path:
+        """The stage that answers "is this run doing anything *right now*" — the
+        live stage when a re-run is in flight beside a finished one, else the
+        stage we read. Status is a fact about the run, not about the stage whose
+        draws happen to be the best ones to show."""
+        return self.live_stage_dir or self.posterior_dir
 
     @property
     def derived_label(self) -> str:

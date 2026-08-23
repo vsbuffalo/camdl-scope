@@ -19,6 +19,10 @@ Store layout (content-addressed, nested)::
 Edge cases handled:
   * Multiple ``NN-posterior-*`` dirs (a resume leaves an empty stub) — pick
     the one whose chains have non-empty trace.tsv.
+  * A re-run under new sampler settings reuses the run dir and adds a *new*
+    stage beside the finished one. Which stage we read (the one holding a
+    posterior) and which stage answers "is this run sampling right now" are
+    then different questions, so discovery resolves both.
   * Torn final line — the sampler appends, so the last line may be partial.
     We read only up to the last newline and remember that byte offset.
   * MH vs PGAS column schema — normalized to a ``draw`` iteration column
@@ -386,20 +390,63 @@ def _read_algorithm_config(seed_dir: Path) -> dict[str, str | float | int]:
         # Anything structured (a list, a nested block) has no compact rendering
         # in a one-line header strip, so it is dropped rather than stringified.
     return out
+def _stage_seed_dirs(run_dir: Path) -> list[Path]:
+    """Every ``NN-posterior-*/seed_*`` leaf of a run, in stage then seed order.
+
+    A run dir accumulates stages: a resume, a crash-relaunch, or a re-run under
+    new sampler settings each add one (camdl's content-addressed layout hashes
+    the settings into the stage name, so a changed setting is a new dir rather
+    than an overwrite)."""
+    return [
+        seed_dir
+        for pdir in sorted(run_dir.glob("[0-9]*-posterior-*"))
+        for seed_dir in sorted(pdir.glob("seed_*"))
+    ]
+
+
+def _live_stage_dir(run_dir: Path) -> Path | None:
+    """The seed dir of the stage sampling *right now*, or ``None`` if no stage
+    is. Freshest heartbeat wins if two stages claim to be running.
+
+    Liveness is decided only by a fresh ``running`` ``progress.json`` (camdl's
+    staleness contract, gh#278), never by the seed ``.lock``: a lock file is a
+    same-host PID that outlives the abandoned stub that wrote it, and letting an
+    abandoned stub speak for the run would drag a finished fit back to
+    ``stalled``. A stage with no heartbeat therefore can never claim liveness
+    away from the stage we read — which is what keeps pre-heartbeat runs
+    classifying exactly as they did before.
+    """
+    best: tuple[float, Path] | None = None
+    for seed_dir in _stage_seed_dirs(run_dir):
+        prog = read_progress(seed_dir)
+        if prog is None or prog.state != "running" or not progress_is_fresh(prog):
+            continue
+        beat = float(prog.updated_at or 0.0)
+        if best is None or beat > best[0]:
+            best = (beat, seed_dir)
+    return best[1] if best is not None else None
 
 
 def _pick_posterior_dir(
     run_dir: Path, *, include_warming: bool = False
 ) -> tuple[Path, Path, dict[int, Path], bool] | None:
-    """Return (posterior_dir, seed_dir, chain_paths, has_draws) for the best
-    stage dir, or ``None`` if there's nothing worth surfacing.
+    """Return (posterior_dir, seed_dir, chain_paths, has_draws) for the stage
+    whose draws we read, or ``None`` if there's nothing worth surfacing.
 
-    Prefer a *completed* stage (one that wrote ``draws.tsv``) over any partial
+    Prefer a stage that is *not abandoned* — one that wrote ``draws.tsv``, or
+    one that is sampling right now (:func:`_live_stage_dir`) — over any partial
     stub, then the stage with the most non-empty chains, then the
     most-recently-modified. A resume/relaunch leaves an empty ``trace.tsv`` stub
     — those score zero non-empty chains and lose. A *crashed* relaunch can leave
     a stub with as many started chains as the real run and a newer mtime; the
-    completion key keeps the finished stage from being masked by it.
+    not-abandoned key keeps the finished stage from being masked by it.
+
+    A re-run under new settings is the same shape as that crashed stub — same
+    chain count, newer mtime — but it is alive, and its rows are the ones the
+    watcher exists to show. Reading the superseded stage while the status line
+    reads ``running`` would report the *old* fit's sweep count and traces as if
+    they were the live run's. So a live stage that has rows wins; a live stage
+    still in burn-in has nothing to show and yields to the completed sibling.
 
     When no stage has any draws yet (every ``trace.tsv`` is empty, as during
     burn-in), the run is hidden by default. With ``include_warming=True`` it is
@@ -408,23 +455,24 @@ def _pick_posterior_dir(
     returned ``chain_paths`` are the (currently empty) trace files, so the
     normal tail picks up rows the moment burn-in clears.
     """
+    live_dir = _live_stage_dir(run_dir)
     candidates: list[tuple[bool, int, float, Path, Path, dict[int, Path]]] = []
-    for pdir in sorted(run_dir.glob("[0-9]*-posterior-*")):
-        for seed_dir in sorted(pdir.glob("seed_*")):
-            paths = _seed_chain_paths(seed_dir)
-            ne = _nonempty(paths)
-            if not paths:
-                continue
-            mtime = max((p.stat().st_mtime for p in paths.values()), default=0.0)
-            # Rank completed-first, then by #non-empty chains, then recency.
-            # Use the full path set for display when none are non-empty yet.
-            candidates.append(
-                (stage_completed(seed_dir), len(ne), mtime, pdir, seed_dir, ne or paths)
-            )
+    for seed_dir in _stage_seed_dirs(run_dir):
+        paths = _seed_chain_paths(seed_dir)
+        ne = _nonempty(paths)
+        if not paths:
+            continue
+        mtime = max((p.stat().st_mtime for p in paths.values()), default=0.0)
+        # Rank not-abandoned first, then by #non-empty chains, then recency.
+        # Use the full path set for display when none are non-empty yet.
+        candidates.append(
+            (stage_completed(seed_dir) or seed_dir == live_dir,
+             len(ne), mtime, seed_dir.parent, seed_dir, ne or paths)
+        )
     if not candidates:
         return None
     candidates.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
-    _done, n_ne, _mtime, pdir, seed_dir, paths = candidates[0]
+    _kept, n_ne, _mtime, pdir, seed_dir, paths = candidates[0]
     if n_ne > 0:
         return pdir, seed_dir, paths, True
     # No draws anywhere (burn-in, or a killed stub). A run can have several
@@ -629,6 +677,7 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
                 run_id=run_dir.name,
                 run_dir=run_dir,
                 posterior_dir=seed_dir,
+                live_stage_dir=_live_stage_dir(run_dir),
                 chain_paths=chain_paths,
                 model=model,
                 algorithm=algorithm,
