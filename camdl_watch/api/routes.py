@@ -193,6 +193,45 @@ def _drop_warming_chains(rs: RunState, cutoff: int, floor: int = 4) -> int:
     return 0
 
 
+def _min_ess(summary: ChainSummary) -> tuple[float | None, list[str]]:
+    """The min-param ESS that bounds a run's usable sample, or ``None`` with the
+    parameters that make it unreportable.
+
+    A parameter with no ESS is not a parameter to skip — it is the reason the
+    minimum cannot be stated. Older camdl deliberately wrote no ESS for a
+    parameter whose chains disagree (R̂ > 1.1), since summing per-chain ESS
+    across separated chains overstates the effective N for the joint posterior.
+    Filtering those out silently took the minimum over the CONVERGED parameters
+    only, which inverts as a fit improves: as more parameters begin reporting an
+    ESS, worse minima are admitted and the headline efficiency falls. Two real
+    runs of one model differing only in particle count showed the better fit
+    (R̂ 2.64 → 1.46) reporting 13× worse efficiency.
+
+    "Assessed" is decided by R̂, not by ESS. A parameter with no finite R̂ was
+    never assessable across chains (a constant column, or fewer than two usable
+    chains), so it has no pooled ESS to suppress and must not trigger the
+    withholding — otherwise every excluded-chains view loses its efficiency
+    line. A parameter WITH a finite R̂ but no ESS means exactly "chains
+    disagree", and that blank is the diagnosis.
+    """
+    # Only an ASSESSED parameter (finite R̂) missing its ESS withholds the
+    # metric. A parameter without R̂ never had a cross-chain assessment to
+    # suppress, so it cannot be evidence that chains disagree — but if it does
+    # carry an ESS, that ESS still bounds the usable sample and belongs in the
+    # minimum.
+    missing = sorted(
+        p
+        for p, r in summary.rhat.items()
+        if r is not None and np.isfinite(r) and summary.ess.get(p) is None
+    )
+    if missing:
+        return None, missing
+    vals = [
+        v for v in summary.ess.values() if v is not None and np.isfinite(v) and v > 0
+    ]
+    return (min(vals) if vals else None), []
+
+
 def _efficiency_metrics(
     summary: ChainSummary | None, n_samples: int
 ) -> tuple[float | None, float | None]:
@@ -206,13 +245,17 @@ def _efficiency_metrics(
     — the number to compare samplers with. ESS/second = min-param ESS /
     wall-clock (thinning-invariant but hardware-dependent). Both key off the
     *slowest* parameter (min ESS), which bounds usable ESS. ``(None, None)``
-    without an authoritative summary (a still-live fit) or a usable ESS."""
+    without an authoritative summary (a still-live fit), and when the minimum is
+    unreportable because an assessed parameter has no ESS — see
+    :func:`_min_ess`, which is the semantics camdl's ``fit summary`` reports
+    (its ``MinEss::{Reported, Unreportable, NoParams}``), rather than an
+    independently-derived arithmetic that can disagree with it on the same fit.
+    """
     if summary is None:
         return None, None
-    ess_vals = [v for v in summary.ess.values() if v is not None and v > 0]
-    if not ess_vals:
+    min_ess, _missing = _min_ess(summary)
+    if min_ess is None:
         return None, None
-    min_ess = min(ess_vals)
     raw_iters = n_samples * max(summary.thin, 1)
     ess_per_iter = (min_ess / raw_iters) if raw_iters > 0 else None
     wt = summary.wall_time_secs
@@ -1309,6 +1352,9 @@ def get_diagnostics(
     ess_per_iter, ess_per_sec = _efficiency_metrics(
         rs.summary, sum(b.n for b in rs.chains.values())
     )
+    # Why the efficiency is blank, when it is: the parameters that made the
+    # minimum unreportable, so the strip can say so instead of showing nothing.
+    _, ess_missing = _min_ess(rs.summary) if rs.summary is not None else (None, [])
     filtered = _select_chains(rs, chains)
     cutoff = _warmup_cutoff(rs, warmup_pct)
     # Chains that never sampled at all, captured BEFORE pruning — otherwise they
@@ -1331,6 +1377,7 @@ def get_diagnostics(
         run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
         n_chains=len(rs.chains), n_chains_warming=warming,
         n_chains_dead=len(dead), dead_chain_ids=dead,
+        ess_unreportable=ess_missing,
         stage=(
             summ.stage if summ is not None and summ.stage
             else (reported.stage if reported is not None else None)

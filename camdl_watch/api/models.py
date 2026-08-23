@@ -788,6 +788,10 @@ class DiagnosticsResponse(BaseModel):
     # reports "done".
     n_chains_dead: int = 0
     dead_chain_ids: list[int] = []
+    # Assessed parameters (finite R̂) with no ESS. Non-empty means the run's
+    # efficiency is deliberately UNREPORTABLE rather than missing: the blank is
+    # the diagnosis, and these are the parameters whose chains disagree.
+    ess_unreportable: list[str] = []
     # Chain ids for the positional per-chain columns (``ParamDiagnostic
     # .ess_per_chain``), 1-based as camdl names them. Label from these, never
     # from the array index.

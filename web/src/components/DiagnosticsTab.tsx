@@ -372,12 +372,26 @@ function Metric({
  * authoritative summary carries them (a finished stage on a recent camdl).
  */
 function EfficiencyStrip({ data }: { data: DiagnosticsResponse }) {
-  if (data.ess_per_iter == null && data.ess_per_sec == null) return null
+  const unreportable = data.ess_unreportable ?? []
+  if (data.ess_per_iter == null && data.ess_per_sec == null && unreportable.length === 0)
+    return null
   return (
     <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b border-neutral-100 px-3 py-2">
       <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
         efficiency
       </span>
+      {/* A withheld efficiency is a finding, not a gap: the minimum is bounded
+          by a parameter whose chains disagree, so any number here would be the
+          minimum over the converged parameters only — which improves as the fit
+          gets worse. Say which parameters, the way camdl's fit summary does. */}
+      {unreportable.length > 0 && (
+        <span className="font-mono text-[11px] text-amber-600">
+          not reportable — no ESS for{' '}
+          <span className="font-medium">{unreportable.slice(0, 3).join(', ')}</span>
+          {unreportable.length > 3 && ` (+${unreportable.length - 3} more)`} (chains
+          disagree)
+        </span>
+      )}
       {data.ess_per_iter != null && (
         <Metric
           label="ESS/iter"

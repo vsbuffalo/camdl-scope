@@ -645,6 +645,11 @@ export interface components {
              */
             dead_chain_ids: number[];
             /**
+             * Ess Unreportable
+             * @default []
+             */
+            ess_unreportable: string[];
+            /**
              * Chain Ids
              * @default []
              */

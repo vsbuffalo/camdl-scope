@@ -424,3 +424,51 @@ def test_diagnostics_read_nuts_summary(client, tmp_path):
     body = client.get(f"/api/runs/{RUN_DIR}/diagnostics?warmup_pct=50").json()
     assert body["source"] == "camdl"  # summary found → authoritative
     assert body["ess_per_iter"] is not None and body["ess_per_iter"] > 0
+
+
+def test_efficiency_is_withheld_when_an_assessed_param_has_no_ess():
+    """camdl-scope#4: filtering out a null ESS took the minimum over the
+    CONVERGED parameters only, so the metric IMPROVED as the fit got worse. A
+    parameter with a finite R̂ and no ESS means "chains disagree" — the blank is
+    the diagnosis, and the minimum is unreportable."""
+    from camdl_watch.api.routes import _efficiency_metrics, _min_ess
+    from camdl_watch.state import ChainSummary
+
+    # tau was assessed (R̂ 2.6) and has no ESS -> unreportable, tau named.
+    bad = ChainSummary(
+        stage="pgas", n_chains=4,
+        rhat={"beta": 1.01, "tau": 2.6},
+        ess={"beta": 559.0, "tau": None},
+        ess_per_chain={}, thin=1, wall_time_secs=10.0,
+    )
+    assert _min_ess(bad) == (None, ["tau"])
+    assert _efficiency_metrics(bad, 500) == (None, None)
+
+    # The same fit improved: tau now reports, so the minimum is stateable — and
+    # it is WORSE than the old filtered number, which is the whole point.
+    good = ChainSummary(
+        stage="pgas", n_chains=4,
+        rhat={"beta": 1.01, "tau": 1.02},
+        ess={"beta": 559.0, "tau": 73.0},
+        ess_per_chain={}, thin=1, wall_time_secs=10.0,
+    )
+    min_ess, missing = _min_ess(good)
+    assert missing == [] and min_ess == pytest.approx(73.0)
+
+
+def test_unassessed_param_does_not_withhold_but_still_bounds_the_minimum():
+    """A parameter with no finite R̂ was never assessable across chains (a
+    constant column, or an excluded-chains view), so it must not trigger the
+    withholding — otherwise every filtered view loses its efficiency line."""
+    from camdl_watch.api.routes import _min_ess
+    from camdl_watch.state import ChainSummary
+
+    s = ChainSummary(
+        stage="pgas", n_chains=1,
+        rhat={"beta": 1.01, "const": None},
+        ess={"beta": 559.0, "const": 12.0},
+        ess_per_chain={}, thin=1,
+    )
+    min_ess, missing = _min_ess(s)
+    assert missing == []           # `const` has no R̂ -> not evidence of disagreement
+    assert min_ess == pytest.approx(12.0)  # but its ESS still bounds the run
