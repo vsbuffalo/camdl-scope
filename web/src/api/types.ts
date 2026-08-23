@@ -292,6 +292,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/prior-predictive/{stream}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Prior Predictive
+         * @description One stream's PRIOR predictive ribbon plus the observed series.
+         *
+         *     Returns the same shape as the posterior predictive so the two are directly
+         *     comparable and share the viewer's plotting path — the arm is tagged
+         *     ``prior`` rather than a scenario name. 404 when this run has no prior
+         *     predictive: camdl writes none by default (camdl#711), so it exists only
+         *     when ``simulate --draws prior --obs-dir <run>/prior_predictive`` was run.
+         */
+        get: operations["get_prior_predictive_api_runs__run_id__prior_predictive__stream__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/prior-posterior": {
         parameters: {
             query?: never;
@@ -1584,6 +1610,11 @@ export interface components {
             /** Available Streams */
             available_streams: string[];
             /**
+             * Available Prior Streams
+             * @default []
+             */
+            available_prior_streams: string[];
+            /**
              * Available Quantities
              * @default []
              */
@@ -2269,6 +2300,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TracesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_prior_predictive_api_runs__run_id__prior_predictive__stream__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                stream: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictiveResponse"];
                 };
             };
             /** @description Validation Error */

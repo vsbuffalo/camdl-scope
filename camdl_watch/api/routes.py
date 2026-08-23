@@ -392,6 +392,7 @@ def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
         # camdl writes predictive/observed at the FIT (run) dir level, not the
         # seed dir — read there.
         available_streams=predictive.discover_streams(meta.run_dir),
+        available_prior_streams=predictive.discover_prior_streams(meta.run_dir),
         available_quantities=[
             _quantity_info(q, meta) for q in _quantity_manifest.quantities
         ],
@@ -1198,6 +1199,54 @@ def _live_findings(diag: diag_mod.Diagnostics, rs: RunState) -> list[FindingGrou
         )
     groups.sort(key=lambda g: _SEV_RANK.get(g.severity, 3))
     return groups
+
+
+@router.get(
+    "/runs/{run_id}/prior-predictive/{stream}", response_model=PredictiveResponse
+)
+def get_prior_predictive(run_id: str, stream: str) -> PredictiveResponse:
+    """One stream's PRIOR predictive ribbon plus the observed series.
+
+    Returns the same shape as the posterior predictive so the two are directly
+    comparable and share the viewer's plotting path — the arm is tagged
+    ``prior`` rather than a scenario name. 404 when this run has no prior
+    predictive: camdl writes none by default (camdl#711), so it exists only
+    when ``simulate --draws prior --obs-dir <run>/prior_predictive`` was run."""
+    store = _store()
+    meta = _find_meta(store, run_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
+    bands = predictive.read_prior_bands(meta.run_dir, stream)
+    if bands is None:
+        raise HTTPException(
+            status_code=404, detail=f"no prior predictive for stream: {stream}"
+        )
+    pred_points = [
+        PredictivePoint(
+            time=_fnum(r.get("time")), scenario="prior", horizon="prior", treatment="",
+            q05=_fnum(r.get("q05")), q25=_fnum(r.get("q25")), q50=_fnum(r.get("q50")),
+            q75=_fnum(r.get("q75")), q95=_fnum(r.get("q95")),
+        )
+        for r in bands.to_dicts()
+    ]
+    # The observed overlay is the point of a prior predictive CHECK, and the
+    # posterior side already wrote it into this run dir.
+    obs_points: list[ObservedPoint] = []
+    obs = predictive.read_observed(meta.run_dir, stream)
+    if obs is not None:
+        for r in obs.table.to_dicts():
+            v = r.get("value")
+            obs_points.append(
+                ObservedPoint(
+                    time=_fnum(r.get("time")),
+                    value=(_fnum(v) if v is not None else None),
+                )
+            )
+    return PredictiveResponse(
+        run_id=run_id, stream=stream, index_dims=[],
+        scenarios=["prior"], horizons=["prior"], treatments=[""],
+        predictive=pred_points, observed=obs_points,
+    )
 
 
 @router.get("/runs/{run_id}/prior-posterior", response_model=PriorPosteriorResponse)

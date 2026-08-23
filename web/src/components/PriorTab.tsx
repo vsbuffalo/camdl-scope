@@ -1,5 +1,11 @@
+import * as Plot from '@observablehq/plot'
 import type { PriorPosteriorRow } from '@/api/client'
-import { usePriorPosterior } from '@/api/queries'
+import { usePriorPosterior, usePriorPredictive, useRun } from '@/api/queries'
+import { Figure } from '@/components/Figure'
+import { Segmented } from '@/components/Segmented'
+import { dayToDate } from '@/lib/calendar'
+import { fmtTick } from '@/lib/format'
+import { logYOptions } from '@/lib/plot-scale'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { WarmupControl } from '@/components/WarmupControl'
 import { ChainSelect } from '@/components/ChainSelect'
@@ -63,6 +69,145 @@ function reading(r: PriorPosteriorRow): { text: string; tone: string } {
  * by side is faster than eleven overlaid densities. The Posterior tab already
  * draws the prior against the marginal where the shapes matter.
  */
+/**
+ * The prior predictive check: prior draws pushed through the observation model,
+ * banded, with the data overlaid. The gate question is COVERAGE, not sharpness
+ * — a prior band that cannot reach the observed series describes a world the
+ * data rules out, and no amount of sampling fixes that.
+ *
+ * camdl writes no prior predictive of its own (camdl#711); this renders one
+ * generated into the run directory, so the section is absent until it is.
+ */
+function PriorPredictivePanel({
+  runId,
+  streams,
+  toDate,
+}: {
+  runId: string
+  streams: string[]
+  toDate: ((t: number) => Date) | null
+}) {
+  const [stream, setStream] = useState<string>()
+  const active = stream && streams.includes(stream) ? stream : streams[0]
+  const { data } = usePriorPredictive(runId, active)
+  const [logY, setLogYState] = useState(() => loadJson('prior:pp-log-y', false))
+  const setLogY = (v: boolean) => {
+    setLogYState(v)
+    saveJson('prior:pp-log-y', v)
+  }
+
+  return (
+    <>
+      <div className="flex flex-col gap-2 border-t border-neutral-200 px-3 py-2">
+        {streams.length > 1 && (
+          <Segmented
+            label="Stream"
+            options={streams}
+            value={active ?? ''}
+            onChange={setStream}
+          />
+        )}
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+            Show
+          </span>
+          <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
+            <input
+              type="checkbox"
+              checked={logY}
+              onChange={() => setLogY(!logY)}
+              className="size-3 accent-neutral-800"
+            />
+            <span className={logY ? 'text-neutral-900' : 'text-neutral-500'}>
+              log y
+            </span>
+          </label>
+        </div>
+      </div>
+      <Figure
+        name={`prior-predictive-${active ?? ''}`}
+        aria={`prior predictive ${active ?? ''}`}
+        deps={[data, logY, toDate]}
+        render={(el, width) => {
+          const pred = [...(data?.predictive ?? [])].sort((a, b) => a.time - b.time)
+          const obs = (data?.observed ?? []).filter(
+            (o) => o.value != null && Number.isFinite(o.value),
+          )
+          if (pred.length === 0) {
+            el.replaceChildren()
+            return
+          }
+          const xOf = (d: { time: number }) => (toDate ? toDate(d.time) : d.time)
+          const drawn: number[] = []
+          for (const p of pred) drawn.push(p.q05, p.q25, p.q50, p.q75, p.q95)
+          for (const o of obs) drawn.push(o.value as number)
+          const node = Plot.plot({
+            width,
+            height: 260,
+            marginTop: 10,
+            marginBottom: toDate ? 34 : 24,
+            marginLeft: 52,
+            marginRight: 12,
+            style: {
+              background: 'transparent',
+              color: '#737373',
+              fontSize: '10px',
+              fontFamily: 'var(--font-mono)',
+            },
+            x: { label: null, tickSize: 2, tickPadding: 4, ticks: 6 },
+            y: {
+              label: null,
+              tickSize: 2,
+              tickPadding: 4,
+              ticks: 5,
+              tickFormat: (d: number) => fmtTick(d),
+              grid: true,
+              ...logYOptions(logY, drawn),
+            },
+            marks: [
+              Plot.areaY(pred, {
+                x: xOf,
+                y1: 'q05',
+                y2: 'q95',
+                fill: PRIOR_INK,
+                fillOpacity: 0.12,
+              }),
+              Plot.areaY(pred, {
+                x: xOf,
+                y1: 'q25',
+                y2: 'q75',
+                fill: PRIOR_INK,
+                fillOpacity: 0.22,
+              }),
+              Plot.line(pred, { x: xOf, y: 'q50', stroke: PRIOR_INK, strokeWidth: 1.3 }),
+              Plot.dot(obs, {
+                x: xOf,
+                y: 'value',
+                fill: '#171717',
+                r: 2.5,
+                stroke: 'white',
+                strokeWidth: 0.5,
+              }),
+              Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }),
+            ],
+          })
+          el.replaceChildren(node)
+        }}
+      />
+      <p className="px-3 pb-2 text-[10px] leading-snug text-neutral-400">
+        Band = prior predictive (50% / 90%), ● = observed. The check is whether
+        the band <em>covers</em> the data: a prior that cannot produce what was
+        seen will not be rescued by the likelihood, and one that covers
+        everything imaginable has not constrained anything.
+      </p>
+    </>
+  )
+}
+
+/** Prior ink — distinct from the posterior arms so the two checks never read as
+ *  the same object. */
+const PRIOR_INK = '#7c3aed'
+
 export function PriorTab({
   runId,
   chainIds,
@@ -84,6 +229,9 @@ export function PriorTab({
     onResetChains,
   })
   const { data, isPending, isError } = usePriorPosterior(runId, warmupPct, chains)
+  const run = useRun(runId)
+  const priorStreams = run.data?.available_prior_streams ?? []
+  const toDate = dayToDate(run.data?.calendar)
 
   return (
     <div className="max-w-4xl">
@@ -103,6 +251,14 @@ export function PriorTab({
               onReset={onResetChains}
             />
           </div>
+        )}
+
+        {priorStreams.length > 0 && (
+          <PriorPredictivePanel
+            runId={runId}
+            streams={priorStreams}
+            toDate={toDate}
+          />
         )}
 
         {isPending && <ForestSkeleton rows={3} />}

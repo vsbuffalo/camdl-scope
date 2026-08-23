@@ -239,6 +239,9 @@ class RunDetail(BaseModel):
     dimensions: list[DimensionInfo]
     findings: list[FindingGroup]
     available_streams: list[str]
+    # Streams with a PRIOR predictive available. Empty unless one was generated
+    # into the run dir — camdl writes none by default (camdl#711).
+    available_prior_streams: list[str] = []
     # Generated quantities the fit's predict produced (manifest-driven, deduped to
     # logical quantities); empty when `camdl fit predict` was never run, or the
     # model has no quantities block.

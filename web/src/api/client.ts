@@ -240,6 +240,16 @@ export function getTraces(
  * authoritative verdict (findings) and R̂/ESS where a stage summary exists, else
  * the watcher's live arviz estimate; plus per-chain mixing and the PMMH MAP.
  */
+export function getPriorPredictive(
+  runId: string,
+  stream: string,
+): Promise<PredictiveResponse> {
+  const id = encodeURIComponent(runId)
+  return getJson<PredictiveResponse>(
+    `/api/runs/${id}/prior-predictive/${encodeURIComponent(stream)}`,
+  )
+}
+
 export function getPriorPosterior(
   runId: string,
   warmupPct: number,

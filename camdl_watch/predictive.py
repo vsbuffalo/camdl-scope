@@ -116,6 +116,61 @@ class ObservedSeries:
     table: pl.DataFrame
 
 
+#: Where a prior predictive lands inside a run dir. camdl has no prior-predictive
+#: writer of its own (camdl#711), but `camdl simulate --draws prior --obs-dir
+#: <run>/prior_predictive` writes exactly one TSV per stream, named for the
+#: stream — the same naming `predictive/` and `observed/` use — so pointing that
+#: flag here makes the artifact discoverable by the same store walk.
+PRIOR_PREDICTIVE_DIR = "prior_predictive"
+
+#: The quantiles a predictive ribbon is drawn from, matching what `fit predict`
+#: writes so a prior band and a posterior band are the same object.
+_BAND_QUANTILES = (0.05, 0.25, 0.5, 0.75, 0.95)
+
+
+def discover_prior_streams(run_dir: Path) -> list[str]:
+    """Stream names with a prior-predictive replicate file, sorted. Empty when
+    the run has none (the normal case until one is generated)."""
+    d = Path(run_dir) / PRIOR_PREDICTIVE_DIR
+    if not d.is_dir():
+        return []
+    return sorted(p.stem for p in d.glob("*.tsv"))
+
+
+def read_prior_bands(run_dir: Path, stream: str) -> pl.DataFrame | None:
+    """Band a prior-predictive replicate file into the ribbon contract.
+
+    ``simulate --obs-dir`` writes RAW draws — ``replicate | draw | time |
+    <stream>`` — because only `fit predict` bands observation streams
+    (camdl#711). Reducing them here rather than in the browser keeps one
+    quantile convention across the prior and posterior ribbons; a consumer that
+    banded client-side would silently disagree with `fit predict` at the tails.
+
+    Returns ``time | q05 | q25 | q50 | q75 | q95``, or ``None`` when the file is
+    absent or carries no value column."""
+    table = _read_tsv(Path(run_dir) / PRIOR_PREDICTIVE_DIR / f"{stream}.tsv")
+    if table is None or table.height == 0 or "time" not in table.columns:
+        return None
+    # The value column is named for the stream; fall back to the single
+    # remaining numeric column so a renamed stream still reads.
+    value = stream if stream in table.columns else None
+    if value is None:
+        rest = [c for c in table.columns if c not in ("replicate", "draw", "time")]
+        if len(rest) != 1:
+            return None
+        value = rest[0]
+    return (
+        table.group_by("time")
+        .agg(
+            [
+                pl.col(value).quantile(q, interpolation="linear").alias(name)
+                for q, name in zip(_BAND_QUANTILES, ("q05", "q25", "q50", "q75", "q95"))
+            ]
+        )
+        .sort("time")
+    )
+
+
 def read_predictive(run_dir: Path, stream: str) -> PredictiveSeries | None:
     """The predictive quantile ribbons for ``stream``, or ``None`` if absent."""
     table = _read_tsv(Path(run_dir) / PREDICTIVE_DIR / f"{stream}.tsv")

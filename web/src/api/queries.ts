@@ -3,6 +3,7 @@ import {
   getCompare,
   getDiagnostics,
   getPriorPosterior,
+  getPriorPredictive,
   getDraws,
   getPosterior,
   getPredictive,
@@ -239,6 +240,20 @@ export function useTraces(
  * per-parameter R̂/ESS table, per-chain mixing, and the MAP. Recomputes when the
  * cutoff moves, so it mirrors {@link usePosterior}'s warm-up dependence.
  */
+/** One stream's prior predictive ribbon + observed overlay. Static per run, so
+ *  it carries no warm-up/chain lens — prior draws are not chain output. */
+export function usePriorPredictive(
+  runId: string | undefined,
+  stream: string | undefined,
+) {
+  return useQuery({
+    queryKey: ['prior-predictive', runId ?? '∅', stream ?? '∅'] as const,
+    queryFn: () => getPriorPredictive(runId as string, stream as string),
+    enabled: Boolean(runId && stream),
+    placeholderData: (prev) => prev,
+  })
+}
+
 /** Prior → posterior comparison (contraction, movement in prior SDs, bound
  *  pressure) over the retained draws — same warm-up/chain lens as the others. */
 export function usePriorPosterior(
