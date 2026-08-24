@@ -7,7 +7,12 @@ import { includedChains, type ChainControls } from '@/lib/chains'
 import { WarmupControl } from '@/components/WarmupControl'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
-import { usePersisted } from '@/lib/use-persisted'
+import {
+  stillValid,
+  toggleInSet,
+  usePersisted,
+  usePersistedRunSelection,
+} from '@/lib/use-persisted'
 import { cn } from '@/lib/utils'
 
 // Cap draws for the pair plot: ~N²/2 scatter panels × this many points, so keep
@@ -43,23 +48,44 @@ export function PairTab({
 
   const groups = run.data?.groups
 
-  // Which params are plotted. Initialized to the run's recommended set (scalars
-  // + hyperparams; family leaves hidden) and RESET whenever the run changes —
-  // tracked by a ref so a same-run refetch never clobbers the user's edits.
-  // Objectives (log_posterior, obs_ll, …) are selected separately below.
-  const [selection, setSelection] = useState<Set<string>>(() => new Set())
-  // Which objective columns join the grid as extra rows/columns. Separate from
-  // the param selection — they're targets to pair *against*, not estimands —
-  // with their own always-visible checkbox row. Defaults to log_posterior.
-  const [targets, setTargets] = useState<Set<string>>(() => new Set())
+  // Which params are plotted, and which objective columns join the grid as
+  // extra rows. Both name things that exist only in THIS run, so they are
+  // remembered per run and filtered on load against what the run still has —
+  // choosing what to look at is work, and it should not be undone by visiting
+  // another tab. Absent a stored choice, fall back to the run's recommended
+  // set (scalars + hyperparams; family leaves hidden) once it arrives.
+  const [storedSelection, setStoredSelection] = usePersistedRunSelection(
+    runId,
+    'pair:params',
+  )
+  const [storedTargets, setStoredTargets] = usePersistedRunSelection(
+    runId,
+    'pair:objectives',
+  )
+  const [selection, setSelectionState] = useState<Set<string>>(() => new Set())
+  const [targets, setTargetsState] = useState<Set<string>>(() => new Set())
+  const setSelection = (v: Set<string>) => {
+    setSelectionState(v)
+    setStoredSelection(v)
+  }
+  const setTargets = (v: Set<string>) => {
+    setTargetsState(v)
+    setStoredTargets(v)
+  }
   const initedRun = useRef<string | null>(null)
   useEffect(() => {
     if (!groups || !draws.data || initedRun.current === runId) return
-    setSelection(new Set(groups.default_selection))
     const objs = draws.data.objectives ?? []
-    setTargets(new Set(objs.includes('log_posterior') ? ['log_posterior'] : []))
+    const params = draws.data.params ?? []
+    setSelectionState(
+      stillValid(storedSelection, params) ?? new Set(groups.default_selection),
+    )
+    setTargetsState(
+      stillValid(storedTargets, objs) ??
+        new Set(objs.includes('log_posterior') ? ['log_posterior'] : []),
+    )
     initedRun.current = runId
-  }, [groups, draws.data, runId])
+  }, [groups, draws.data, runId, storedSelection, storedTargets])
 
   const objectives = draws.data?.objectives ?? []
 
@@ -135,12 +161,7 @@ export function PairTab({
                     type="checkbox"
                     checked={on}
                     onChange={() =>
-                      setTargets((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(name)) next.delete(name)
-                        else next.add(name)
-                        return next
-                      })
+                      setTargets(new Set(toggleInSet(targets, name)))
                     }
                     className="size-3 accent-neutral-800"
                   />
