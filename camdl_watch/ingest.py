@@ -427,6 +427,58 @@ def _live_stage_dir(run_dir: Path) -> Path | None:
     return best[1] if best is not None else None
 
 
+#: Bytes read from the end of a trace to find its last complete row. Comfortably
+#: more than one row of the widest trace seen (20 params ≈ 500 B).
+_TAIL_PROBE_BYTES = 16_384
+
+
+def read_last_iter(path: Path) -> int | None:
+    """The last iteration number in a trace, read from its TAIL.
+
+    The run list needs only how far a chain has got, and parsing the whole file
+    to learn it costs the same as parsing it to plot it: on a 3.6 GB store that
+    was ~11 s per poll, every poll. Read the header to locate the iteration
+    column, then one block from the end.
+
+    ``None`` when the file has no complete data row (header only, or a torn
+    first append), which the caller reads as "this chain has produced nothing"
+    — the same conclusion a full parse would reach."""
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as fh:
+            header = fh.readline().decode("utf-8", "replace")
+            if not header:
+                return None
+            cols = _normalize_header(header.rstrip("\n").split("\t"))
+            try:
+                idx = cols.index(ITER_COL)
+            except ValueError:
+                return None
+            start = max(fh.tell(), size - _TAIL_PROBE_BYTES)
+            fh.seek(start)
+            chunk = fh.read()
+    except OSError:
+        return None
+    text = chunk.decode("utf-8", "replace")
+    lines = text.split("\n")
+    # The sampler appends, so a final partial line is normal; drop it unless the
+    # block ended cleanly. Anything before the first newline may also be a
+    # fragment of a row that started before `start`.
+    if lines and not text.endswith("\n"):
+        lines.pop()
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        fields = line.split("\t")
+        if len(fields) <= idx:
+            continue
+        try:
+            return int(float(fields[idx]))
+        except ValueError:
+            continue
+    return None
+
+
 def _pick_posterior_dir(
     run_dir: Path, *, include_warming: bool = False
 ) -> tuple[Path, Path, dict[int, Path], bool] | None:

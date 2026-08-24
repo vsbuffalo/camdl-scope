@@ -15,6 +15,8 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
 from camdl_watch import assembly, ingest
 from camdl_watch.state import RunState
 
@@ -281,3 +283,45 @@ def test_live_burn_in_is_warming_dead_burn_in_hidden(tmp_path):
     reg = _registry(store)
     assert reg["warm-cccc"].status.value == "warming"
     assert "dead-dddd" not in reg  # empty + dead stays hidden
+
+
+def test_overview_agrees_with_the_full_state_it_replaces(tmp_path):
+    """The run list is built from a cheap projection instead of a parsed
+    RunState — 11 s per poll on a real store, since it re-read every trace to
+    learn four facts. It must reach the SAME facts, or the list quietly
+    disagrees with the tab you open from it."""
+    from tests.fixtures.make_golden_store import RUN_DIR, build
+
+    build(tmp_path)
+    meta = next(
+        m for m in ingest.discover_runs(tmp_path, include_warming=True)
+        if m.run_id == RUN_DIR
+    )
+    ov = assembly.build_run_overview(meta)
+    rs = assembly.build_run_state(meta)
+
+    assert ov.status == rs.status
+    assert ov.max_iter == rs.max_iter()
+    assert ov.chain_ids == sorted(rs.chains)
+    assert ov.updated_at == pytest.approx(rs.updated_at)
+
+
+def test_last_iter_is_read_from_the_tail_not_the_whole_file(tmp_path):
+    """`read_last_iter` must find the final row without parsing what precedes
+    it, and must say None — not 0 — for a header-only chain, since 'produced
+    nothing' and 'is at iteration 0' classify differently."""
+    header = "sweep\tlog_posterior\tbeta\n"
+
+    full = tmp_path / "trace.tsv"
+    full.write_text(header + "".join(f"{i}\t-1.0\t0.5\n" for i in range(5000)))
+    assert ingest.read_last_iter(full) == 4999
+
+    empty = tmp_path / "empty.tsv"
+    empty.write_text(header)
+    assert ingest.read_last_iter(empty) is None
+
+    # A torn final append (the sampler is mid-write) falls back to the last
+    # COMPLETE row rather than mis-parsing the fragment.
+    torn = tmp_path / "torn.tsv"
+    torn.write_text(header + "1\t-1.0\t0.5\n2\t-1.0\t0.5\n3\t-1.0")
+    assert ingest.read_last_iter(torn) == 2

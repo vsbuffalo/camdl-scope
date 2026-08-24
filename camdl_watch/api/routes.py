@@ -31,7 +31,7 @@ from .. import predictive
 from .. import sims as sims_mod
 from .. import profiles as profiles_mod
 from .. import quantities as quantities_mod
-from ..assembly import build_run_state
+from ..assembly import RunOverview, build_run_overview, build_run_state
 from ..grouping import group_params
 from ..highlight import HIGHLIGHT_CSS, highlight_camdl, highlight_toml
 from ..state import (
@@ -40,6 +40,7 @@ from ..state import (
     PriorFamily,
     PriorSpec,
     RunMeta,
+    RunProgress,
     RunState,
     Status,
 )
@@ -331,11 +332,14 @@ def _finite_or_none(x: float | None) -> float | None:
     return x if np.isfinite(x) else None
 
 
-def _progress_info(rs: RunState) -> ProgressInfo | None:
+def _progress_info(prog: RunProgress | None) -> ProgressInfo | None:
     """Project camdl's ``progress.json`` heartbeat onto the wire, deriving a
     completion ``pct`` when step/total are known. ``None`` when the run has no
-    heartbeat (older runs, or finished fits that never wrote one)."""
-    p = rs.progress
+    heartbeat (older runs, or finished fits that never wrote one).
+
+    Takes the heartbeat rather than a run state so the list, which has only an
+    overview, and the detail, which has the whole thing, share one projection."""
+    p = prog
     if p is None:
         return None
     pct: int | None = None
@@ -348,24 +352,24 @@ def _progress_info(rs: RunState) -> ProgressInfo | None:
     )
 
 
-def _run_summary(meta: RunMeta, rs: RunState) -> RunSummary:
+def _run_summary(meta: RunMeta, ov: RunOverview) -> RunSummary:
     return RunSummary(
         run_id=meta.run_id,
         label=meta.display_label,
         model=meta.model,
         algorithm=meta.algorithm,
         backend=meta.backend.value,
-        status=rs.status.value,
+        status=ov.status.value,
         fit_kind=meta.fit_kind,
-        n_chains=len(rs.chains),
-        chain_ids=sorted(rs.chains),
+        n_chains=len(ov.chain_ids),
+        chain_ids=ov.chain_ids,
         n_params=len(meta.estimated),
         has_docs=not meta.docs.is_empty(),
         has_prequential=compare_mod.find_prequential(meta.run_dir) is not None,
-        progress=_progress_info(rs),
-        max_iter=rs.max_iter(),
+        progress=_progress_info(ov.progress),
+        max_iter=ov.max_iter,
         target_sweeps=meta.target_sweeps,
-        updated_at=rs.updated_at,
+        updated_at=ov.updated_at,
     )
 
 
@@ -604,10 +608,17 @@ def _find_meta(store: Path, run_id: str) -> RunMeta | None:
 
 @router.get("/runs", response_model=list[RunSummary])
 def list_runs() -> list[RunSummary]:
-    """Every discoverable run, newest first by last-written chain mtime."""
+    """Every discoverable run, newest first by last-written chain mtime.
+
+    Built from :func:`build_run_overview`, NOT from a full run state: the list
+    needs a status, a chain count, how far each chain got, and an mtime, and
+    assembling the whole state to obtain them re-parsed every trace in the
+    store on every poll — 11 s per request on a 3.6 GB store, once per polling
+    interval, forever. The per-run endpoints still assemble properly; only this
+    one, which touches every run, avoids it."""
     store = _store()
     summaries = [
-        _run_summary(meta, build_run_state(meta))
+        _run_summary(meta, build_run_overview(meta))
         for meta in ingest.discover_runs(store, include_warming=True)
     ]
     summaries.sort(key=lambda s: s.updated_at, reverse=True)
