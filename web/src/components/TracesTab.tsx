@@ -9,10 +9,10 @@ import { WarmupControl } from '@/components/WarmupControl'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
 import { fmtTick } from '@/lib/format'
+import { toggleInSet, usePersistedSet } from '@/lib/use-persisted'
 import { cn } from '@/lib/utils'
 import { chainColor } from '@/lib/colors'
 
-const DEFAULT_WARMUP_PCT = 0
 const PANEL_HEIGHT = 80
 const X_AXIS_PAD = 16 // extra bottom margin on the last panel for its shared axis
 const FRAME = '#e5e5e5' // neutral-200 — hairline panel border
@@ -156,9 +156,10 @@ export function TracesTab({
   excludedChains,
   onToggleChain,
   onResetChains,
+  warmupPct,
+  onWarmupPct,
 }: { runId: string } & ChainControls) {
-  const [warmupPct, setWarmupPct] = useState(DEFAULT_WARMUP_PCT)
-  const chains = includedChains({ chainIds, excludedChains, onToggleChain, onResetChains })
+  const chains = includedChains({ chainIds, excludedChains })
   const { data, isPending, isError, isPlaceholderData } = useTraces(
     runId,
     warmupPct,
@@ -174,16 +175,11 @@ export function TracesTab({
 
   // Objective panels (log_posterior / log_likelihood) default ON; the user can
   // toggle each off. We track the HIDDEN set so the default — empty — shows all.
-  const [hiddenObjectives, setHiddenObjectives] = useState<Set<string>>(
-    () => new Set(),
+  const [hiddenObjectives, setHiddenObjectives] = usePersistedSet<string>(
+    'traces:hidden-objectives',
   )
   const toggleObjective = (name: string) =>
-    setHiddenObjectives((prev) => {
-      const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
+    setHiddenObjectives(toggleInSet(hiddenObjectives, name))
 
   const objectiveTraces = useMemo(
     () => data?.traces.filter((t) => OBJECTIVE_NAMES.has(t.param)) ?? [],
@@ -211,7 +207,7 @@ export function TracesTab({
     >
       <WarmupControl
         value={warmupPct}
-        onChange={setWarmupPct}
+        onChange={onWarmupPct}
         cutoff={data?.warmup_cutoff ?? null}
         nTail={null}
       />

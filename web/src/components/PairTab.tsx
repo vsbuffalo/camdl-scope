@@ -7,10 +7,9 @@ import { includedChains, type ChainControls } from '@/lib/chains'
 import { WarmupControl } from '@/components/WarmupControl'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
-import { loadJson, saveJson } from '@/lib/persist'
+import { usePersisted } from '@/lib/use-persisted'
 import { cn } from '@/lib/utils'
 
-const DEFAULT_WARMUP_PCT = 50
 // Cap draws for the pair plot: ~N²/2 scatter panels × this many points, so keep
 // it lighter than the Posterior tab to stay responsive.
 const PAIR_MAX_DRAWS = 800
@@ -21,22 +20,23 @@ export function PairTab({
   excludedChains,
   onToggleChain,
   onResetChains,
+  warmupPct,
+  onWarmupPct,
 }: { runId: string } & ChainControls) {
-  const [warmupPct, setWarmupPct] = useState(DEFAULT_WARMUP_PCT)
-  const [priorXlimMode, setPriorXlimMode] = useState<PriorXlimMode>('posterior')
+  const [priorXlimMode, setPriorXlimMode] = usePersisted<PriorXlimMode>(
+    'pair:xlim-mode',
+    'posterior',
+  )
   // Splitting each bar by chain makes a stuck chain — one colour owning a
   // region the others never visit — visible without leaving the tab, which a
   // pooled marginal cannot show. Off by default so the corner plot opens on the
   // posterior's shape rather than on a diagnostic; persisted once turned on.
-  const [marginalsByChain, setMarginalsByChainState] = useState(() =>
-    loadJson('pair:marginals-by-chain', false),
+  const [marginalsByChain, setMarginalsByChain] = usePersisted(
+    'pair:marginals-by-chain',
+    false,
   )
-  const setMarginalsByChain = (v: boolean) => {
-    setMarginalsByChainState(v)
-    saveJson('pair:marginals-by-chain', v)
-  }
   const run = useRun(runId)
-  const chains = includedChains({ chainIds, excludedChains, onToggleChain, onResetChains })
+  const chains = includedChains({ chainIds, excludedChains })
   const draws = useDraws(runId, warmupPct, PAIR_MAX_DRAWS, chains)
   // Posterior summaries supply the diagonal median overlays and symbol labels.
   const posterior = usePosterior(runId, warmupPct)
@@ -92,7 +92,7 @@ export function PairTab({
     >
       <WarmupControl
         value={warmupPct}
-        onChange={setWarmupPct}
+        onChange={onWarmupPct}
         cutoff={posterior.data?.warmup_cutoff ?? draws.data?.warmup_cutoff ?? null}
         nTail={posterior.data?.n_tail ?? null}
       />

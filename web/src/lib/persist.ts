@@ -28,3 +28,13 @@ export function saveJson(key: string, value: unknown): void {
 export function excludedChainsKey(runId: string): string {
   return `excluded:${runId}`
 }
+
+/** Storage key for a run's warm-up percentage (per-run memory).
+ *
+ *  Per RUN, not per tab: how much of a chain is burn-in is a property of the
+ *  sampling, so a cutoff chosen on the traces has to be the same cutoff the
+ *  forest and the diagnostics summarise — otherwise two tabs report different
+ *  numbers for one fit and neither says which draws it used. */
+export function warmupKey(runId: string): string {
+  return `warmup:${runId}`
+}

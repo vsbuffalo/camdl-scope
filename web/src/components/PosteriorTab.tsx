@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useDraws, usePosterior, useQuantityScalars, useRun } from '@/api/queries'
 import { Description } from '@/components/Description'
 import { ForestRow } from '@/components/ForestRow'
@@ -11,7 +11,6 @@ import { dayToDate } from '@/lib/calendar'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
-const DEFAULT_WARMUP_PCT = 50
 
 /**
  * Scalar generated quantities (R0, Reff, …) inline on the posterior page.
@@ -96,9 +95,10 @@ export function PosteriorTab({
   excludedChains,
   onToggleChain,
   onResetChains,
+  warmupPct,
+  onWarmupPct,
 }: { runId: string } & ChainControls) {
-  const [warmupPct, setWarmupPct] = useState(DEFAULT_WARMUP_PCT)
-  const chains = includedChains({ chainIds, excludedChains, onToggleChain, onResetChains })
+  const chains = includedChains({ chainIds, excludedChains })
   const { data, isPending, isError, isPlaceholderData } = usePosterior(
     runId,
     warmupPct,
@@ -122,7 +122,7 @@ export function PosteriorTab({
     >
       <WarmupControl
         value={warmupPct}
-        onChange={setWarmupPct}
+        onChange={onWarmupPct}
         cutoff={data?.warmup_cutoff ?? null}
         nTail={data?.n_tail ?? null}
       />

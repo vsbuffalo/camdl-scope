@@ -16,7 +16,6 @@ import { Card } from '@/components/ui/card'
 import { fmtEss, fmtRhat, fmtTick, fmtValue } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-const DEFAULT_WARMUP_PCT = 50
 
 // Convergence signal thresholds — the same P&L coding the Posterior forest uses,
 // so a number reads identically across tabs.
@@ -509,9 +508,10 @@ export function DiagnosticsTab({
   excludedChains,
   onToggleChain,
   onResetChains,
+  warmupPct,
+  onWarmupPct,
 }: { runId: string } & ChainControls) {
-  const [warmupPct, setWarmupPct] = useState(DEFAULT_WARMUP_PCT)
-  const chains = includedChains({ chainIds, excludedChains, onToggleChain, onResetChains })
+  const chains = includedChains({ chainIds, excludedChains })
   const { data, isPending, isError, isPlaceholderData } = useDiagnostics(
     runId,
     warmupPct,
@@ -542,7 +542,7 @@ export function DiagnosticsTab({
       >
         <WarmupControl
           value={warmupPct}
-          onChange={setWarmupPct}
+          onChange={onWarmupPct}
           cutoff={data?.warmup_cutoff ?? null}
           nTail={data?.n_tail ?? null}
         />

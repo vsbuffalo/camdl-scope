@@ -214,20 +214,10 @@ export function PriorTab({
   excludedChains,
   onToggleChain,
   onResetChains,
+  warmupPct,
+  onWarmupPct,
 }: { runId: string } & ChainControls) {
-  const [warmupPct, setWarmupPct] = useState<number>(() =>
-    loadJson('prior:warmup', 50),
-  )
-  const onWarmup = (v: number) => {
-    saveJson('prior:warmup', v)
-    setWarmupPct(v)
-  }
-  const chains = includedChains({
-    chainIds,
-    excludedChains,
-    onToggleChain,
-    onResetChains,
-  })
+  const chains = includedChains({ chainIds, excludedChains })
   const { data, isPending, isError } = usePriorPosterior(runId, warmupPct, chains)
   const run = useRun(runId)
   const priorStreams = run.data?.available_prior_streams ?? []
@@ -238,7 +228,7 @@ export function PriorTab({
       <Card className="overflow-hidden">
         <WarmupControl
           value={warmupPct}
-          onChange={onWarmup}
+          onChange={onWarmupPct}
           cutoff={data?.warmup_cutoff ?? null}
           nTail={data?.n_tail ?? null}
         />

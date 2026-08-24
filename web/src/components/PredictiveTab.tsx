@@ -12,7 +12,11 @@ import { Card } from '@/components/ui/card'
 import { fmtTick, fmtValue } from '@/lib/format'
 import { dayToDate, fmtModelDate } from '@/lib/calendar'
 import { logYOptions } from '@/lib/plot-scale'
-import { loadJson, saveJson } from '@/lib/persist'
+import {
+  toggleInSet,
+  usePersisted,
+  usePersistedSet,
+} from '@/lib/use-persisted'
 import {
   gradeConvergence,
   gradeClasses,
@@ -1063,38 +1067,28 @@ export function PredictiveTab({ runId }: { runId: string }) {
   const [colorBy, setColorBy] = useState<string | null>(null)
   // Residual x-axis: vs the prediction (heteroscedasticity), vs time (temporal
   // structure — a dynamic miss), or vs the coloured index (per-level offset).
-  const [residualX, setResidualX] = useState<'predicted' | 'time' | 'index'>(
+  const [residualX, setResidualX] = usePersisted<'predicted' | 'time' | 'index'>(
+    'predictive:residual-x',
     'predicted',
   )
-  // Predictive layers hidden in the time-series view. Each layer (median line,
-  // 50% band, 90% band) toggles independently; dropping the wild outer band
-  // lets the panel's y-axis rescale to what's left + observed, so the data is
-  // no longer squashed to the floor.
-  const [hiddenLayers, setHiddenLayers] = useState<ReadonlySet<PredLayer>>(
-    () => new Set(),
+  // Every one of these is a preference about how the panels are DRAWN, so they
+  // persist (see lib/use-persisted): the tab unmounts on every tab switch, and
+  // a setting that resets each time you look away is not a setting.
+  //
+  // `hiddenLayers` drops a layer entirely rather than hiding it, so the panel's
+  // y-domain rescales to what remains — dropping the wild 90% band is how the
+  // data comes off the floor. `obsLine` joins the observed dots. `logY` puts
+  // the panels on a log axis. `windowMode` clips the ribbons to the observed
+  // window (offered only when something extends past the data).
+  const [hiddenLayers, setHiddenLayers] = usePersistedSet<PredLayer>(
+    'predictive:hidden-layers',
   )
-  // Display preferences (not data selections): persisted, because the tab
-  // unmounts on every tab switch and these should feel like settings, not
-  // per-visit state. `obsLine` joins the observed dots (on by default);
-  // `logY` puts the panels on a log y-axis (exponential growth reads as a
-  // straight line).
-  const [obsLine, setObsLineState] = useState(() =>
-    loadJson('predictive:obs-line', true),
+  const [obsLine, setObsLine] = usePersisted('predictive:obs-line', true)
+  const [logY, setLogY] = usePersisted('predictive:log-y', false)
+  const [windowMode, setWindowMode] = usePersisted<'data' | 'full'>(
+    'predictive:window',
+    'full',
   )
-  const [logY, setLogYState] = useState(() => loadJson('predictive:log-y', false))
-  const setObsLine = (v: boolean) => {
-    setObsLineState(v)
-    saveJson('predictive:obs-line', v)
-  }
-  const setLogY = (v: boolean) => {
-    setLogYState(v)
-    saveJson('predictive:log-y', v)
-  }
-  // Time window of the series view: the full predictive extent (forecasts and
-  // scenario runs past the data, with a dashed rule at data end), or clipped to
-  // the observed window so the axes rescale to the fit itself. Only offered
-  // when some prediction actually extends past the data.
-  const [windowMode, setWindowMode] = useState<'data' | 'full'>('full')
 
   // The artifact's convergence channel, graded — see lib/convergence. Shown at
   // the top of the tab: an unconverged predictive pools incompatible
@@ -1541,7 +1535,11 @@ export function PredictiveTab({ runId }: { runId: string }) {
               setColorBy(null)
               setByIndexX(null)
               setByIndexFacet(null)
-              setHiddenLayers(new Set())
+              // The layer choice is NOT reset here: median/50%/90% mean the
+              // same thing in every stream, so clearing it on a stream switch
+              // would discard a preference rather than a stale selection —
+              // unlike the index/colour choices above, which name dimensions
+              // this stream may not have.
             }}
           />
         )}
@@ -1649,12 +1647,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
                 <LayerChecks
                   hidden={hiddenLayers}
                   onToggle={(layer) =>
-                    setHiddenLayers((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(layer)) next.delete(layer)
-                      else next.add(layer)
-                      return next
-                    })
+                    setHiddenLayers(toggleInSet(hiddenLayers, layer))
                   }
                   obsLine={obsLine}
                   onToggleObsLine={() => setObsLine(!obsLine)}

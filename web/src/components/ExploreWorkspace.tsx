@@ -16,7 +16,8 @@ import { SourceTab } from '@/components/SourceTab'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { excludedChainsKey, loadJson, saveJson } from '@/lib/persist'
+import { excludedChainsKey, loadJson, saveJson, warmupKey } from '@/lib/persist'
+import { DEFAULT_WARMUP_PCT } from '@/lib/chains'
 
 /** The single-fit tab grid — the inner navigation level of the Explore
  *  workspace. Its tab set depends on the fit *kind*: a posterior (sampling) fit
@@ -83,9 +84,13 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
   const hasQuantities =
     (detail.data?.available_quantities?.length ?? 0) > 0
 
-  // Chain exclusion is a property of the RUN (a stuck chain is stuck
-  // everywhere), so it's shared across the Posterior / Pair / Traces /
-  // Diagnostics tabs — unlike warm-up, which each tab owns as a per-view lens.
+  // Chain exclusion and warm-up are both properties of the RUN — a stuck chain
+  // is stuck everywhere, and how much of a chain is burn-in is a fact about the
+  // sampling, not about the view looking at it. Both are shared across the
+  // Posterior / Prior / Pair / Traces / Diagnostics tabs and persisted per run,
+  // so a cutoff chosen while reading the traces is the cutoff the forest and
+  // the diagnostics then summarise. Held per tab, they disagreed silently: two
+  // tabs reporting different R̂ for one fit, neither saying which draws it used.
   // Persisted per run and reloaded on a run switch, so a page reload (or coming
   // back to a run later) keeps the chains you dropped. `excluded` empty = all in.
   //
@@ -114,11 +119,25 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
       return commitExcluded(next)
     })
   const onResetChains = () => setExcludedChains(commitExcluded(new Set()))
+
+  const [warmupPct, setWarmupPct] = useState<number>(() =>
+    loadJson(warmupKey(run.run_id), DEFAULT_WARMUP_PCT),
+  )
+  useEffect(() => {
+    setWarmupPct(loadJson(warmupKey(run.run_id), DEFAULT_WARMUP_PCT))
+  }, [run.run_id])
+  const onWarmupPct = (pct: number) => {
+    saveJson(warmupKey(run.run_id), pct)
+    setWarmupPct(pct)
+  }
+
   const chainProps = {
     chainIds,
     excludedChains,
     onToggleChain,
     onResetChains,
+    warmupPct,
+    onWarmupPct,
   }
 
   const tabs = [
