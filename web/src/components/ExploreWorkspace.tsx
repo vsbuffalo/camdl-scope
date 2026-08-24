@@ -220,14 +220,20 @@ export function ExploreWorkspace() {
   )
   const selected =
     runs.find((r) => r.run_id === selectedId) ?? runs[0] ?? undefined
-  // Pin the *effective* run (the default counts): the live store reorders as
-  // fits land, so without pinning a reload could drop you on a different run —
-  // and its chain exclusions wouldn't apply. A fresh visitor still opens on the
-  // newest; once a run is in view it stays put until they pick another.
+  // Pin the *effective* run (the default counts), in STATE as well as storage.
+  // Saving only to storage pinned nothing within a session: `selectedId` stayed
+  // undefined until the user picked from the dropdown, so `selected` fell
+  // through to `runs[0]` on every render — and that list is sorted by mtime, so
+  // a store with a live fit reorders under you. The open run then changed by
+  // itself, taking its per-run warm-up and chain exclusions with it, which read
+  // as "the slider resets when I switch tabs". A fresh visitor still opens on
+  // the newest; once a run is in view it stays put until they pick another.
   const selectedRunId = selected?.run_id
   useEffect(() => {
-    if (selectedRunId) saveJson('explore:run', selectedRunId)
-  }, [selectedRunId])
+    if (!selectedRunId || selectedRunId === selectedId) return
+    setSelectedId(selectedRunId)
+    saveJson('explore:run', selectedRunId)
+  }, [selectedRunId, selectedId])
 
   // Live monitoring: while the open run is still sampling, refresh its data (and
   // the run list, for the progress blurb) on a short interval so the tabs track
