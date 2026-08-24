@@ -11,8 +11,14 @@ export function TabsList({
   return (
     <TabsPrimitive.List
       className={cn(
-        'flex w-full items-center gap-5 border-b border-neutral-200',
-        'overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        'flex w-full items-center gap-x-5 gap-y-1 border-b border-neutral-200',
+        // On a phone the strip is wider than the screen. It used to scroll with
+        // the scrollbar explicitly hidden, which is the worst pair: tabs off
+        // screen and nothing saying so. Wrap instead — every tab visible, no
+        // gesture to discover, at the cost of one extra line. Wide screens fit
+        // in one row, where the scroll fallback stays for a long tab set.
+        'flex-wrap sm:flex-nowrap',
+        'sm:overflow-x-auto sm:[scrollbar-width:none] sm:[&::-webkit-scrollbar]:hidden',
         className,
       )}
       {...props}

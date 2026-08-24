@@ -140,14 +140,18 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
     onWarmupPct,
   }
 
+  // Ordered as a fit is actually read: the estimates, what the data did to the
+  // priors, how the parameters interact, what the chains did, whether any of it
+  // can be trusted — then the predict-derived outputs, then the model itself as
+  // the reference you drop back to.
   const tabs = [
     { value: 'posterior', label: 'Posterior' },
     { value: 'prior', label: 'Prior' },
     { value: 'pair', label: 'Pair' },
-    { value: 'predictive', label: 'Predictive' },
-    ...(hasQuantities ? [{ value: 'quantities', label: 'Quantities' }] : []),
     { value: 'traces', label: 'Traces' },
     { value: 'diagnostics', label: 'Diagnostics' },
+    { value: 'predictive', label: 'Predictive' },
+    ...(hasQuantities ? [{ value: 'quantities', label: 'Quantities' }] : []),
     { value: 'source', label: 'Model' },
   ]
 
