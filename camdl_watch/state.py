@@ -42,16 +42,30 @@ AUX_COLUMNS: tuple[str, ...] = (
     "transition_ll",
     "obs_ll",
     "accepted",
+    # HMC/NUTS parameter-block telemetry. A sampler that writes these is
+    # reporting on ITSELF, never on the model, so none of them is ever an
+    # estimated coordinate.
+    "n_divergent",
+    "step_size",
+    "tree_depth",
+    "n_leapfrog",
+    "accept_stat",
+    "energy",
 )
 """Fallback list of non-parameter trace columns.
 
 Only a fallback: camdl declares a ``role`` for every trace column in the stage's
 ``run.json`` (``output_schema``), and :func:`camdl_watch.ingest.read_column_roles`
-prefers that. A hardcoded list silently misfiles whatever a sampler adds — the
-PGAS parameter-block columns (``n_divergent``, ``step_size``, ``tree_depth``,
-``n_leapfrog``, ``accept_stat``, ``energy``) all landed in the *parameter*
-bucket, so divergences were read off disk and never surfaced. Use this only for
-runs whose ``run.json`` predates the schema.
+prefers that. Use this only for runs whose ``run.json`` predates the schema.
+
+A hardcoded list silently misfiles whatever a sampler adds, and the cost is
+invisible rather than loud: a misfiled diagnostic lands in the *parameter*
+bucket, where nothing reads it (``RunState.params`` comes from the fit's
+declared estimands, not the trace header), so the column is parsed off disk
+every refresh and then dropped. Divergences, step size and tree depth simply
+never appear — the run reads as clean because the evidence was filed where no
+consumer looks. Anything added here must be a column a sampler writes ABOUT
+ITSELF; model coordinates come from the fit metadata.
 """
 
 # How to reduce a diagnostic column over a chain's post-warm-up draws, and what
@@ -188,6 +202,7 @@ class PriorFamily(str, Enum):
     BETA = "Beta"
     GAMMA = "Gamma"
     UNIFORM = "Uniform"
+    LOGUNIFORM = "LogUniform"
     FLAT = "Flat"  # bounds-only / improper -> rendered as a uniform band on bounds
 
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -316,6 +317,8 @@ def _format_prior(spec: PriorSpec | None) -> str | None:
         return f"Gamma(α={_g(a.get('alpha', 1.0))}, β={_g(a.get('beta', 1.0))})"
     if f is PriorFamily.UNIFORM:
         return f"Uniform({_g(a.get('lo', 0.0))}, {_g(a.get('hi', 1.0))})"
+    if f is PriorFamily.LOGUNIFORM:
+        return f"LogUniform({_g(a.get('lo', 1e-9))}, {_g(a.get('hi', 1.0))})"
     # FLAT: a bounds-only / improper prior.
     if spec.bounds is not None:
         lo, hi = spec.bounds
@@ -545,9 +548,106 @@ def _present_objectives(rs: RunState) -> list[str]:
     ]
 
 
+#: camdl's per-sweep divergence flag, written by an HMC/NUTS parameter block
+#: alongside ``step_size`` / ``tree_depth`` / ``energy``. It sits in the SAME
+#: trace row as the parameter values, which is what makes "where in parameter
+#: space did this diverge?" answerable at all. A value > 0 means that sweep's
+#: parameter update diverged.
+_DIVERGENCE_COL = "n_divergent"
+
+@dataclass(frozen=True)
+class DrawSample:
+    """Pooled, thinned post-warm-up draws for the pair plot and marginals.
+
+    ``divergent`` is row-aligned with ``chain`` and ``cols``: it marks which
+    rows OF THIS SAMPLE diverged, so the scatter can colour them without any
+    second sampling rule. That alignment is the point. Divergences must be
+    thinned at exactly the same rate as everything else, because the corner
+    plot's scatter is alpha-blended and apparent density is what the eye reads
+    — drawing every divergence over a 1-in-k thin of the rest would inflate the
+    red cloud by a factor of k and destroy the one comparison the overlay
+    exists to support ("do divergences sit where the bulk does not?"). The
+    consequence is accepted deliberately: a run with a handful of divergences
+    will show none of them here, and should be read off the true count instead.
+
+    ``n_divergent_draws`` is that true count over all retained draws, before
+    thinning. It is ``None`` when the sampler writes no divergence column at
+    all (an MH/ODE fit) — a different statement from ``0``, which means it
+    wrote one and nothing diverged.
+    """
+
+    chain: list[int]
+    cols: dict[str, np.ndarray]
+    objectives: list[str]
+    divergent: list[bool]
+    n_divergent_draws: int | None
+    #: Params to draw on a log axis, decided against the full retained pool so
+    #: the choice does not move with the display's point cap.
+    log_scale: list[str]
+
+
+def _even_stride(n: int, cap: int) -> np.ndarray:
+    """Indices of an even-stride subsample of ``n`` rows, at most ``cap``."""
+    if n <= cap:
+        return np.arange(n)
+    return np.unique(np.linspace(0, n - 1, cap).astype(int))
+
+
+#: Prior families that declare a coordinate lives on a multiplicative scale.
+_LOG_PRIOR_FAMILIES = frozenset({PriorFamily.LOGNORMAL, PriorFamily.LOGUNIFORM})
+
+def _finite_box(bounds: tuple[float, float] | None) -> tuple[float, float] | None:
+    """A declared ``(lo, hi)`` only when it is a real, finite interval. A bound
+    at infinity (writable in the fit TOML as ``[0, inf]``) bounds nothing."""
+    if bounds is None:
+        return None
+    lo, hi = bounds
+    if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo:
+        return None
+    return (float(lo), float(hi))
+
+
+def _log_scale_params(
+    params: list[str], priors: dict[str, PriorSpec], cols: dict[str, np.ndarray]
+) -> list[str]:
+    """Which params to draw on a log axis: the ones the MODEL says are
+    multiplicative.
+
+    The declared prior family is the whole rule. A ``LogNormal`` or
+    ``LogUniform`` prior is a statement that the author thinks about this
+    coordinate in ratios, so that is the scale it is drawn on; a ``Beta``
+    proportion, a ``HalfNormal`` scale or a ``Flat`` bound is not, whatever
+    range its posterior happens to cover. Deriving the axis from the model
+    rather than from the draws keeps it STABLE — it cannot change as a live fit
+    accumulates draws, and it does not depend on how many points the plot
+    shows.
+
+    The posterior deliberately gets no vote. Gating on observed spread was
+    tried and rejected: it made the axis a property of the sample rather than
+    of the parameter, and any threshold silently reclassifies a parameter that
+    drifts across it mid-run.
+
+    The one hard exclusion is arithmetic, not taste: a parameter with a
+    non-positive draw cannot be drawn on a log axis at all, and dropping those
+    draws to force one would misreport the posterior."""
+    out: list[str] = []
+    for name in params:
+        spec = priors.get(name)
+        if spec is None or spec.family not in _LOG_PRIOR_FAMILIES:
+            continue
+        v = cols.get(name)
+        if v is None or v.size == 0:
+            continue
+        v = v[np.isfinite(v)]
+        if v.size == 0 or v.min() <= 0:
+            continue
+        out.append(name)
+    return out
+
+
 def _build_draws(
     meta: RunMeta, rs: RunState, cutoff: int, max_draws: int
-) -> tuple[list[int], dict[str, np.ndarray], list[str]]:
+) -> DrawSample:
     """Row-aligned, pooled, thinned post-warmup draws (params + objectives).
 
     Within a chain the i-th retained sweep is the same joint sample across
@@ -556,17 +656,27 @@ def _build_draws(
     draw-bearing chain, are pooled alongside the params so they can be paired
     against them (Stan's lp__). Rows where any column is non-finite are dropped so
     every column stays aligned and JSON-serializable, then thinned to
-    ``max_draws`` by an even stride. Returns ``(chain, cols, objectives)``."""
+    ``max_draws`` by an even stride."""
     params = list(meta.estimated)
     objectives = _present_objectives(rs)
     wanted = params + objectives
+    # Only claim a divergence count when EVERY draw-bearing chain reports one.
+    # Filling a silent chain with zeros would report "nothing diverged here"
+    # about a chain that simply never wrote the column.
+    contributing = [b for b in rs.chains.values() if b.n]
+    has_div = bool(contributing) and all(
+        _DIVERGENCE_COL in b.aux for b in contributing
+    )
     chain_parts: list[np.ndarray] = []
+    div_parts: list[np.ndarray] = []
     col_parts: dict[str, list[np.ndarray]] = {p: [] for p in wanted}
     for cid, buf in sorted(rs.chains.items()):
         idx = np.where(buf.iters >= cutoff)[0]
         if idx.size == 0:
             continue
         chain_parts.append(np.full(idx.size, cid, dtype=np.int64))
+        if has_div:
+            div_parts.append(buf.aux[_DIVERGENCE_COL][idx] > 0)
         for p in params:
             col_parts[p].append(
                 buf.values[p][idx] if p in buf.values else np.full(idx.size, np.nan)
@@ -576,7 +686,10 @@ def _build_draws(
                 buf.aux[o][idx] if o in buf.aux else np.full(idx.size, np.nan)
             )
     if not chain_parts:
-        return [], {p: np.empty(0) for p in wanted}, objectives
+        return DrawSample(
+            chain=[], cols={p: np.empty(0) for p in wanted}, objectives=objectives,
+            divergent=[], n_divergent_draws=0 if has_div else None, log_scale=[],
+        )
 
     chain = np.concatenate(chain_parts)
     cols = {p: np.concatenate(col_parts[p]) for p in wanted}
@@ -586,12 +699,23 @@ def _build_draws(
     chain = chain[finite]
     cols = {p: cols[p][finite] for p in wanted}
 
-    total = chain.size
-    if total > max_draws:
-        sel = np.unique(np.linspace(0, total - 1, max_draws).astype(int))
-        chain = chain[sel]
-        cols = {p: cols[p][sel] for p in wanted}
-    return chain.tolist(), cols, objectives
+    # The true count is taken over the full retained pool; the flag that ships
+    # is thinned with everything else, so the plotted red:grey ratio stays the
+    # sample's own honest ratio.
+    div = np.concatenate(div_parts)[finite] if has_div else None
+    n_divergent_draws = int(div.sum()) if div is not None else None
+
+    # Decide the axis scale against the FULL pool, before thinning.
+    log_scale = _log_scale_params(params, rs.priors or {}, cols)
+
+    sel = _even_stride(chain.size, max_draws)
+    chain = chain[sel]
+    cols = {p: cols[p][sel] for p in wanted}
+    return DrawSample(
+        chain=chain.tolist(), cols=cols, objectives=objectives,
+        divergent=div[sel].tolist() if div is not None else [],
+        n_divergent_draws=n_divergent_draws, log_scale=log_scale,
+    )
 
 
 def _find_meta(store: Path, run_id: str) -> RunMeta | None:
@@ -756,11 +880,18 @@ def _prior_curves(
     prior breadth" mode a curve to draw when the axis zooms out to the prior's
     scale (the posterior then reads as a spike). A binned histogram of clipped
     prior samples reads as noise; the analytic density is exact and smooth.
-    Flat/unbounded priors (no informative shape) are skipped."""
+
+    An UNBOUNDED flat prior is improper — there is no density to draw — so it
+    is skipped. A BOUNDED one is not: it is a proper Uniform on its box, and
+    drawing it is the whole point, since the band showing which region the
+    parameter was allowed to occupy is the only prior information it carries."""
     out: dict[str, PriorCurve] = {}
     for p in params:
         spec = rs.priors.get(p)
-        if spec is None or spec.family is PriorFamily.FLAT:
+        if spec is None:
+            continue
+        flat_box = _finite_box(spec.bounds) if spec.family is PriorFamily.FLAT else None
+        if spec.family is PriorFamily.FLAT and flat_box is None:
             continue
         arr = cols.get(p)
         if arr is None or arr.size < 2:
@@ -777,7 +908,16 @@ def _prior_curves(
             hi = max(hi, float(np.quantile(ps, 0.995)))
         pad = (hi - lo) * 0.04
         grid = np.linspace(lo - pad, hi + pad, n_grid)
-        dens = np.exp(ingest.log_prior_density(spec, grid))
+        if flat_box is not None:
+            # NOT log_prior_density: that returns an *unnormalised* constant for
+            # FLAT (0 inside the box), which is right for reconstructing a log
+            # posterior but would draw a band of height 1 here. The diagonal
+            # compares the prior against posterior bars in probability-mass
+            # units, so the density has to integrate to one.
+            b0, b1 = flat_box
+            dens = np.where((grid >= b0) & (grid <= b1), 1.0 / (b1 - b0), 0.0)
+        else:
+            dens = np.exp(ingest.log_prior_density(spec, grid))
         dens = np.where(np.isfinite(dens), dens, 0.0)
         if not np.any(dens > 0):
             continue
@@ -812,12 +952,14 @@ def get_draws(
             n_draws=0, params=params, objectives=[], chain=[],
             draws={p: [] for p in params}, prior=prior, prior_density={},
         )
-    chain, cols, objectives = _build_draws(meta, rs, cutoff, max_draws)
+    s = _build_draws(meta, rs, cutoff, max_draws)
     return DrawsResponse(
         run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
-        n_draws=len(chain), params=params, objectives=objectives,
-        chain=chain, draws={k: v.tolist() for k, v in cols.items()},
-        prior=prior, prior_density=_prior_curves(rs, params, cols, prior),
+        n_draws=len(s.chain), params=params, objectives=s.objectives,
+        chain=s.chain, draws={k: v.tolist() for k, v in s.cols.items()},
+        prior=prior, prior_density=_prior_curves(rs, params, s.cols, prior),
+        divergent=s.divergent, n_divergent_draws=s.n_divergent_draws,
+        log_scale=s.log_scale,
     )
 
 
@@ -1327,10 +1469,14 @@ def get_prior_posterior(
             prior_mean=_finite_or_none(r.prior_mean),
             prior_sd=_finite_or_none(r.prior_sd),
             post_mean=_finite_or_none(r.post_mean),
+            post_median=_finite_or_none(r.post_median),
             post_sd=_finite_or_none(r.post_sd),
             contraction=_finite_or_none(r.contraction),
             z=_finite_or_none(r.z),
+            bounds=r.bounds,
             bound_pressure=_finite_or_none(r.bound_pressure),
+            bound_pressure_lo=_finite_or_none(r.bound_pressure_lo),
+            bound_pressure_hi=_finite_or_none(r.bound_pressure_hi),
         )
         for r in diag_mod.prior_posterior(rs, cutoff)
     ]

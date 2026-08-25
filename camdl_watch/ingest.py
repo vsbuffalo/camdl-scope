@@ -878,9 +878,14 @@ _TOML_FAMILY = {
     "beta": (PriorFamily.BETA, {"alpha": "alpha", "beta": "beta"}),
     "gamma": (PriorFamily.GAMMA, {"alpha": "alpha", "beta": "beta",
                                   "shape": "alpha", "rate": "beta"}),
-    "uniform": (PriorFamily.UNIFORM, {"lo": "lo", "hi": "hi",
+    # camdl's canonical spelling is `lower = L, upper = U` (language spec
+    # §prior families); the other aliases are kept for older TOML variants.
+    "uniform": (PriorFamily.UNIFORM, {"lower": "lo", "upper": "hi",
+                                      "lo": "lo", "hi": "hi",
                                       "low": "lo", "high": "hi",
                                       "min": "lo", "max": "hi"}),
+    "log_uniform": (PriorFamily.LOGUNIFORM, {"lower": "lo", "upper": "hi",
+                                             "lo": "lo", "hi": "hi"}),
 }
 
 # Same families, model-IR (.camdl) spelling: `~ log_normal(mu=, sigma=)` etc.
@@ -1083,8 +1088,12 @@ def extract_priors(meta: RunMeta) -> dict[str, PriorSpec]:
 def sample_prior(spec: PriorSpec, n: int = 10_000, rng: np.random.Generator | None = None) -> np.ndarray:
     """Draw ``n`` samples from a resolved prior, truncated to its bounds.
 
-    FLAT priors sample uniformly on their bounds. A FLAT prior with no
-    bounds returns an empty array (nothing sensible to draw)."""
+    FLAT priors sample uniformly on their bounds. A FLAT prior with no bounds —
+    or with a bound at infinity, which the fit TOML permits as ``[0, inf]`` —
+    returns an empty array: a uniform on an infinite interval is improper, so
+    there is nothing sensible to draw. (A *proper* prior truncated to
+    ``[0, inf]`` is unaffected; it samples from its family and the truncation
+    below simply keeps everything.)"""
     rng = rng or np.random.default_rng(0)
     f = spec.family
     a = spec.args
@@ -1103,12 +1112,14 @@ def sample_prior(spec: PriorSpec, n: int = 10_000, rng: np.random.Generator | No
     elif f is PriorFamily.UNIFORM:
         lo, hi = a.get("lo", 0.0), a.get("hi", 1.0)
         x = rng.uniform(lo, hi, n)
+    elif f is PriorFamily.LOGUNIFORM:
+        lo, hi = a.get("lo", 1e-9), a.get("hi", 1.0)
+        x = np.exp(rng.uniform(np.log(lo), np.log(hi), n))
     else:  # FLAT
-        if spec.bounds is not None:
-            lo, hi = spec.bounds
-            x = rng.uniform(lo, hi, n)
-        else:
+        if spec.bounds is None or not all(np.isfinite(b) for b in spec.bounds):
             return np.empty(0)
+        lo, hi = spec.bounds
+        x = rng.uniform(lo, hi, n)
     if spec.bounds is not None:
         lo, hi = spec.bounds
         x = x[(x >= lo) & (x <= hi)]
@@ -1139,6 +1150,14 @@ def log_prior_density(spec: PriorSpec, x: np.ndarray) -> np.ndarray:
         elif f is PriorFamily.UNIFORM:
             lo, hi = a.get("lo", 0.0), a.get("hi", 1.0)
             lp = np.where((x >= lo) & (x <= hi), -math.log(hi - lo), -np.inf)
+        elif f is PriorFamily.LOGUNIFORM:
+            # density 1/(x * log(hi/lo)) on [lo, hi]
+            lo, hi = a.get("lo", 1e-9), a.get("hi", 1.0)
+            lp = np.where(
+                (x >= lo) & (x <= hi),
+                -np.log(x) - math.log(math.log(hi / lo)),
+                -np.inf,
+            )
         else:  # FLAT
             lp = np.zeros_like(x)
     if spec.bounds is not None:

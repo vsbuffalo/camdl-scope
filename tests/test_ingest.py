@@ -388,3 +388,69 @@ def test_sample_prior_respects_bounds():
     flat = PriorSpec("k_raw", PriorFamily.FLAT, {}, bounds=(-5.0, 5.0))
     xf = ingest.sample_prior(flat, 5000)
     assert xf.min() >= -5.0 and xf.max() <= 5.0
+
+
+def test_log_uniform_prior_resolves_and_samples(tmp_path: Path):
+    # `~ log_uniform(lower=, upper=)` is camdl's spelling for a scale
+    # parameter's prior (kappa in every province model). Unknown to the family
+    # table it fell to Flat on the bounds, whose *linear*-uniform draws are
+    # invisible binned on a log axis — read as "no prior" in the pair plot.
+    model = tmp_path / "m.camdl"
+    model.write_text(
+        "parameters {\n"
+        "  kappa : positive in [1e-9, 1e-2]"
+        " ~ log_uniform(lower = 1e-9, upper = 1e-2)\n"
+        "}\n"
+    )
+    ir = ingest._parse_ir_params(model)
+    family, args, bounds = ir["kappa"]
+    assert family is PriorFamily.LOGUNIFORM
+    assert args["lo"] == pytest.approx(1e-9)
+    assert args["hi"] == pytest.approx(1e-2)
+
+    from camdl_watch.state import PriorSpec
+
+    spec = PriorSpec("kappa", family, args, bounds=bounds)
+    x = ingest.sample_prior(spec, 5000)
+    assert x.size > 0
+    assert x.min() >= 1e-9 and x.max() <= 1e-2
+    # Uniform on the log scale: each decade carries ~1/7 of the mass, so the
+    # bottom decade is populated — the linear-uniform fallback put ~0 there.
+    assert np.mean(x < 1e-8) == pytest.approx(1.0 / 7.0, abs=0.03)
+
+    lp = ingest.log_prior_density(spec, np.array([1e-5, 1e-1]))
+    assert lp[0] == pytest.approx(-np.log(1e-5) - np.log(np.log(1e7)))
+    assert lp[1] == -np.inf
+
+
+def test_uniform_prior_accepts_lower_upper_spelling(tmp_path: Path):
+    # camdl's canonical uniform args are `lower`/`upper`; the table only knew
+    # lo/hi aliases, so the args silently dropped and the prior fell to (0, 1).
+    model = tmp_path / "m.camdl"
+    model.write_text(
+        "parameters {\n"
+        "  w : rate in [2.0, 9.0] ~ uniform(lower = 2.0, upper = 9.0)\n"
+        "}\n"
+    )
+    family, args, _bounds = ingest._parse_ir_params(model)["w"]
+    assert family is PriorFamily.UNIFORM
+    assert args == {"lo": pytest.approx(2.0), "hi": pytest.approx(9.0)}
+
+
+def test_sampler_telemetry_is_diagnostic_without_a_declared_schema():
+    """A stage whose ``run.json`` declares no column roles falls back to
+    AUX_COLUMNS. When that list omitted the HMC/NUTS block, `n_divergent` was
+    filed as a *parameter* — a bucket nothing reads, since RunState.params comes
+    from the fit's declared estimands — so divergences were parsed off disk
+    every refresh and silently dropped, and the run read as clean."""
+    from camdl_watch.state import ChainBuffer
+
+    buf = ChainBuffer(cid=1, path=Path("/tmp"))  # no diagnostic_cols declared
+    for col in ("n_divergent", "step_size", "tree_depth", "n_leapfrog",
+                "accept_stat", "energy"):
+        assert buf.is_diagnostic(col), f"{col} must not be filed as a parameter"
+    # A declared schema still wins over the fallback, in both directions.
+    declared = ChainBuffer(cid=1, path=Path("/tmp"),
+                           diagnostic_cols=frozenset({"custom_metric"}))
+    assert declared.is_diagnostic("custom_metric")
+    assert not declared.is_diagnostic("n_divergent")
