@@ -486,6 +486,16 @@ class PriorPosterior:
     * ``bound_pressure`` — the fraction of posterior draws sitting within 1% of
       a declared bound. A posterior pinned to its box is not an estimate; the
       constraint is doing the work, and the interval is meaningless.
+      ``bound_pressure_lo``/``_hi`` split that fraction by which edge the draws
+      are piled against; the total is their sum, since the two edge regions
+      cannot overlap. Which edge it is matters: mass at the lower bound and mass
+      at the upper bound call for opposite fixes.
+
+    ``bounds`` is the declared ``(lo, hi)`` box the pressure is measured
+    against, carried so a reader can see what the constraint actually is rather
+    than only that one was hit. ``post_median`` locates the posterior inside
+    that box — the median rather than the mean because a pile of draws at an
+    edge drags a mean toward it, which is exactly the case being diagnosed.
 
     ``prior_mean``/``prior_sd`` are Monte-Carlo estimates from the resolved
     prior (deterministic seed), which is what makes this work uniformly across
@@ -498,10 +508,14 @@ class PriorPosterior:
     prior_mean: float | None
     prior_sd: float | None
     post_mean: float | None
+    post_median: float | None
     post_sd: float | None
     contraction: float | None
     z: float | None
+    bounds: tuple[float, float] | None
     bound_pressure: float | None
+    bound_pressure_lo: float | None
+    bound_pressure_hi: float | None
 
 
 #: Draws used to estimate a prior's moments. Large enough that the reported
@@ -523,11 +537,12 @@ def prior_posterior(
     out: list[PriorPosterior] = []
     for name in run.meta.estimated:
         post = _tail_arrays(run, name, warmup)
-        post_mean = post_sd = None
+        post_mean = post_median = post_sd = None
         if post is not None:
             flat = post[np.isfinite(post)]
             if flat.size:
                 post_mean = float(flat.mean())
+                post_median = float(np.median(flat))
                 post_sd = float(flat.std(ddof=1)) if flat.size > 1 else 0.0
 
         spec = (specs or {}).get(name)
@@ -545,14 +560,24 @@ def prior_posterior(
             if post_mean is not None and prior_mean is not None:
                 z = (post_mean - prior_mean) / prior_sd
 
-        bound_pressure = None
-        if spec is not None and spec.bounds is not None and post is not None:
-            lo, hi = spec.bounds
+        # A one-sided or unbounded box (``bounds = [0, inf]`` is writable in the
+        # fit TOML) has no width to take 1% of: every draw would land inside an
+        # infinite edge and the parameter would read as pinned. Require a finite
+        # box before measuring pressure at all.
+        bounds = spec.bounds if spec is not None else None
+        if bounds is not None and not all(np.isfinite(b) for b in bounds):
+            bounds = None
+        bound_pressure = p_lo = p_hi = None
+        if bounds is not None and post is not None:
+            lo, hi = bounds
             flat = post[np.isfinite(post)]
             if flat.size and hi > lo:
                 edge = 0.01 * (hi - lo)
-                near = (flat <= lo + edge) | (flat >= hi - edge)
-                bound_pressure = float(near.mean())
+                p_lo = float((flat <= lo + edge).mean())
+                p_hi = float((flat >= hi - edge).mean())
+                # Disjoint by construction (edge is 1% of the width), so the sum
+                # is the union the "against its bound" threshold reads.
+                bound_pressure = p_lo + p_hi
 
         block = run.meta.docs.for_param(name)
         out.append(
@@ -563,10 +588,14 @@ def prior_posterior(
                 prior_mean=prior_mean,
                 prior_sd=prior_sd,
                 post_mean=post_mean,
+                post_median=post_median,
                 post_sd=post_sd,
                 contraction=contraction,
                 z=z,
+                bounds=bounds,
                 bound_pressure=bound_pressure,
+                bound_pressure_lo=p_lo,
+                bound_pressure_hi=p_hi,
             )
         )
     return out

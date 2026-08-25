@@ -1,6 +1,7 @@
 import { Fragment } from 'react'
 import type { RunSummary } from '@/api/client'
 import { useRun } from '@/api/queries'
+import { CopyButton } from '@/components/CopyButton'
 import { RunSelect } from '@/components/RunSelect'
 import { StatusBadge } from '@/components/StatusBadge'
 
@@ -65,7 +66,10 @@ function Ticker({ run }: { run: RunSummary }) {
   )
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 font-mono text-[11px] text-neutral-500">
-      <span className="text-neutral-700">{run.run_id}</span>
+      <span className="inline-flex items-center gap-1">
+        <span className="text-neutral-700">{run.run_id}</span>
+        <CopyButton text={run.run_id} label="run id" />
+      </span>
       {sep}
       <span className="uppercase">
         {run.algorithm}/{run.backend}

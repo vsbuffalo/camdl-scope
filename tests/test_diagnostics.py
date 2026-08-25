@@ -16,6 +16,8 @@ from camdl_watch.state import (
     ChainBuffer,
     ChainSummary,
     Finding,
+    PriorFamily,
+    PriorSpec,
     RunMeta,
     RunState,
     Severity,
@@ -300,3 +302,42 @@ def test_block_acceptance_panel_shown_when_blocks_actually_differ():
     panel = {p.id: p for p in dmod.sampler_panels(rs, warmup=0)}["block-acceptance"]
     assert [c.key for c in panel.columns] == ["a", "b", "c"]
     assert panel.values[0] == pytest.approx([0.02, 0.45, 0.99])
+
+
+def _run_with_param(values: np.ndarray, spec: PriorSpec) -> RunState:
+    meta = RunMeta(run_id="s", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+                   model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,
+                   estimated=["R0"], target_sweeps=None, declared_burn_in=None)
+    rs = RunState(meta=meta)
+    buf = ChainBuffer(cid=1, path=Path("/tmp"))
+    buf.iters = np.arange(values.size)
+    buf.values = {"R0": values}
+    rs.chains[1] = buf
+    rs.priors = {"R0": spec}
+    return rs
+
+
+def test_bound_pressure_names_the_edge_the_draws_are_piled_against():
+    """Mass at the lower bound and mass at the upper bound call for opposite
+    fixes, so the split must attribute the pressure to the right edge and the
+    total must stay the union (the 1% edge regions cannot overlap)."""
+    # 20 draws in [0, 10]: 4 pinned at the top, 2 at the bottom, rest interior.
+    vals = np.concatenate([np.full(4, 9.99), np.full(2, 0.01), np.linspace(3, 7, 14)])
+    spec = PriorSpec(param="R0", family=PriorFamily.FLAT, bounds=(0.0, 10.0))
+    row = dmod.prior_posterior(_run_with_param(vals, spec), warmup=0)[0]
+    assert row.bounds == (0.0, 10.0)
+    assert row.bound_pressure_hi == pytest.approx(4 / 20)
+    assert row.bound_pressure_lo == pytest.approx(2 / 20)
+    assert row.bound_pressure == pytest.approx(6 / 20)
+    assert row.post_median == pytest.approx(float(np.median(vals)))
+
+
+def test_an_infinite_bound_is_not_a_bound():
+    """``bounds = [0, inf]`` is writable in the fit TOML. Taking 1% of an
+    infinite width puts every draw inside the edge, which would report a
+    healthy posterior as pinned to its box."""
+    vals = np.linspace(1.0, 5.0, 20)
+    spec = PriorSpec(param="R0", family=PriorFamily.FLAT, bounds=(0.0, float("inf")))
+    row = dmod.prior_posterior(_run_with_param(vals, spec), warmup=0)[0]
+    assert row.bounds is None
+    assert row.bound_pressure is None

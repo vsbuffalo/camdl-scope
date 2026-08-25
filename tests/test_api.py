@@ -472,3 +472,139 @@ def test_unassessed_param_does_not_withhold_but_still_bounds_the_minimum():
     min_ess, missing = _min_ess(s)
     assert missing == []           # `const` has no R̂ -> not evidence of disagreement
     assert min_ess == pytest.approx(12.0)  # but its ESS still bounds the run
+
+
+def _run_with_divergences(div_by_chain: dict[int, np.ndarray], n_par: int = 60):
+    """A two-param RunState whose chains carry the given per-sweep divergence
+    flags. A chain whose entry is ``None`` writes no divergence column at all."""
+    from camdl_watch.state import Backend, ChainBuffer, RunMeta, RunState
+
+    meta = RunMeta(run_id="d", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+                   model="m", algorithm="nuts", backend=Backend.ODE,
+                   estimated=["a", "b"], target_sweeps=None, declared_burn_in=None)
+    rs = RunState(meta=meta)
+    for cid, div in div_by_chain.items():
+        buf = ChainBuffer(cid=cid, path=Path("/tmp"))
+        buf.iters = np.arange(n_par)
+        buf.values = {"a": np.linspace(0, 1, n_par), "b": np.linspace(1, 2, n_par)}
+        if div is not None:
+            buf.aux = {"n_divergent": div}
+        rs.chains[cid] = buf
+    return meta, rs
+
+
+def test_divergence_flag_is_thinned_with_the_draws_it_labels():
+    """The flag must survive thinning ROW-ALIGNED with the draws. If the two
+    were sampled separately the scatter would colour the wrong points, and
+    over-sampling divergences would inflate their apparent density in an
+    alpha-blended cloud — the one comparison the overlay exists to support."""
+    from camdl_watch.api import routes
+
+    div = np.zeros(60, dtype=np.int64)
+    div[::3] = 1  # every third sweep diverges -> a stable 1/3 rate under thinning
+    meta, rs = _run_with_divergences({1: div})
+    s = routes._build_draws(meta, rs, cutoff=0, max_draws=15)
+
+    assert len(s.divergent) == len(s.chain) == 15
+    assert s.n_divergent_draws == 20  # true total, over all 60 retained draws
+    # Row-aligned: every flagged row is one whose 'a' value came from a
+    # divergent sweep, checked against the source column rather than the count.
+    a_div = {round(v, 9) for v in np.linspace(0, 1, 60)[div > 0]}
+    for value, flag in zip(s.cols["a"], s.divergent, strict=True):
+        assert (round(float(value), 9) in a_div) == flag
+
+
+def test_no_divergence_column_reports_none_not_zero():
+    """An MH/ODE fit writes no divergence column. Reporting 0 would claim a
+    clean run; None lets the UI hide the control instead."""
+    from camdl_watch.api import routes
+
+    meta, rs = _run_with_divergences({1: None})
+    s = routes._build_draws(meta, rs, cutoff=0, max_draws=50)
+    assert s.n_divergent_draws is None
+    assert s.divergent == []
+
+
+def test_a_chain_that_never_logged_divergences_does_not_vote_zero():
+    """One silent chain must not be filled with zeros and pooled — that would
+    report 'nothing diverged here' about a chain that never said."""
+    from camdl_watch.api import routes
+
+    meta, rs = _run_with_divergences({1: np.ones(60, dtype=np.int64), 2: None})
+    s = routes._build_draws(meta, rs, cutoff=0, max_draws=50)
+    assert s.n_divergent_draws is None
+
+
+def test_log_axis_follows_the_declared_prior_not_the_draws():
+    """The model decides the scale, not the sample. A LogNormal coordinate is
+    drawn on log however narrow its posterior turns out; a Beta proportion
+    stays linear however wide. Deriving from observed spread instead made the
+    axis depend on the display's point cap and let a parameter silently change
+    scale as a live fit accumulated draws."""
+    from camdl_watch.api import routes
+    from camdl_watch.state import (
+        Backend, ChainBuffer, PriorFamily, PriorSpec, RunMeta, RunState,
+    )
+
+    rng = np.random.default_rng(0)
+    n = 4000
+    names = ["wide_log", "narrow_log", "wide_beta", "spans_zero_log"]
+    meta = RunMeta(run_id="l", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+                   model="m", algorithm="nuts", backend=Backend.ODE,
+                   estimated=names, target_sweeps=None, declared_burn_in=None)
+    rs = RunState(meta=meta)
+    buf = ChainBuffer(cid=1, path=Path("/tmp"))
+    buf.iters = np.arange(n)
+    buf.values = {
+        "wide_log": 10.0 ** rng.uniform(-6, -1, n),    # many decades
+        "narrow_log": rng.lognormal(0.0, 0.02, n),     # far under a decade
+        "wide_beta": rng.beta(0.2, 0.2, n),            # wide, but a proportion
+        "spans_zero_log": rng.normal(0.0, 1.0, n),     # log prior, non-positive draws
+    }
+    rs.chains[1] = buf
+    rs.priors = {
+        "wide_log": PriorSpec(param="wide_log", family=PriorFamily.LOGUNIFORM),
+        "narrow_log": PriorSpec(param="narrow_log", family=PriorFamily.LOGNORMAL),
+        "wide_beta": PriorSpec(param="wide_beta", family=PriorFamily.BETA),
+        "spans_zero_log": PriorSpec(param="spans_zero_log", family=PriorFamily.LOGNORMAL),
+    }
+    # Narrow spread does not demote a log coordinate; wide spread does not
+    # promote a linear one; a non-positive draw excludes it whatever the prior.
+    picks = {
+        cap: routes._build_draws(meta, rs, cutoff=0, max_draws=cap).log_scale
+        for cap in (50, 200, 800, 5000)
+    }
+    assert all(v == ["wide_log", "narrow_log"] for v in picks.values()), picks
+
+
+def test_bounded_flat_prior_gets_a_normalised_uniform_band():
+    """A flat prior WITH bounds is a proper Uniform, and its band is the only
+    prior information such a parameter carries — it shows the region the
+    parameter was allowed to occupy. Skipping every flat prior left those
+    diagonals with no prior at all. The density must integrate to 1: the
+    diagonal compares it against posterior bars in probability-mass units, and
+    log_prior_density returns an unnormalised constant for FLAT."""
+    from camdl_watch.api import routes
+    from camdl_watch.state import PriorFamily, PriorSpec, RunMeta, RunState
+    from camdl_watch.state import Backend
+
+    meta = RunMeta(run_id="f", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+                   model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,
+                   estimated=["bounded", "unbounded"], target_sweeps=None,
+                   declared_burn_in=None)
+    rs = RunState(meta=meta)
+    rs.priors = {
+        "bounded": PriorSpec(param="bounded", family=PriorFamily.FLAT, bounds=(2.0, 18.0)),
+        "unbounded": PriorSpec(param="unbounded", family=PriorFamily.FLAT),
+    }
+    cols = {
+        "bounded": np.linspace(4.0, 14.0, 500),
+        "unbounded": np.linspace(4.0, 14.0, 500),
+    }
+    curves = routes._prior_curves(rs, ["bounded", "unbounded"], cols, {})
+
+    # An improper (unbounded) flat has no density to draw.
+    assert "unbounded" not in curves
+    ys = [y for y in curves["bounded"].y if y > 0]
+    assert ys, "bounded flat prior must produce a band"
+    assert ys == pytest.approx([1.0 / 16.0] * len(ys))  # 1 / (18 - 2)

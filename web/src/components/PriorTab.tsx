@@ -42,6 +42,26 @@ function zClass(z: number | null | undefined): string {
   return Math.abs(z) >= Z_TENSION ? 'text-amber-600 font-medium' : 'text-neutral-700'
 }
 
+/** Which edge (if either) the posterior is piled against, at the flagging
+ *  threshold. Naming the edge is the difference between "the box is too tight"
+ *  and "the model is running away", which need opposite fixes. */
+function pressedEdges(r: PriorPosteriorRow): { lo: boolean; hi: boolean } {
+  return {
+    lo: (r.bound_pressure_lo ?? 0) >= BOUND_PRESSURE,
+    hi: (r.bound_pressure_hi ?? 0) >= BOUND_PRESSURE,
+  }
+}
+
+/** ``against upper bound (24%)`` — the edge, and how much mass sits on it. */
+function boundPhrase(r: PriorPosteriorRow): string {
+  const { lo, hi } = pressedEdges(r)
+  const pct = (x: number | null | undefined) => `${Math.round((x ?? 0) * 100)}%`
+  if (lo && hi) return `against both bounds (${pct(r.bound_pressure)})`
+  if (lo) return `against lower bound (${pct(r.bound_pressure_lo)})`
+  if (hi) return `against upper bound (${pct(r.bound_pressure_hi)})`
+  return `against its bound (${pct(r.bound_pressure)})`
+}
+
 /** How to read a row, in one phrase — the interpretation the numbers support,
  *  so a reader does not have to hold the thresholds in their head. */
 function reading(r: PriorPosteriorRow): { text: string; tone: string } {
@@ -51,12 +71,31 @@ function reading(r: PriorPosteriorRow): { text: string; tone: string } {
   if (r.contraction < CONTRACTION_WEAK)
     return { text: 'prior-dominated', tone: 'text-red-600' }
   if ((r.bound_pressure ?? 0) >= BOUND_PRESSURE)
-    return { text: 'against its bound', tone: 'text-amber-600' }
+    return { text: boundPhrase(r), tone: 'text-amber-600' }
   if (r.z != null && Math.abs(r.z) >= Z_TENSION)
     return { text: 'moved off the prior', tone: 'text-amber-600' }
   if (r.contraction >= CONTRACTION_STRONG)
     return { text: 'data-informed', tone: 'text-emerald-600' }
   return { text: 'partly informed', tone: 'text-neutral-500' }
+}
+
+/** The declared box, with whichever edge the draws are piled against picked out
+ *  — so "against its bound" resolves to a number the reader can weigh the
+ *  posterior median against, in the same row. */
+function Bounds({ r }: { r: PriorPosteriorRow }) {
+  if (r.bounds == null) return <span className="text-neutral-300">—</span>
+  const [lo, hi] = r.bounds
+  const { lo: loHot, hi: hiHot } = pressedEdges(r)
+  const edge = (v: number, hot: boolean) => (
+    <span className={hot ? 'text-amber-600 font-medium' : 'text-neutral-500'}>
+      {fmtValue(v)}
+    </span>
+  )
+  return (
+    <span className="text-neutral-300">
+      [{edge(lo, loHot)}, {edge(hi, hiHot)}]
+    </span>
+  )
 }
 
 /**
@@ -276,6 +315,8 @@ export function PriorTab({
                   <tr className="border-b border-neutral-200 text-[9px] uppercase tracking-wider text-neutral-400">
                     <th className="px-2 py-1.5 text-left font-medium">parameter</th>
                     <th className="px-2 py-1.5 text-left font-medium">prior</th>
+                    <th className="px-2 py-1.5 text-right font-medium">bounds</th>
+                    <th className="px-2 py-1.5 text-right font-medium">post median</th>
                     <th className="px-2 py-1.5 text-right font-medium">prior sd</th>
                     <th className="px-2 py-1.5 text-right font-medium">post sd</th>
                     <th className="px-2 py-1.5 text-right font-medium">contraction</th>
@@ -300,6 +341,12 @@ export function PriorTab({
                         </td>
                         <td className="px-2 py-1.5 text-left text-[10px] text-neutral-500">
                           {r.prior_label ?? '—'}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-right text-[10px]">
+                          <Bounds r={r} />
+                        </td>
+                        <td className="px-2 py-1.5 text-right text-neutral-700">
+                          {r.post_median == null ? '—' : fmtValue(r.post_median)}
                         </td>
                         <td className="px-2 py-1.5 text-right text-neutral-500">
                           {r.prior_sd == null ? '—' : fmtValue(r.prior_sd)}
@@ -344,10 +391,14 @@ export function PriorTab({
                 weak contraction is prior/data conflict with neither winning.
               </li>
               <li>
-                A parameter flagged{' '}
-                <span className="text-amber-600">against its bound</span> has
-                posterior mass piled against a declared limit — the constraint
-                is doing the work, so its interval is not an estimate.
+                <span className="text-neutral-600">bounds</span> — the declared{' '}
+                [lower, upper] box the parameter is constrained to, read against
+                the posterior median beside it. A parameter flagged{' '}
+                <span className="text-amber-600">against lower/upper bound</span>{' '}
+                has that share of its draws within 1% of the highlighted limit:
+                the constraint is doing the work, so its interval is not an
+                estimate. Mass at the lower edge and mass at the upper edge call
+                for opposite fixes, which is why the flag names the edge.
               </li>
             </ul>
           </>

@@ -357,3 +357,46 @@ Separately, and lower priority: the run we measured has stored IR at version 0.3
 while the installed camdl expects 0.33, so `camdl pfilter <run>/model.ir.json`
 refuses to load it. If the viewer ever reads stored IR directly, it will hit the
 same wall on older runs.
+
+---
+
+## 2026-08-22 · camdl → scope: the convergence statistics changed meaning under the same keys
+
+Filed as [camdl-scope#7](https://github.com/vsbuffalo/camdl-scope/issues/7) with
+the full detail. The short version, because the failure mode here is silent
+rather than loud:
+
+**Nothing breaks.** `_read_summary_json` (`ingest.py:227`) depends on `rhat` /
+`ess` / `thin`; all three still exist. `predictive.json` is now tagged
+`camdl.predictive/v2`, and `predictive.py` does not gate on the tag, so that is
+a no-op too.
+
+**But `rhat` and `ess` are different quantities now**, under the same key names,
+with no version field to distinguish a fit written before the change from one
+written after:
+
+- `rhat` was classic Gelman–Rubin; it is now max(rank-normalized split-R̂,
+  folded split-R̂) — Vehtari et al. (2021), Bayesian Analysis 16(2):667–718.
+- `ess` was a sum of per-chain Geyer ESS suppressed to NaN above R̂ 1.1; it is
+  now bulk-ESS, cross-chain, never suppressed.
+
+So a column labelled "R̂" or "ESS" is showing something other than what it was.
+Worth relabelling. And if anything explains a missing ESS as "the chains
+disagree", that explanation is now wrong — we had six copies of that sentence
+upstream and one was user-facing.
+
+**New and additive**, all in `*_summary.json`: `rhat_bulk` / `rhat_folded` (the
+two halves — a high bulk half is chains disagreeing about *location*, a high
+folded half about *scale*, which is the answer to *why* R̂ is high);
+`rhat_not_reported` / `rhat_refusal_detail` (a typed per-parameter reason,
+where five structurally different failures previously rendered as one blank);
+`ess_per_chain`; `rhat_classic`.
+
+**NUTS stages now write `diagnostics.json`.** They previously never called
+`.report()`, so no convergence finding could fire on an ODE+NUTS fit at all. If
+anything branches on that file's absence to detect a NUTS stage, it needs
+revisiting.
+
+If you want a schema version on `*_summary.json` so you can tell old fits from
+new, ask — that is a reasonable request and we would rather add it than have you
+infer the vintage from which keys are present.

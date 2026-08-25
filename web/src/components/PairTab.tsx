@@ -40,6 +40,17 @@ export function PairTab({
     'pair:marginals-by-chain',
     false,
   )
+  // Divergences answer a different question from chain mixing, so the view
+  // swaps rather than stacks: turning this on drops chain colour entirely and
+  // recolours the scatter clean-vs-divergent. Off by default; persisted.
+  const [showDivergences, setShowDivergences] = usePersisted(
+    'pair:divergences',
+    false,
+  )
+  // Each param is drawn on the scale its MODEL declares: a LogNormal /
+  // LogUniform coordinate on log, everything else linear. This is the escape
+  // hatch when you want to read them all the same way — it forces linear.
+  const [forceLinear, setForceLinear] = usePersisted('pair:force-linear', false)
   const run = useRun(runId)
   const chains = includedChains({ chainIds, excludedChains })
   const draws = useDraws(runId, warmupPct, PAIR_MAX_DRAWS, chains)
@@ -88,7 +99,13 @@ export function PairTab({
   }, [groups, draws.data, runId, storedSelection, storedTargets])
 
   const objectives = draws.data?.objectives ?? []
-
+  // `null` means this sampler reports no divergence column at all — distinct
+  // from 0, which means it reports one and nothing diverged.
+  const nDivergent = draws.data?.n_divergent_draws ?? null
+  const shownDivergent = useMemo(
+    () => (draws.data?.divergent ?? []).filter(Boolean).length,
+    [draws.data],
+  )
   // Render the selected variables: estimated params first, then the checked
   // objective targets, in wire order. The pair plot handles objective columns
   // as ordinary variables.
@@ -99,6 +116,14 @@ export function PairTab({
       ...draws.data.objectives.filter((o) => targets.has(o)),
     ]
   }, [draws.data, selection, targets])
+
+  // Only the derived-log params actually on screen — the control is pointless
+  // (and its hint misleading) when none of them is selected.
+  const derivedLog = useMemo(
+    () => (draws.data?.log_scale ?? []).filter((p) => visibleParams.includes(p)),
+    [draws.data, visibleParams],
+  )
+  const logParams = forceLinear ? [] : derivedLog
 
   // Any visible param carrying a prior curve → the breadth toggle is meaningful.
   const anyPrior = useMemo(
@@ -219,13 +244,75 @@ export function PairTab({
                 marginals by chain
               </span>
             </label>
+            {/* Log axes are derived, so this appears only when the derivation
+                actually fired on a visible param — otherwise it would be a
+                control with nothing to undo. */}
+            {derivedLog.length > 0 && (
+              <label className="flex cursor-pointer items-center gap-1.5 font-mono text-[11px]">
+                <input
+                  type="checkbox"
+                  checked={forceLinear}
+                  onChange={() => setForceLinear(!forceLinear)}
+                  className="size-3 accent-neutral-800"
+                />
+                <span
+                  className={forceLinear ? 'text-neutral-900' : 'text-neutral-500'}
+                >
+                  linear axes
+                </span>
+                {/* A count, not a list: the model scale applies to every
+                    multiplicative coordinate, so naming them all would be a
+                    paragraph on a wide fit. */}
+                <span className="text-neutral-400">
+                  ({derivedLog.length} of {visibleParams.length} on log)
+                </span>
+              </label>
+            )}
+            {/* Only offered when the sampler actually reports divergences: an
+                MH/ODE fit writes no such column, and an absent control is
+                honest where an always-empty one would read as "none". */}
+            {nDivergent != null && (
+              <label className="flex cursor-pointer items-center gap-1.5 font-mono text-[11px]">
+                <input
+                  type="checkbox"
+                  checked={showDivergences}
+                  onChange={() => setShowDivergences(!showDivergences)}
+                  className="size-3 accent-orange-600"
+                />
+                <span
+                  className={
+                    showDivergences ? 'text-neutral-900' : 'text-neutral-500'
+                  }
+                >
+                  divergences
+                </span>
+                <span className="text-neutral-400">
+                  ({nDivergent.toLocaleString()})
+                </span>
+              </label>
+            )}
           </div>
+          {showDivergences && nDivergent != null && (
+            <p className="mb-2 text-[10px] leading-snug text-neutral-400">
+              {shownDivergent.toLocaleString()} of the{' '}
+              {draws.data.n_draws.toLocaleString()} plotted draws diverged
+              {draws.data.n_draws > 0 && (
+                <> ({Math.round((100 * shownDivergent) / draws.data.n_draws)}%)</>
+              )}
+              ; {nDivergent.toLocaleString()} diverged across all retained draws.
+              Both colours are thinned at the same rate, so their relative
+              density is the sample's own — read whether the orange sits{' '}
+              <em>somewhere the grey does not</em>, not how much of it there is.
+            </p>
+          )}
           <PairPlot
             draws={draws.data}
             posterior={posterior.data}
             params={visibleParams}
             priorXlimMode={priorXlimMode}
             marginalsByChain={marginalsByChain}
+            showDivergences={showDivergences}
+            logParams={logParams}
           />
         </div>
       )}

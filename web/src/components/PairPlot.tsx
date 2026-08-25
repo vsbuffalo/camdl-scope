@@ -20,6 +20,11 @@ const PRIOR_FILL = '#d4d4d4' // neutral-300 — prior marginal (secondary, light
 const PRIOR_STROKE = '#a3a3a3' // neutral-400 — prior step outline
 const MEDIAN = '#171717' // neutral-900
 const SYMBOL = '#525252' // neutral-600 — in-cell symbol
+// Divergence view: chain identity is dropped (one question at a time), so every
+// clean draw is one dark grey and the divergent ones carry the only hue in the
+// cell — nothing else in the corner plot competes with it.
+const CLEAN_DOT = '#525252' // neutral-600
+const DIVERGENT_DOT = '#ea580c' // orange-600
 
 type Domain = [number, number] | undefined
 
@@ -29,8 +34,15 @@ type CellSpec =
       x: number[]
       y: number[]
       chain: number[]
+      /** Row-aligned with `x`/`y`: did this draw diverge? Empty when the
+       *  sampler reports no divergences. */
+      divergent: boolean[]
+      /** Drop chain colour and split the cloud into clean vs divergent. */
+      showDivergences: boolean
       xDomain: Domain
       yDomain: Domain
+      xLog: boolean
+      yLog: boolean
     }
   | {
       kind: 'diag'
@@ -44,6 +56,8 @@ type CellSpec =
       domain: Domain
       /** Subdivide each bar by the chains that contributed to it. */
       byChain: boolean
+      /** Bin in log10 and draw the axis on a log scale. */
+      log: boolean
     }
 
 /** One stacked segment of a by-chain marginal bar. */
@@ -74,15 +88,17 @@ function chainSegments(
   if (nb < 1 || values.length === 0) return []
   const lo = thresholds[0]!
   const hi = thresholds[nb]!
-  const width = (hi - lo) / nb
   // bin -> chain -> count, kept sparse; chain ids are camdl's, not indices.
   const bins = new Map<number, Map<number, number>>()
   let total = 0
   for (let i = 0; i < values.length; i++) {
     const v = values[i]!
     if (!Number.isFinite(v) || v < lo || v > hi) continue
-    // The last bin is closed on the right so the maximum lands inside it.
-    const b = Math.min(nb - 1, Math.floor((v - lo) / width))
+    // Locate the bin from the edges themselves rather than a constant width —
+    // log thresholds are geometrically spaced, and assuming uniform width
+    // would pile almost every draw into the first bar.
+    let b = 0
+    while (b < nb - 1 && v >= thresholds[b + 1]!) b++
     const cid = chain[i] ?? 0
     let m = bins.get(b)
     if (!m) bins.set(b, (m = new Map()))
@@ -92,18 +108,14 @@ function chainSegments(
   if (total === 0) return []
   const out: ChainSegment[] = []
   for (const [b, m] of bins) {
+    const x1 = thresholds[b]!
+    const x2 = thresholds[b + 1]!
     let y = 0
     // Ascending chain order so the stack is in the same order in every bar —
     // otherwise a colour appears to move up and down across the histogram.
     for (const cid of [...m.keys()].sort((a, z) => a - z)) {
       const h = m.get(cid)! / total
-      out.push({
-        x1: lo + b * width,
-        x2: lo + (b + 1) * width,
-        y1: y,
-        y2: y + h,
-        chain: cid,
-      })
+      out.push({ x1, x2, y1: y, y2: y + h, chain: cid })
       y += h
     }
   }
@@ -121,10 +133,87 @@ function extent(xs: number[]): [number, number] {
 }
 
 /** Evenly-spaced bin edges over a domain — shared by prior + posterior so the
- *  two histograms bin identically and their heights are directly comparable. */
-function makeThresholds([d0, d1]: [number, number], nbins: number): number[] {
+ *  two histograms bin identically and their heights are directly comparable.
+ *  On a log axis the edges are evenly spaced in log10, so bins are equal-width
+ *  on screen; a linear-binned histogram under a log axis would put almost
+ *  every draw in the first bar. */
+function makeThresholds(
+  [d0, d1]: [number, number],
+  nbins: number,
+  log = false,
+): number[] {
+  if (log && d0 > 0 && d1 > d0) {
+    const l0 = Math.log10(d0)
+    const step = (Math.log10(d1) - l0) / nbins
+    return Array.from({ length: nbins + 1 }, (_, i) => 10 ** (l0 + step * i))
+  }
   const step = (d1 - d0) / nbins
   return Array.from({ length: nbins + 1 }, (_, i) => d0 + step * i)
+}
+
+/** Round tick values (…1, 2, 5, 10…) inside a range — the ordinary linear
+ *  choice, used below for the sub-decade case. */
+function niceLinearTicks(d0: number, d1: number, count: number): number[] {
+  const raw = (d1 - d0) / Math.max(1, count - 1)
+  if (!(raw > 0)) return []
+  const mag = 10 ** Math.floor(Math.log10(raw))
+  const norm = raw / mag
+  const step = (norm >= 5 ? 5 : norm >= 2 ? 2 : 1) * mag
+  const out: number[] = []
+  for (let v = Math.ceil(d0 / step) * step; v <= d1 + step * 1e-9; v += step) {
+    out.push(Number(v.toPrecision(12))) // shed binary-accumulation crumbs
+  }
+  return out
+}
+
+/**
+ * Tick values for a log axis, chosen to be READABLE at a 42px strip width.
+ *
+ * Two regimes, because one rule cannot serve both. Across many decades the
+ * decade boundaries are the right ticks and their labels are short (`1e-8`).
+ * Below one decade there is no decade boundary to land on — Plot's default
+ * falls back to a crowd of unlabelled minor ticks — and spacing ticks evenly
+ * in log space instead yields values like `0.000442` and `328`, whose labels
+ * are too wide for the strip and get clipped. Inside a single decade a log
+ * scale is nearly linear anyway, so ordinary round numbers are both accurate
+ * and short. Sub-decade log axes are normal here, since the MODEL decides the
+ * scale and a LogNormal parameter may still be tightly constrained.
+ */
+function logTicks([d0, d1]: [number, number], count: number): number[] {
+  if (!(d0 > 0) || !(d1 > d0)) return []
+  if (Math.log10(d1 / d0) < 1.5) return niceLinearTicks(d0, d1, count)
+  const lo = Math.ceil(Math.log10(d0))
+  const hi = Math.floor(Math.log10(d1))
+  const decades: number[] = []
+  for (let k = lo; k <= hi; k++) decades.push(10 ** k)
+  if (decades.length <= count) return decades
+  // Too many decades for the strip: keep every n-th so labels never collide.
+  const stride = Math.ceil(decades.length / count)
+  return decades.filter((_, i) => i % stride === 0)
+}
+
+/**
+ * Convert an analytic prior density f(x) into the same `proportion` units the
+ * posterior bars carry, so the two remain height-comparable.
+ *
+ * A bar's height is the probability mass in its bin, ≈ f(x)·Δx. With LINEAR
+ * bins Δx is one constant. With LOG bins it is not: a bin at x spans
+ * Δx = x·ln(10)·Δlog₁₀, so the same curve must be scaled by a factor that
+ * grows with x. Using the constant width under a log axis would understate the
+ * prior at the top of the range by orders of magnitude.
+ */
+function priorProportion(
+  x: number,
+  density: number,
+  domain: [number, number],
+  nbins: number,
+  log: boolean,
+): number {
+  if (log && domain[0] > 0 && domain[1] > domain[0]) {
+    const dlog = (Math.log10(domain[1]) - Math.log10(domain[0])) / nbins
+    return density * x * Math.LN10 * dlog
+  }
+  return density * ((domain[1] - domain[0]) / nbins)
 }
 
 /** One corner-plot cell: a scatter (lower) or a marginal histogram (diagonal). */
@@ -155,24 +244,54 @@ function PairCell({
 
     let node: ReturnType<typeof Plot.plot>
     if (spec.kind === 'scatter') {
+      // Divergence view: two indexed layers over the SAME thinned sample, so
+      // the two clouds are drawn at one sampling rate and their relative
+      // density is the sample's own. Divergences go on top — they are the
+      // minority mark in a healthy fit and must not be buried by the bulk.
+      const divergenceMarks = () => {
+        const clean: number[] = []
+        const diverged: number[] = []
+        for (let i = 0; i < spec.x.length; i++) {
+          ;(spec.divergent[i] ? diverged : clean).push(i)
+        }
+        // IDENTICAL radius and opacity for both layers. Any asymmetry would
+        // make one cloud look denser than it is and break the only comparison
+        // this view supports; at a high divergence rate a heavier orange
+        // buries the clean cloud entirely, and hue alone is enough to separate
+        // them when divergences are rare.
+        const layer = (idx: number[], fill: string) =>
+          Plot.dot(idx, {
+            x: (d: number) => spec.x[d],
+            y: (d: number) => spec.y[d],
+            fill,
+            r: 1.1,
+            fillOpacity: 0.32,
+            stroke: null,
+          })
+        return [layer(clean, CLEAN_DOT), layer(diverged, DIVERGENT_DOT)]
+      }
       node = Plot.plot({
         ...base,
-        x: { axis: null, domain: spec.xDomain },
-        y: { axis: null, domain: spec.yDomain },
+        x: { axis: null, domain: spec.xDomain, ...(spec.xLog && { type: 'log' }) },
+        y: { axis: null, domain: spec.yDomain, ...(spec.yLog && { type: 'log' }) },
         color: {
           type: 'categorical',
           domain: chainDomain,
           range: chainDomain.map(chainColor),
         },
         marks: [
-          Plot.dot(spec.chain, {
-            x: (_d: number, i: number) => spec.x[i],
-            y: (_d: number, i: number) => spec.y[i],
-            fill: (d: number) => d,
-            r: 1.1,
-            fillOpacity: 0.25,
-            stroke: null,
-          }),
+          ...(spec.showDivergences
+            ? divergenceMarks()
+            : [
+                Plot.dot(spec.chain, {
+                  x: (_d: number, i: number) => spec.x[i],
+                  y: (_d: number, i: number) => spec.y[i],
+                  fill: (d: number) => d,
+                  r: 1.1,
+                  fillOpacity: 0.25,
+                  stroke: null,
+                }),
+              ]),
           Plot.frame({ stroke: FRAME, strokeWidth: 0.5 }),
         ],
       })
@@ -183,15 +302,21 @@ function PairCell({
       const marks: Plot.Markish[] = []
 
       if (domain) {
-        const thresholds = makeThresholds(domain, nbins)
-        const binwidth = (domain[1] - domain[0]) / nbins
+        const thresholds = makeThresholds(domain, nbins, spec.log)
         // Prior first (behind): the smooth ANALYTIC density, scaled into the
-        // posterior's `proportion` units (density × bin width) so heights are
-        // directly comparable. A binned histogram of prior samples clipped to
-        // this window reads as noise; the analytic curve is exact and smooth.
+        // posterior's `proportion` units so heights are directly comparable. A
+        // binned histogram of prior samples clipped to this window reads as
+        // noise; the analytic curve is exact and smooth.
         const pc = spec.priorDensity
         if (pc && pc.x.length > 1) {
-          const pts = pc.x.map((x, i) => ({ x, y: (pc.y[i] ?? 0) * binwidth }))
+          const pts = pc.x
+            .map((x, i) => ({
+              x,
+              y: priorProportion(x, pc.y[i] ?? 0, domain, nbins, spec.log),
+            }))
+            // A log axis cannot place a non-positive x; the prior curve is
+            // sampled over the posterior's window and may reach below it.
+            .filter((d) => !spec.log || d.x > 0)
           marks.push(
             Plot.areaY(pts, { x: 'x', y: 'y', fill: PRIOR_FILL, fillOpacity: 0.55 }),
             Plot.line(pts, {
@@ -260,7 +385,7 @@ function PairCell({
       )
       node = Plot.plot({
         ...base,
-        x: { axis: null, domain },
+        x: { axis: null, domain, ...(spec.log && { type: 'log' }) },
         y: { axis: null },
         // Same chain→colour mapping the scatters use, so a colour means the
         // same chain everywhere in the corner plot.
@@ -294,11 +419,15 @@ function AxisStrip({
   domain,
   w,
   h,
+  log = false,
 }: {
   kind: 'x' | 'y'
   domain: [number, number] | undefined
   w: number
   h: number
+  /** Match the cells' scale — a linear strip under log cells mislabels
+   *  every tick. */
+  log?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -330,6 +459,7 @@ function AxisStrip({
               tickSize: 2,
               tickPadding: 3,
               label: null,
+              ...(log && { type: 'log', ticks: logTicks(domain, 3) }),
             },
             y: { axis: null },
             marks: [],
@@ -349,6 +479,7 @@ function AxisStrip({
               tickSize: 2,
               tickPadding: 3,
               label: null,
+              ...(log && { type: 'log', ticks: logTicks(domain, 4) }),
             },
             x: { axis: null },
             marks: [],
@@ -358,7 +489,7 @@ function AxisStrip({
     return () => {
       node.remove()
     }
-  }, [kind, domain, w, h])
+  }, [kind, domain, w, h, log])
 
   return <div style={{ width: w, height: h }} ref={ref} />
 }
@@ -390,6 +521,10 @@ interface PairPlotProps {
   priorXlimMode?: PriorXlimMode
   /** Split each diagonal bar by the chains that contributed to it. */
   marginalsByChain?: boolean
+  /** Colour the scatter by divergence instead of by chain. */
+  showDivergences?: boolean
+  /** Params to draw on a log axis — the effective set, after any override. */
+  logParams?: string[]
 }
 
 /**
@@ -406,8 +541,16 @@ export function PairPlot({
   params,
   priorXlimMode = 'posterior',
   marginalsByChain = false,
+  showDivergences = false,
+  logParams,
 }: PairPlotProps) {
   const n = params.length
+  const logSet = useMemo(() => new Set(logParams ?? []), [logParams])
+  const divergent = draws.divergent ?? []
+  // Only claim the divergence view when the flags actually line up with the
+  // draws; a stale/short array would silently mis-colour rows.
+  const divergenceView =
+    showDivergences && divergent.length === draws.chain.length
 
   const containerRef = useRef<HTMLDivElement>(null)
   // The full-width figure (legend + grid) is the PNG capture target — ref this,
@@ -485,11 +628,24 @@ export function PairPlot({
         d0 = Math.min(d0, pc.x[0]!)
         d1 = Math.max(d1, pc.x[pc.x.length - 1]!)
       }
+      if (logSet.has(p)) {
+        // Widening to the prior can drag the lower edge to 0 or below (a
+        // LogUniform's curve is sampled over the posterior's window), which a
+        // log scale cannot place. Fall back to the positive extent, and pad
+        // multiplicatively — an additive pad is meaningless across decades.
+        if (d0 <= 0) d0 = lo > 0 ? lo : Math.min(...post.filter((v) => v > 0))
+        if (!(d0 > 0) || !(d1 > d0)) {
+          m.set(p, undefined)
+          continue
+        }
+        m.set(p, [d0 * 0.9, d1 * 1.1])
+        continue
+      }
       const pad = (d1 - d0) * 0.04 || Math.abs(d0) * 0.04 || 1
       m.set(p, [d0 - pad, d1 + pad])
     }
     return m
-  }, [params, draws, priorXlimMode])
+  }, [params, draws, priorXlimMode, logSet])
 
   const labelFs = Math.round(Math.max(11, Math.min(15, cell / 13)))
 
@@ -544,7 +700,9 @@ export function PairPlot({
         )}
         <div className="overflow-x-auto">
           <div ref={figRef} className="w-max bg-white">
-          {anyPrior && <Legend />}
+          {(anyPrior || divergenceView) && (
+            <Legend prior={anyPrior} divergences={divergenceView} />
+          )}
           <div
             className="grid gap-px"
             style={{
@@ -589,6 +747,7 @@ export function PairPlot({
                   domain={domainOf.get(params[r]!)}
                   w={Y_AXIS_W}
                   h={cell}
+                  log={logSet.has(params[r]!)}
                 />
               )}
               {params.map((colName, c) => {
@@ -611,6 +770,7 @@ export function PairPlot({
                         symbol: meta[r]!.symbol,
                         domain: domainOf.get(rowName),
                         byChain: marginalsByChain,
+                        log: logSet.has(rowName),
                       }}
                     />
                   )
@@ -625,8 +785,12 @@ export function PairPlot({
                       x: draws.draws[colName] ?? [],
                       y: draws.draws[rowName] ?? [],
                       chain: draws.chain,
+                      divergent,
+                      showDivergences: divergenceView,
                       xDomain: domainOf.get(colName),
                       yDomain: domainOf.get(rowName),
+                      xLog: logSet.has(colName),
+                      yLog: logSet.has(rowName),
                     }}
                   />
                 )
@@ -645,6 +809,7 @@ export function PairPlot({
               domain={domainOf.get(params[c]!)}
               w={cell}
               h={X_AXIS_H}
+              log={logSet.has(params[c]!)}
             />
           ))}
 
@@ -672,25 +837,60 @@ export function PairPlot({
   )
 }
 
-/** Minimal mono legend distinguishing the two diagonal histograms. */
-function Legend() {
+/** Minimal mono legend: the two diagonal histograms, and — in the divergence
+ *  view — what the two scatter colours mean. */
+function Legend({
+  prior,
+  divergences,
+}: {
+  prior: boolean
+  divergences: boolean
+}) {
+  const dot = (color: string, opacity: number) => (
+    <span
+      className="inline-block size-2 rounded-full"
+      style={{ background: color, opacity }}
+    />
+  )
   return (
-    <div className="mb-2 flex items-center gap-3 font-mono text-[10px] text-neutral-400">
-      <span className="flex items-center gap-1.5">
-        <span
-          className="inline-block h-2 w-3 rounded-[1px]"
-          style={{ background: POST_BAR, opacity: 0.82 }}
-        />
-        posterior
-      </span>
-      <span className="text-neutral-300">·</span>
-      <span className="flex items-center gap-1.5">
-        <span
-          className="inline-block h-2 w-3 rounded-[1px] border"
-          style={{ background: PRIOR_FILL, borderColor: PRIOR_STROKE, opacity: 0.7 }}
-        />
-        prior
-      </span>
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-neutral-400">
+      {prior && (
+        <>
+          <span className="flex items-center gap-1.5">
+            <span
+              className="inline-block h-2 w-3 rounded-[1px]"
+              style={{ background: POST_BAR, opacity: 0.82 }}
+            />
+            posterior
+          </span>
+          <span className="text-neutral-300">·</span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className="inline-block h-2 w-3 rounded-[1px] border"
+              style={{
+                background: PRIOR_FILL,
+                borderColor: PRIOR_STROKE,
+                opacity: 0.7,
+              }}
+            />
+            prior
+          </span>
+        </>
+      )}
+      {prior && divergences && <span className="text-neutral-300">·</span>}
+      {divergences && (
+        <>
+          <span className="flex items-center gap-1.5">
+            {dot(CLEAN_DOT, 0.7)}
+            clean draw
+          </span>
+          <span className="text-neutral-300">·</span>
+          <span className="flex items-center gap-1.5">
+            {dot(DIVERGENT_DOT, 0.7)}
+            divergent
+          </span>
+        </>
+      )}
     </div>
   )
 }

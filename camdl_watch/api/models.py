@@ -91,6 +91,20 @@ class DrawsResponse(BaseModel):
     # over the param's posterior window — a clean curve for the pair-plot
     # diagonals (a binned histogram of clipped samples reads as noise).
     prior_density: dict[str, PriorCurve] = {}
+    # Row-aligned with `chain`/`draws`: did row i record a divergent transition?
+    # Thinned with everything else so the plotted divergent:clean ratio is the
+    # sample's own honest ratio. Empty when the sampler reports no divergences.
+    divergent: list[bool] = []
+    # Params whose axes should be drawn on log10, derived from the declared
+    # prior family AND the posterior's actual span (see `_log_scale_params`).
+    # A display default the consumer may override, not a property of the draws.
+    log_scale: list[str] = []
+    # Divergent draws over ALL retained draws, before thinning — the true count,
+    # which the thinned sample above will under-show for a run with only a few.
+    # `None` means this sampler writes no divergence column at all (an MH/ODE
+    # fit), a different statement from `0`; the consumer should then hide the
+    # overlay control rather than claim a clean run.
+    n_divergent_draws: int | None = None
 
 
 class StreamInfo(BaseModel):
@@ -723,10 +737,14 @@ class PriorPosteriorRow(BaseModel):
     prior_mean: float | None = None
     prior_sd: float | None = None
     post_mean: float | None = None
+    post_median: float | None = None
     post_sd: float | None = None
     contraction: float | None = None
     z: float | None = None
+    bounds: tuple[float, float] | None = None
     bound_pressure: float | None = None
+    bound_pressure_lo: float | None = None
+    bound_pressure_hi: float | None = None
 
 
 class PriorPosteriorResponse(BaseModel):

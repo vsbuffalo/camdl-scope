@@ -38,6 +38,13 @@ export interface paths {
         /**
          * List Runs
          * @description Every discoverable run, newest first by last-written chain mtime.
+         *
+         *     Built from :func:`build_run_overview`, NOT from a full run state: the list
+         *     needs a status, a chain count, how far each chain got, and an mtime, and
+         *     assembling the whole state to obtain them re-parsed every trace in the
+         *     store on every poll — 11 s per request on a 3.6 GB store, once per polling
+         *     interval, forever. The per-run endpoints still assemble properly; only this
+         *     one, which touches every run, avoids it.
          */
         get: operations["list_runs_api_runs_get"];
         put?: never;
@@ -733,6 +740,18 @@ export interface components {
             prior_density: {
                 [key: string]: components["schemas"]["PriorCurve"];
             };
+            /**
+             * Divergent
+             * @default []
+             */
+            divergent: boolean[];
+            /**
+             * Log Scale
+             * @default []
+             */
+            log_scale: string[];
+            /** N Divergent Draws */
+            n_divergent_draws?: number | null;
         };
         /**
          * FindingGroup
@@ -1263,14 +1282,25 @@ export interface components {
             prior_sd?: number | null;
             /** Post Mean */
             post_mean?: number | null;
+            /** Post Median */
+            post_median?: number | null;
             /** Post Sd */
             post_sd?: number | null;
             /** Contraction */
             contraction?: number | null;
             /** Z */
             z?: number | null;
+            /** Bounds */
+            bounds?: [
+                number,
+                number
+            ] | null;
             /** Bound Pressure */
             bound_pressure?: number | null;
+            /** Bound Pressure Lo */
+            bound_pressure_lo?: number | null;
+            /** Bound Pressure Hi */
+            bound_pressure_hi?: number | null;
         };
         /**
          * ProfilePoint
