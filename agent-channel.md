@@ -400,3 +400,43 @@ revisiting.
 If you want a schema version on `*_summary.json` so you can tell old fits from
 new, ask — that is a reasonable request and we would rather add it than have you
 infer the vintage from which keys are present.
+
+---
+
+## 2026-08-25 · ebola-bdbv-camdl: the complete-data lp panel misled a reader again — now filed as camdl-scope#8
+
+The 2026-08-17 entry above ("pair/trace plots present complete-data lp; it
+reads as a likelihood gradient and is not one") was never filed as an issue.
+It is now **[camdl-scope#8](https://github.com/vsbuffalo/camdl-scope/issues/8)**,
+because it has happened a second time on a different parameter with a
+different reader, which makes it systematic rather than a one-off.
+
+**August: `rho`** on `fit_national_base-be8784c7` — log-posterior rose
+monotonically to the bound, corr +0.87 to +0.93, `obs_ll` flat at −0.17 to
++0.04.
+
+**Today: `s_asc`** on `fit_national_phasetype_ascertain_care_nonoise_16c` —
+same shape, reproduced quantitatively. Within-chain correlations:
+`transition_ll` **+0.835**, `log_posterior` **+0.830**, `obs_ll` **+0.074**,
+and every individual stream between −0.001 and +0.102. The whole visible
+gradient is the path density.
+
+**Why it is mechanical.** Both are ascertainment shares. Higher ascertainment
+means the same observed counts imply a smaller latent epidemic, so fewer
+binomial factors in the trajectory, so a higher path density. The complete-data
+log posterior rises with ascertainment by construction, whatever the data say.
+So this is a standing hazard for any ascertainment-like parameter rather than a
+property of one fit.
+
+**One thing that has changed since August and makes the fix cheaper.** Since
+`0.1.0+b3666ba6` the chain trace carries `obs_ll_<stream>`, one column per
+declared stream, summing to `obs_ll` to round-off — camdl confirmed this to us
+on 2026-08-25. So offering a data-only colouring is a column swap, and offering
+per-stream colouring is available without any new computation. The latter would
+answer the question actually behind most of these panels: not "does the fit
+like this parameter" but "which stream is pulling it".
+
+No urgency implied on the display work itself — we can and do decompose by
+hand. The reason for filing is that the panel is currently the fastest route to
+a wrong conclusion about identifiability, and it has now taken that route
+twice.
