@@ -26,18 +26,18 @@ interface RunBarProps {
 function RunArea({ runs, value, onChange, loading, error }: RunBarProps) {
   if (error) {
     return (
-      <span className="font-mono text-[11px] text-neutral-400">
+      <span className="font-mono text-[11px] text-faint">
         backend offline
       </span>
     )
   }
   if (loading) {
     return (
-      <div className="h-8 w-full animate-pulse rounded-none bg-neutral-100 sm:w-[28rem]" />
+      <div className="h-8 w-full animate-pulse rounded-none bg-raised sm:w-[28rem]" />
     )
   }
   if (runs.length === 0) {
-    return <span className="font-mono text-[11px] text-neutral-400">no runs</span>
+    return <span className="font-mono text-[11px] text-faint">no runs</span>
   }
   return <RunSelect runs={runs} value={value} onChange={onChange} />
 }
@@ -68,16 +68,16 @@ function formatConfigValue(v: string | number): string {
  * degenerate, so reading a fit means knowing it.
  */
 function Ticker({ run }: { run: RunSummary }) {
-  const sep = <span className="text-neutral-300">·</span>
+  const sep = <span className="text-ghost">·</span>
   // Every tab already loads this run's detail, so this shares that cache entry.
   const config = useRun(run.run_id).data?.algorithm_config ?? {}
   const knobs = Object.entries(config).filter(
     ([key]) => !CONFIG_ALREADY_SHOWN.has(key),
   )
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 font-mono text-[11px] text-neutral-500">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1.5 font-mono text-[11px] text-muted">
       <span className="inline-flex items-center gap-1">
-        <span className="text-neutral-700">{run.run_id}</span>
+        <span className="text-body">{run.run_id}</span>
         <CopyButton text={run.run_id} label="run id" />
         {/* The id identifies the fit; the link *opens* it. Both are worth a
             click, because they get pasted into different places — the id into a
@@ -148,34 +148,34 @@ function ProgressBlurb({ run }: { run: RunSummary }) {
 
   return (
     <div className="py-1">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] text-neutral-500">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] text-muted">
         <StatusBadge status={run.status} />
         {phase && (
           <>
-            <span className="text-neutral-300">·</span>
+            <span className="text-ghost">·</span>
             <span className="uppercase tracking-wide">{phase}</span>
           </>
         )}
         {counter && (
           <>
-            <span className="text-neutral-300">·</span>
+            <span className="text-ghost">·</span>
             <span className="tabular-nums">{counter}</span>
           </>
         )}
         {pct != null && (
-          <span className="tabular-nums text-neutral-400">{pct}%</span>
+          <span className="tabular-nums text-faint">{pct}%</span>
         )}
         {failed && p?.reason && (
           <>
-            <span className="text-neutral-300">·</span>
-            <span className="min-w-0 truncate text-red-500">{p.reason}</span>
+            <span className="text-ghost">·</span>
+            <span className="min-w-0 truncate text-danger-vivid">{p.reason}</span>
           </>
         )}
       </div>
       {pct != null && (
-        <div className="mt-1 h-1 w-full max-w-[22rem] overflow-hidden bg-neutral-100">
+        <div className="mt-1 h-1 w-full max-w-[22rem] overflow-hidden bg-raised">
           <div
-            className="h-full bg-blue-700 transition-[width] duration-500"
+            className="h-full bg-accent transition-[width] duration-500"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -206,7 +206,7 @@ function PredictPicker({ runId }: { runId: string }) {
   if (DEMO || predicts.length < 2) return null
   const shown = predicts.find((p) => p.key === run.data?.predict) ?? predicts[0]
   return (
-    <div className="flex flex-wrap items-center gap-x-2 pb-1.5 font-mono text-[11px] text-neutral-500">
+    <div className="flex flex-wrap items-center gap-x-2 pb-1.5 font-mono text-[11px] text-muted">
       <span className="uppercase">predict</span>
       <Select
         value={shown.key}
@@ -220,7 +220,7 @@ function PredictPicker({ runId }: { runId: string }) {
             <SelectItem key={p.key} value={p.key}>
               <span className="font-mono text-[12px]">
                 {predictLabel(p)}
-                <span className="ml-1.5 text-neutral-400">{p.key}</span>
+                <span className="ml-1.5 text-faint">{p.key}</span>
               </span>
             </SelectItem>
           ))}
@@ -240,7 +240,7 @@ export function RunBar(props: RunBarProps) {
   const selected = runs.find((r) => r.run_id === value)
 
   return (
-    <div className="mb-4 border-b border-neutral-200 pb-1">
+    <div className="mb-4 border-b border-line pb-1">
       <div className="flex min-w-0 items-center py-1">
         <RunArea {...props} />
       </div>

@@ -40,8 +40,8 @@ export function Figure({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width, ...deps])
   return (
-    <div className="group/fig relative border-t border-neutral-100 px-3 py-3">
-      <div ref={figRef} className="bg-white">
+    <div className="group/fig relative border-t border-hairline px-3 py-3">
+      <div ref={figRef} className="bg-surface">
         <div ref={ref} className="w-full min-w-0 overflow-x-auto" role="img" aria-label={aria} />
       </div>
       <PlotDownloadButton targetRef={figRef} name={name} />

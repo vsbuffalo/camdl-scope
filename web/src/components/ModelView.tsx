@@ -34,8 +34,8 @@ function Tex({ tex, display = false }: { tex: string; display?: boolean }) {
 /** A labelled section within the model card. */
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="border-b border-neutral-100 px-3 py-2.5 last:border-b-0">
-      <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+    <div className="border-b border-hairline px-3 py-2.5 last:border-b-0">
+      <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-faint">
         {label}
       </div>
       {children}
@@ -52,15 +52,15 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
 export function ModelView({ data }: { data: ModelRender }) {
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-neutral-200 px-3 py-2">
-        <span className="text-sm font-semibold text-neutral-900">{data.model}</span>
-        <span className="font-mono text-[11px] text-neutral-400">{data.mode}</span>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-3 py-2">
+        <span className="text-sm font-semibold text-ink">{data.model}</span>
+        <span className="font-mono text-[11px] text-faint">{data.mode}</span>
         {data.dimensions.length > 0 && (
           <span className="ml-auto flex flex-wrap gap-1">
             {data.dimensions.map((d) => (
               <span
                 key={d.name}
-                className="rounded-sm bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-500"
+                className="rounded-sm bg-raised px-1.5 py-0.5 font-mono text-[10px] text-muted"
                 title={d.levels.join(', ')}
               >
                 {d.name}: {d.levels.join(' · ')}
@@ -74,7 +74,7 @@ export function ModelView({ data }: { data: ModelRender }) {
         <Section label="states">
           {/* Raw compartment identifiers (e.g. `I_inf`), not KaTeX — render as
               plain mono so an underscore isn't read as a subscript. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-sm text-neutral-800">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-sm text-ink-dim">
             {data.states.map((s) => (
               <span key={s}>{s}</span>
             ))}
@@ -87,15 +87,15 @@ export function ModelView({ data }: { data: ModelRender }) {
           <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1.5">
             {data.parameters.map((p) => (
               <Fragment key={p.name}>
-                <dt className="text-right text-neutral-900">
+                <dt className="text-right text-ink">
                   <Tex tex={p.symbol} />
                 </dt>
-                <dd className="min-w-0 text-xs text-neutral-600">
-                  <span className="font-mono text-[10px] text-neutral-400">{p.name}</span>
+                <dd className="min-w-0 text-xs text-body-dim">
+                  <span className="font-mono text-[10px] text-faint">{p.name}</span>
                   {p.description && (
                     <Description
                       text={p.description}
-                      className="text-xs text-neutral-600"
+                      className="text-xs text-body-dim"
                     />
                   )}
                 </dd>
@@ -120,7 +120,7 @@ export function ModelView({ data }: { data: ModelRender }) {
           <div className="overflow-x-auto">
             <table className="text-sm">
               <thead>
-                <tr className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+                <tr className="text-[10px] font-medium uppercase tracking-wider text-faint">
                   <th className="py-1 pr-3 text-left" />
                   <th className="py-1 pr-4 text-left">reaction</th>
                   <th className="py-1 text-left">reaction rate</th>
@@ -129,15 +129,15 @@ export function ModelView({ data }: { data: ModelRender }) {
               <tbody>
                 {data.transitions.map((t) => (
                   <tr key={t.name} className="align-baseline">
-                    <td className="py-1 pr-3 font-mono text-[10px] text-neutral-400">
+                    <td className="py-1 pr-3 font-mono text-[10px] text-faint">
                       {t.name}
                     </td>
-                    <td className="whitespace-nowrap py-1 pr-4 text-neutral-800">
+                    <td className="whitespace-nowrap py-1 pr-4 text-ink-dim">
                       <Tex tex={t.reactants} />
-                      <span className="mx-1.5 text-neutral-400">→</span>
+                      <span className="mx-1.5 text-faint">→</span>
                       <Tex tex={t.products} />
                     </td>
-                    <td className="py-1 text-neutral-700">
+                    <td className="py-1 text-body">
                       <Tex tex={t.rate} />
                     </td>
                   </tr>
@@ -145,7 +145,7 @@ export function ModelView({ data }: { data: ModelRender }) {
               </tbody>
             </table>
           </div>
-          <p className="mt-2 text-[10px] text-neutral-400">
+          <p className="mt-2 text-[10px] text-faint">
             reaction rate = rate constant × reactants — the flux (ODE) / propensity
             (stochastic) at which the reaction fires.
           </p>

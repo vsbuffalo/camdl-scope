@@ -54,7 +54,7 @@ function fmtDur(s: number): string {
 /** Uppercase tracked section header, matching the other workspaces' strips. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="border-t border-neutral-100 bg-neutral-50/60 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-neutral-500">
+    <div className="border-t border-hairline bg-sunken/60 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
       {children}
     </div>
   )
@@ -74,19 +74,19 @@ function Stat({
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5 px-3 py-2">
-      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-neutral-500">
+      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
         {label}
       </span>
       <span
         className={cn(
           'font-mono text-lg leading-tight tabular-nums',
-          tone === 'warn' ? 'text-orange-700' : 'text-neutral-900',
+          tone === 'warn' ? 'text-notice' : 'text-ink',
         )}
       >
         {value}
       </span>
       {sub && (
-        <span className="font-mono text-[10px] leading-tight text-neutral-500">
+        <span className="font-mono text-[10px] leading-tight text-muted">
           {sub}
         </span>
       )}
@@ -103,7 +103,7 @@ function SizeBar({
   bytes,
   alloc,
   max,
-  color = 'bg-blue-800',
+  color = 'bg-accent-deep',
 }: {
   bytes: number
   alloc: number
@@ -113,7 +113,7 @@ function SizeBar({
   const pa = max > 0 ? Math.max(0, Math.min(100, (alloc / max) * 100)) : 0
   const pb = max > 0 ? Math.max(0, Math.min(100, (bytes / max) * 100)) : 0
   return (
-    <div className="relative h-2.5 w-full overflow-hidden rounded-[2px] bg-neutral-100">
+    <div className="relative h-2.5 w-full overflow-hidden rounded-[2px] bg-raised">
       <div
         className={cn('absolute inset-y-0 left-0 rounded-[2px] opacity-25', color)}
         style={{ width: `${pa}%` }}
@@ -148,11 +148,11 @@ function ScanBar({
 }) {
   const scanning = state === 'scanning'
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-neutral-100 px-3 py-2">
-      <span className="truncate font-mono text-[11px] text-neutral-700">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-hairline px-3 py-2">
+      <span className="truncate font-mono text-[11px] text-body">
         {root ?? '—'}
       </span>
-      <span className="font-mono text-[10px] text-neutral-500">
+      <span className="font-mono text-[10px] text-muted">
         {scanning
           ? `scanning · ${fmtInt(files)} files · ${fmtInt(dirs)} dirs`
           : scannedAt != null
@@ -163,7 +163,7 @@ function ScanBar({
         type="button"
         onClick={onRescan}
         disabled={busy || scanning}
-        className="ml-auto rounded border border-neutral-200 px-2 py-0.5 font-mono text-[10px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+        className="ml-auto rounded border border-line px-2 py-0.5 font-mono text-[10px] text-body hover:bg-sunken disabled:opacity-50"
       >
         {scanning ? 'scanning…' : 'rescan'}
       </button>
@@ -292,7 +292,7 @@ export function StoreWorkspace() {
 
         {snap && (
           <>
-            <div className="grid grid-cols-2 divide-x divide-neutral-100 border-b border-neutral-100 sm:grid-cols-4">
+            <div className="grid grid-cols-2 divide-x divide-hairline border-b border-hairline sm:grid-cols-4">
               <Stat
                 label="on disk"
                 value={fmtBytes(snap.total_alloc)}
@@ -331,7 +331,7 @@ export function StoreWorkspace() {
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2">
                   {statuses.map(({ status, n }) => (
                     <span key={status} className="flex items-center gap-2">
-                      <span className="font-mono text-[14px] tabular-nums text-neutral-900">
+                      <span className="font-mono text-[14px] tabular-nums text-ink">
                         {n}
                       </span>
                       <StatusBadge status={status} />
@@ -339,11 +339,11 @@ export function StoreWorkspace() {
                   ))}
                   {snap.orphan_dirs > 0 && (
                     <span className="flex items-center gap-1.5">
-                      <span className="size-2 rounded-[1px] bg-neutral-300" />
-                      <span className="font-mono text-[12px] tabular-nums text-neutral-900">
+                      <span className="size-2 rounded-[1px] bg-fill-soft" />
+                      <span className="font-mono text-[12px] tabular-nums text-ink">
                         {snap.orphan_dirs}
                       </span>
-                      <span className="font-mono text-[10px] text-neutral-500">
+                      <span className="font-mono text-[10px] text-muted">
                         not a readable run
                       </span>
                     </span>
@@ -359,28 +359,28 @@ export function StoreWorkspace() {
                   <span
                     className={cn(
                       'w-28 shrink-0 truncate font-mono text-[11px]',
-                      c.is_store ? 'text-neutral-900' : 'text-neutral-600',
+                      c.is_store ? 'text-ink' : 'text-body-dim',
                     )}
                     title={c.is_store ? 'the store the watcher indexes' : undefined}
                   >
                     {c.name}
-                    {c.is_store && <span className="text-blue-800"> ·</span>}
+                    {c.is_store && <span className="text-accent-deep"> ·</span>}
                   </span>
                   <SizeBar
                     bytes={c.bytes}
                     alloc={c.alloc_bytes}
                     max={maxChild}
-                    color={c.is_store ? 'bg-blue-800' : 'bg-neutral-500'}
+                    color={c.is_store ? 'bg-accent-deep' : 'bg-fill-strong'}
                   />
-                  <span className="w-20 shrink-0 text-right font-mono text-[11px] tabular-nums text-neutral-900">
+                  <span className="w-20 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink">
                     {fmtBytes(c.alloc_bytes)}
                   </span>
-                  <span className="hidden w-32 shrink-0 text-right font-mono text-[10px] tabular-nums text-neutral-500 sm:block">
+                  <span className="hidden w-32 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted sm:block">
                     {fmtInt(c.files)} files
                   </span>
                 </div>
               ))}
-              <p className="mt-1 font-mono text-[10px] leading-relaxed text-neutral-500">
+              <p className="mt-1 font-mono text-[10px] leading-relaxed text-muted">
                 Solid bar is data; the lighter extension is block slack — disk
                 paid for but not filled. A kind whose bar is mostly slack is
                 paying for file <em>count</em>, not volume.
@@ -391,24 +391,24 @@ export function StoreWorkspace() {
             <div className="flex flex-col gap-1.5 px-3 py-2">
               {snap.kinds.map((k: StoreKindRow) => (
                 <div key={k.name} className="flex items-center gap-3">
-                  <span className="w-40 shrink-0 truncate font-mono text-[11px] text-neutral-700">
+                  <span className="w-40 shrink-0 truncate font-mono text-[11px] text-body">
                     {k.name}
                   </span>
                   <SizeBar
                     bytes={k.bytes}
                     alloc={k.alloc_bytes}
                     max={maxKind}
-                    color="bg-neutral-500"
+                    color="bg-fill-strong"
                   />
-                  <span className="w-20 shrink-0 text-right font-mono text-[11px] tabular-nums text-neutral-900">
+                  <span className="w-20 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink">
                     {fmtBytes(k.alloc_bytes)}
                   </span>
-                  <span className="hidden w-32 shrink-0 text-right font-mono text-[10px] tabular-nums text-neutral-500 sm:block">
+                  <span className="hidden w-32 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted sm:block">
                     {fmtInt(k.files)} files
                   </span>
                 </div>
               ))}
-              <p className="mt-1 font-mono text-[10px] leading-relaxed text-neutral-500">
+              <p className="mt-1 font-mono text-[10px] leading-relaxed text-muted">
                 Rolled up by filename, not extension — a fits tree is ~98% .tsv,
                 which locates nothing.
               </p>
@@ -420,7 +420,7 @@ export function StoreWorkspace() {
             <div className="overflow-x-auto">
               <table className="w-full border-collapse font-mono text-[11px]">
                 <thead>
-                  <tr className="text-[10px] uppercase tracking-[0.1em] text-neutral-500">
+                  <tr className="text-[10px] uppercase tracking-[0.1em] text-muted">
                     <th className="w-[46%] px-3 py-1 text-left font-medium">run</th>
                     <th className="px-3 py-1 text-left font-medium">status</th>
                     <th className="px-3 py-1 text-right font-medium">on disk</th>
@@ -434,10 +434,10 @@ export function StoreWorkspace() {
                   {shownRuns.map((r) => (
                     <tr
                       key={r.run_id}
-                      className="border-t border-neutral-100 align-middle"
+                      className="border-t border-hairline align-middle"
                     >
                       <td
-                        className="max-w-[22rem] truncate px-3 py-1 text-neutral-900"
+                        className="max-w-[22rem] truncate px-3 py-1 text-ink"
                         title={r.run_id}
                       >
                         {r.label ?? r.run_id}
@@ -446,13 +446,13 @@ export function StoreWorkspace() {
                         {r.status ? (
                           <StatusBadge status={r.status} />
                         ) : (
-                          <span className="text-orange-700">not a run</span>
+                          <span className="text-notice">not a run</span>
                         )}
                       </td>
-                      <td className="px-3 py-1 text-right tabular-nums text-neutral-900">
+                      <td className="px-3 py-1 text-right tabular-nums text-ink">
                         {fmtBytes(r.alloc_bytes)}
                       </td>
-                      <td className="hidden px-3 py-1 text-right tabular-nums text-neutral-500 sm:table-cell">
+                      <td className="hidden px-3 py-1 text-right tabular-nums text-muted sm:table-cell">
                         {fmtInt(r.files)}
                       </td>
                       <td className="py-1 pr-3">
@@ -460,7 +460,7 @@ export function StoreWorkspace() {
                           bytes={r.bytes}
                           alloc={r.alloc_bytes}
                           max={maxRun}
-                          color={r.status ? 'bg-neutral-500' : 'bg-orange-600'}
+                          color={r.status ? 'bg-fill-strong' : 'bg-notice-solid'}
                         />
                       </td>
                     </tr>
@@ -472,7 +472,7 @@ export function StoreWorkspace() {
               <button
                 type="button"
                 onClick={() => setShowAllRuns((v) => !v)}
-                className="w-full border-t border-neutral-100 px-3 py-1.5 text-left font-mono text-[10px] text-neutral-600 hover:bg-neutral-50"
+                className="w-full border-t border-hairline px-3 py-1.5 text-left font-mono text-[10px] text-body-dim hover:bg-sunken"
               >
                 {showAllRuns
                   ? 'show fewer'
@@ -481,7 +481,7 @@ export function StoreWorkspace() {
             )}
 
             {snap.unreadable > 0 && (
-              <p className="border-t border-neutral-100 px-3 py-2 font-mono text-[10px] text-orange-700">
+              <p className="border-t border-hairline px-3 py-2 font-mono text-[10px] text-notice">
                 {fmtInt(snap.unreadable)} paths could not be read and are not
                 counted in these totals.
               </p>

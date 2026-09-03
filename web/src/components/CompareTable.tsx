@@ -22,14 +22,14 @@ function fE(x: number | null | undefined): string {
 
 /** Δelpd sign → P&L color: beats baseline green, worse red, baseline neutral. */
 function deltaClass(d: number | null | undefined): string {
-  if (d == null) return 'text-neutral-400'
-  if (d > 0) return 'text-emerald-600'
-  if (d < 0) return 'text-red-600'
-  return 'text-neutral-500'
+  if (d == null) return 'text-faint'
+  if (d > 0) return 'text-good'
+  if (d < 0) return 'text-danger'
+  return 'text-muted'
 }
 
 const ALIAS_CHIP =
-  'inline-flex shrink-0 items-center border border-neutral-300 px-1 font-mono text-[10px] font-medium leading-tight text-neutral-600'
+  'inline-flex shrink-0 items-center border border-line-strong px-1 font-mono text-[10px] font-medium leading-tight text-body-dim'
 
 /**
  * The prequential comparison — the financial-terminal read of out-of-sample
@@ -51,7 +51,7 @@ export function CompareTable({
   return (
     <div className="space-y-2">
       {!data.commensurable && (
-        <div className="border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-relaxed text-amber-800">
+        <div className="border border-warn-line bg-warn-surface px-3 py-2 text-[12px] leading-relaxed text-warn-deep">
           Horizons differ across models (T_score mismatch) — Δ columns are not
           commensurable and are suppressed. The absolute elpd / CRPS / PIT are
           still each model's own out-of-sample scores.
@@ -63,7 +63,7 @@ export function CompareTable({
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-right font-mono text-[12px] tabular-nums">
             <thead>
-              <tr className="border-b border-neutral-200 text-[10px] uppercase tracking-wide text-neutral-400">
+              <tr className="border-b border-line text-[10px] uppercase tracking-wide text-faint">
                 <th className="px-2 py-2 text-left font-medium">—</th>
                 <th className="px-3 py-2 text-left font-medium">Model</th>
                 <th className="px-2 py-2 font-medium">T</th>
@@ -99,8 +99,8 @@ function Row({ r, alias }: { r: CompareRow; alias: string }) {
   return (
     <tr
       className={cn(
-        'border-b border-neutral-100 last:border-b-0',
-        r.is_baseline && 'bg-neutral-50',
+        'border-b border-hairline last:border-b-0',
+        r.is_baseline && 'bg-sunken',
       )}
     >
       <td className="px-2 py-2 text-left">
@@ -108,18 +108,18 @@ function Row({ r, alias }: { r: CompareRow; alias: string }) {
       </td>
       <td className="px-3 py-2 text-left">
         <div className="flex items-center gap-2">
-          <span className="max-w-[20rem] truncate text-neutral-800">
+          <span className="max-w-[20rem] truncate text-ink-dim">
             {r.label}
           </span>
           {r.is_baseline && (
-            <span className="shrink-0 text-[10px] uppercase tracking-wide text-neutral-400">
+            <span className="shrink-0 text-[10px] uppercase tracking-wide text-faint">
               baseline
             </span>
           )}
         </div>
       </td>
-      <td className="px-2 py-2 text-neutral-500">{r.t_score}</td>
-      <td className="px-2 py-2 text-neutral-800">{f2(r.elpd)}</td>
+      <td className="px-2 py-2 text-muted">{r.t_score}</td>
+      <td className="px-2 py-2 text-ink-dim">{f2(r.elpd)}</td>
       <td
         className={cn(
           'px-2 py-2',
@@ -129,16 +129,16 @@ function Row({ r, alias }: { r: CompareRow; alias: string }) {
       >
         {fDelta(r.delta_elpd)}
       </td>
-      <td className="px-2 py-2 text-neutral-500">{fE(r.e_t)}</td>
-      <td className="px-2 py-2 text-neutral-400">{f2(r.se_delta_elpd)}</td>
-      <td className="px-3 py-2 text-left text-neutral-600">
+      <td className="px-2 py-2 text-muted">{fE(r.e_t)}</td>
+      <td className="px-2 py-2 text-faint">{f2(r.se_delta_elpd)}</td>
+      <td className="px-3 py-2 text-left text-body-dim">
         {r.evidence_label ?? '—'}
       </td>
-      <td className="px-2 py-2 text-neutral-600">{f3(r.mean_crps)}</td>
+      <td className="px-2 py-2 text-body-dim">{f3(r.mean_crps)}</td>
       <td
         className={cn(
           'whitespace-nowrap px-2 py-2',
-          r.overconfident ? 'text-amber-600' : 'text-neutral-500',
+          r.overconfident ? 'text-warn' : 'text-muted',
         )}
       >
         {fPit(r.pit_cov90)}
@@ -151,7 +151,7 @@ function Row({ r, alias }: { r: CompareRow; alias: string }) {
 function Metric({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-2">
-      <span className="text-[10px] uppercase tracking-wide text-neutral-400">
+      <span className="text-[10px] uppercase tracking-wide text-faint">
         {label}
       </span>
       <span>{children}</span>
@@ -163,24 +163,24 @@ function CompareCard({ r, alias }: { r: CompareRow; alias: string }) {
   return (
     <div
       className={cn(
-        'border border-neutral-200',
-        r.is_baseline && 'bg-neutral-50',
+        'border border-line',
+        r.is_baseline && 'bg-sunken',
       )}
     >
-      <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2">
+      <div className="flex items-center gap-2 border-b border-hairline px-3 py-2">
         <span className={ALIAS_CHIP}>{alias}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-neutral-800">
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-dim">
           {r.label}
         </span>
         {r.is_baseline && (
-          <span className="shrink-0 text-[10px] uppercase tracking-wide text-neutral-400">
+          <span className="shrink-0 text-[10px] uppercase tracking-wide text-faint">
             baseline
           </span>
         )}
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-3 py-2.5 font-mono text-[12px] tabular-nums">
         <Metric label="elpd">
-          <span className="text-neutral-800">{f2(r.elpd)}</span>
+          <span className="text-ink-dim">{f2(r.elpd)}</span>
         </Metric>
         <Metric label="Δelpd">
           <span
@@ -190,22 +190,22 @@ function CompareCard({ r, alias }: { r: CompareRow; alias: string }) {
           </span>
         </Metric>
         <Metric label="E_T">
-          <span className="text-neutral-500">{fE(r.e_t)}</span>
+          <span className="text-muted">{fE(r.e_t)}</span>
         </Metric>
         <Metric label="se(Δ)">
-          <span className="text-neutral-400">{f2(r.se_delta_elpd)}</span>
+          <span className="text-faint">{f2(r.se_delta_elpd)}</span>
         </Metric>
         <Metric label="evidence">
-          <span className="text-neutral-600">{r.evidence_label ?? '—'}</span>
+          <span className="text-body-dim">{r.evidence_label ?? '—'}</span>
         </Metric>
         <Metric label="T">
-          <span className="text-neutral-500">{r.t_score}</span>
+          <span className="text-muted">{r.t_score}</span>
         </Metric>
         <Metric label="CRPS">
-          <span className="text-neutral-600">{f3(r.mean_crps)}</span>
+          <span className="text-body-dim">{f3(r.mean_crps)}</span>
         </Metric>
         <Metric label="PIT₉₀">
-          <span className={r.overconfident ? 'text-amber-600' : 'text-neutral-500'}>
+          <span className={r.overconfident ? 'text-warn' : 'text-muted'}>
             {fPit(r.pit_cov90)}
             {r.overconfident && ' ⚠'}
           </span>

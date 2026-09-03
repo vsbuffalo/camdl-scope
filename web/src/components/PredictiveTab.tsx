@@ -295,9 +295,9 @@ function PredictivePanel({
   const figRef = useRef<HTMLDivElement>(null)
 
   return (
-    <div className="group/fig relative border-t border-neutral-100 px-3 py-2">
-      <div ref={figRef} className="bg-white">
-        <div className="font-mono text-[10px] text-neutral-500">{title}</div>
+    <div className="group/fig relative border-t border-hairline px-3 py-2">
+      <div ref={figRef} className="bg-surface">
+        <div className="font-mono text-[10px] text-muted">{title}</div>
         <div
           ref={ref}
           className="mt-1 w-full min-w-0 overflow-x-auto"
@@ -815,19 +815,19 @@ function IntervalReadout({ rows }: { rows: IntervalRow[] }) {
           el.replaceChildren(node)
         }}
       />
-      <div className="flex flex-col gap-0.5 px-3 pb-2 font-mono text-[10px] text-neutral-500">
+      <div className="flex flex-col gap-0.5 px-3 pb-2 font-mono text-[10px] text-muted">
         {rows.map((r) => (
           <div key={r.label} className="flex flex-wrap items-baseline gap-x-2">
             <span
               className="inline-block size-2 shrink-0 rounded-[1px]"
               style={{ background: r.color }}
             />
-            <span className="text-neutral-700">{r.label}</span>
+            <span className="text-body">{r.label}</span>
             <span className="tabular-nums">
               {fmtValue(r.q50)} [{fmtValue(r.q05)}, {fmtValue(r.q95)}]
             </span>
             {r.obs != null && (
-              <span className="tabular-nums text-neutral-900">
+              <span className="tabular-nums text-ink">
                 observed {fmtValue(r.obs)}
               </span>
             )}
@@ -872,7 +872,7 @@ function ArmChecks({
           type="button"
           onClick={() => setUserOpen(!open)}
           aria-expanded={open}
-          className="flex items-baseline gap-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400 transition-colors hover:text-neutral-600"
+          className="flex items-baseline gap-1 text-[10px] font-medium uppercase tracking-wider text-faint transition-colors hover:text-body-dim"
         >
           <span>{open ? '▾' : '▸'}</span>
           <span>Predictions</span>
@@ -881,23 +881,23 @@ function ArmChecks({
           </span>
         </button>
       ) : (
-        <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
           Predictions
         </span>
       )}
 
-      <span className="flex items-center gap-2 font-mono text-[10px] text-neutral-400">
+      <span className="flex items-center gap-2 font-mono text-[10px] text-faint">
         <button
           type="button"
           onClick={() => onSetAll(arms.map((a) => a.key))}
-          className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+          className="underline-offset-2 transition-colors hover:text-body hover:underline"
         >
           all
         </button>
         <button
           type="button"
           onClick={() => onSetAll([])}
-          className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+          className="underline-offset-2 transition-colors hover:text-body hover:underline"
         >
           none
         </button>
@@ -919,7 +919,7 @@ function ArmChecks({
                   className="size-3"
                   style={{ accentColor: a.color }}
                 />
-                <span className={on ? 'text-neutral-900' : 'text-neutral-500'}>
+                <span className={on ? 'text-ink' : 'text-muted'}>
                   {a.label}
                 </span>
               </label>
@@ -959,7 +959,7 @@ function LayerChecks({
 }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
         Show
       </span>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -969,13 +969,13 @@ function LayerChecks({
             type="checkbox"
             checked={obsPoints}
             onChange={onToggleObsPoints}
-            className="size-3 accent-neutral-800"
+            className="size-3 accent-ink-dim"
           />
           <span
             className="inline-block size-[7px] rounded-full"
             style={{ background: obsPoints ? OBSERVED : '#a3a3a3' }}
           />
-          <span className={obsPoints ? 'text-neutral-900' : 'text-neutral-500'}>
+          <span className={obsPoints ? 'text-ink' : 'text-muted'}>
             obs points
           </span>
         </label>
@@ -984,13 +984,13 @@ function LayerChecks({
             type="checkbox"
             checked={obsLine}
             onChange={onToggleObsLine}
-            className="size-3 accent-neutral-800"
+            className="size-3 accent-ink-dim"
           />
           <span
             className="inline-block h-[1.5px] w-3 rounded-full"
             style={{ background: obsLine ? OBSERVED : '#a3a3a3' }}
           />
-          <span className={obsLine ? 'text-neutral-900' : 'text-neutral-500'}>
+          <span className={obsLine ? 'text-ink' : 'text-muted'}>
             obs line
           </span>
         </label>
@@ -999,9 +999,9 @@ function LayerChecks({
             type="checkbox"
             checked={logY}
             onChange={onToggleLogY}
-            className="size-3 accent-neutral-800"
+            className="size-3 accent-ink-dim"
           />
-          <span className={logY ? 'text-neutral-900' : 'text-neutral-500'}>
+          <span className={logY ? 'text-ink' : 'text-muted'}>
             log y
           </span>
         </label>
@@ -1037,12 +1037,12 @@ function ConvergenceBadge({
         {verdict ? verdict.text : 'camdl verdict not loaded'}
       </span>
       {rhat != null && (
-        <span className="font-mono text-[10px] text-neutral-400">
+        <span className="font-mono text-[10px] text-faint">
           R̂max {rhat.toFixed(rhat < 10 ? 3 : 1)}
         </span>
       )}
       {ess != null && (
-        <span className="font-mono text-[10px] text-neutral-400">
+        <span className="font-mono text-[10px] text-faint">
           ESSmin {Math.round(ess).toLocaleString()}
         </span>
       )}
@@ -1053,7 +1053,7 @@ function ConvergenceBadge({
 /** Swatch legend mapping each overlaid arm (+ observed) to its colour. */
 function Legend({ arms }: { arms: { label: string; color: string }[] }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-neutral-400">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-faint">
       {arms.map((a) => (
         <span key={a.label} className="flex items-center gap-1">
           <span
@@ -1625,13 +1625,13 @@ export function PredictiveTab({ runId }: { runId: string }) {
       </div>
 
       {isPending && (
-        <div className="border-t border-neutral-100">
+        <div className="border-t border-hairline">
           <ForestSkeleton rows={2} />
         </div>
       )}
 
       {isError && (
-        <div className="border-t border-neutral-100">
+        <div className="border-t border-hairline">
           <MutedNotice
             bordered={false}
             title="Couldn't load the predictive check"
@@ -1641,7 +1641,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
       )}
 
       {data && strata.length === 0 && !isPending && (
-        <div className="border-t border-neutral-100">
+        <div className="border-t border-hairline">
           <MutedNotice
             bordered={false}
             title="No predictive points"
@@ -1652,7 +1652,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
 
       {strata.length > 0 && (
         <>
-          <div className="flex gap-4 border-t border-neutral-200 px-3 pt-2">
+          <div className="flex gap-4 border-t border-line px-3 pt-2">
             {viewTabs.map(([v, label]) => (
               <button
                 key={v}
@@ -1662,8 +1662,8 @@ export function PredictiveTab({ runId }: { runId: string }) {
                 className={cn(
                   '-mb-px border-b-2 py-1.5 font-mono text-xs transition-colors',
                   v === view
-                    ? 'border-neutral-900 text-neutral-900'
-                    : 'border-transparent text-neutral-500 hover:text-neutral-800',
+                    ? 'border-line-ink text-ink'
+                    : 'border-transparent text-muted hover:text-ink-dim',
                 )}
               >
                 {label}
@@ -1674,17 +1674,17 @@ export function PredictiveTab({ runId }: { runId: string }) {
           {view === 'series' && (
             <>
               {singleTime && (
-                <div className="border-t border-neutral-100 px-3 py-2 font-mono text-[10px] text-neutral-400">
+                <div className="border-t border-hairline px-3 py-2 font-mono text-[10px] text-faint">
                   this stream is observed at a single time — the series has no
                   extent, and a band needs two points to span. The check is{' '}
-                  <span className="text-neutral-500">
+                  <span className="text-muted">
                     {indexDims.length > 0 ? 'By index' : 'Interval'}
                   </span>
                   .
                 </div>
               )}
               {noArms && (
-                <div className="border-t border-neutral-100 px-3 py-2 font-mono text-[10px] text-neutral-400">
+                <div className="border-t border-hairline px-3 py-2 font-mono text-[10px] text-faint">
                   showing observed data only — no prediction is selected
                   {arms.length > 0 &&
                     !arms.some(
@@ -1695,16 +1695,16 @@ export function PredictiveTab({ runId }: { runId: string }) {
                       <>
                         {' '}
                         (this sidecar carries no free-running{' '}
-                        <span className="text-neutral-500">fitted</span>{' '}
+                        <span className="text-muted">fitted</span>{' '}
                         posterior predictive — likely a predict run with an
                         explicit{' '}
-                        <span className="text-neutral-500">--scenario</span>{' '}
+                        <span className="text-muted">--scenario</span>{' '}
                         list)
                       </>
                     )}
                 </div>
               )}
-              <div className="flex flex-col gap-2 border-t border-neutral-100 px-3 py-2">
+              <div className="flex flex-col gap-2 border-t border-hairline px-3 py-2">
                 <LayerChecks
                   hidden={hiddenLayers}
                   onToggle={(layer) =>
@@ -1726,7 +1726,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
                       onChange={(v) => setWindowMode(v as 'data' | 'full')}
                     />
                     {windowMode === 'full' && (
-                      <span className="font-mono text-[10px] text-neutral-400">
+                      <span className="font-mono text-[10px] text-faint">
                         dashed rule = end of observed data · beyond it is forecast
                       </span>
                     )}
@@ -1758,14 +1758,14 @@ export function PredictiveTab({ runId }: { runId: string }) {
           {view === 'interval' &&
             (intervalRows.length > 0 ? (
               <>
-                <div className="flex flex-col gap-2 border-t border-neutral-100 px-3 py-2">
-                  <span className="font-mono text-[10px] text-neutral-400">
+                <div className="flex flex-col gap-2 border-t border-hairline px-3 py-2">
+                  <span className="font-mono text-[10px] text-faint">
                     at t = {fmtTick(times[0]!)}
                     {toDate && ` · ${fmtModelDate(toDate, times[0]!)}`} · thin
                     rule = 90% · thick = 50% · tick = predicted median · dot =
                     observed
                   </span>
-                  <span className="font-mono text-[10px] text-neutral-400">
+                  <span className="font-mono text-[10px] text-faint">
                     PIT = the observation’s quantile in that predictive; outside
                     0.05–0.95 is outside the 90% interval
                   </span>
@@ -1784,7 +1784,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
             (scatterHasPoints ? (
               <>
                 {indexDims.length > 0 && (
-                  <div className="flex flex-col gap-2 border-t border-neutral-100 px-3 py-2">
+                  <div className="flex flex-col gap-2 border-t border-hairline px-3 py-2">
                     <Segmented
                       label="Colour by"
                       options={['none', ...indexDims]}
@@ -1795,7 +1795,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
                   </div>
                 )}
                 <PredObsScatter points={points} r2Lines={r2Lines} />
-                <div className="flex flex-col gap-2 border-t border-neutral-100 px-3 pt-2">
+                <div className="flex flex-col gap-2 border-t border-hairline px-3 pt-2">
                   <Segmented
                     label="Residuals vs"
                     options={[
@@ -1831,7 +1831,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
                   toDate={toDate}
                 />
                 {residualX === 'time' && (
-                  <div className="px-3 pb-2 font-mono text-[10px] text-neutral-400">
+                  <div className="px-3 pb-2 font-mono text-[10px] text-faint">
                     bold line = {RESID_MA_WINDOW}-point moving average of the mean
                     residual · dashed = overall mean. A sustained excursion from
                     zero is temporal misspecification.
@@ -1850,7 +1850,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
             (pit.length > 0 ? (
               <>
                 <PitPlot pit={pit} />
-                <div className="px-3 pb-2 font-mono text-[10px] text-neutral-400">
+                <div className="px-3 pb-2 font-mono text-[10px] text-faint">
                   Uniform (dashed) = calibrated · U-shape = overconfident · dome =
                   underconfident · slope = biased. n = {pit.length}.
                 </div>
@@ -1869,7 +1869,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
               f.points.some((p) => p.pred != null || p.obs != null),
             ) ? (
               <>
-                <div className="flex flex-col gap-2 border-t border-neutral-100 px-3 py-2">
+                <div className="flex flex-col gap-2 border-t border-hairline px-3 py-2">
                   <Segmented
                     label="Index (x)"
                     options={indexDims}
@@ -1891,7 +1891,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
                       }
                     />
                   )}
-                  <span className="font-mono text-[10px] text-neutral-400">
+                  <span className="font-mono text-[10px] text-faint">
                     line = predicted median · ○ = observed · marginalised over time
                   </span>
                 </div>

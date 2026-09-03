@@ -88,7 +88,7 @@ function CopyButton({ text }: { text: string }) {
     <button
       type="button"
       onClick={onCopy}
-      className="shrink-0 rounded-sm border border-neutral-200 px-2 py-0.5 font-mono text-[11px] text-neutral-500 transition-colors hover:border-neutral-300 hover:text-neutral-800"
+      className="shrink-0 rounded-sm border border-line px-2 py-0.5 font-mono text-[11px] text-muted transition-colors hover:border-line-strong hover:text-ink-dim"
     >
       {copied ? 'copied ✓' : 'copy'}
     </button>
@@ -107,10 +107,10 @@ function SourcePanel({
 }) {
   return (
     <Card className="overflow-hidden">
-      <div className="flex items-start justify-between gap-3 border-b border-neutral-200 px-3 py-2">
+      <div className="flex items-start justify-between gap-3 border-b border-line px-3 py-2">
         <div className="min-w-0">
-          <div className="font-mono text-xs text-neutral-800">{title}</div>
-          <div className="mt-0.5 truncate font-mono text-[10px] text-neutral-400">
+          <div className="font-mono text-xs text-ink-dim">{title}</div>
+          <div className="mt-0.5 truncate font-mono text-[10px] text-faint">
             {subline}
           </div>
         </div>
@@ -273,7 +273,7 @@ export function SourceTab({ runId }: { runId: string }) {
         subline={
           <>
             {data.model.path ?? 'no recorded path'}
-            <span className="text-neutral-300">
+            <span className="text-ghost">
               {' '}
               · {originNote(data.model.origin)}
             </span>
@@ -287,7 +287,7 @@ export function SourceTab({ runId }: { runId: string }) {
         subline={
           <>
             {basename(data.fit_toml.path) ?? 'fit.toml'}
-            <span className="text-neutral-300">
+            <span className="text-ghost">
               {' '}
               · {originNote(data.fit_toml.origin)}
             </span>

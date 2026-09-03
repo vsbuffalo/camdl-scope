@@ -71,34 +71,34 @@ export function CrossChainMatrix({ compat }: { compat: Compat }) {
   return (
     <div className="flex flex-col gap-2 px-3 py-2">
       <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
-        <span className="font-mono text-[11px] text-neutral-700">
+        <span className="font-mono text-[11px] text-body">
           {k} chains scored
         </span>
         {compat.diagonal_dominance != null && (
-          <span className="font-mono text-[11px] text-neutral-600">
+          <span className="font-mono text-[11px] text-body-dim">
             diagonal dominance{' '}
-            <span className="text-neutral-900 tabular-nums">
+            <span className="text-ink tabular-nums">
               {compat.diagonal_dominance.toFixed(2)}
             </span>
           </span>
         )}
         {compat.asymmetry != null && (
-          <span className="font-mono text-[11px] text-neutral-600">
+          <span className="font-mono text-[11px] text-body-dim">
             asymmetry{' '}
-            <span className="text-neutral-900 tabular-nums">
+            <span className="text-ink tabular-nums">
               {compat.asymmetry.toFixed(2)}
             </span>
           </span>
         )}
         {compat.terms && (
-          <span className="font-mono text-[10px] text-neutral-400">
+          <span className="font-mono text-[10px] text-faint">
             {compat.terms}
           </span>
         )}
       </div>
 
       {compat.has_positive_offdiagonal && (
-        <p className="border-l-2 border-red-600 bg-red-50 px-2 py-1 font-mono text-[10px] leading-relaxed text-red-800">
+        <p className="border-l-2 border-danger bg-danger-surface px-2 py-1 font-mono text-[10px] leading-relaxed text-danger-deep">
           At least one chain scores another chain&apos;s path higher than its
           own. That chain has not found a mode of its own — it is sitting
           somewhere its own parameters do not prefer.
@@ -109,13 +109,13 @@ export function CrossChainMatrix({ compat }: { compat: Compat }) {
         <table className="border-separate border-spacing-0 font-mono text-[10px] tabular-nums">
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 bg-white px-1.5 py-1 text-right font-medium text-neutral-400">
+              <th className="sticky left-0 z-10 bg-surface px-1.5 py-1 text-right font-medium text-faint">
                 θ ↓ / path →
               </th>
               {order.map((j) => (
                 <th
                   key={j}
-                  className="px-1.5 py-1 text-center font-medium text-neutral-500"
+                  className="px-1.5 py-1 text-center font-medium text-muted"
                 >
                   c{chains[j]}
                 </th>
@@ -125,7 +125,7 @@ export function CrossChainMatrix({ compat }: { compat: Compat }) {
           <tbody>
             {order.map((i) => (
               <tr key={i}>
-                <th className="sticky left-0 z-10 bg-white px-1.5 py-1 text-right font-medium text-neutral-500">
+                <th className="sticky left-0 z-10 bg-surface px-1.5 py-1 text-right font-medium text-muted">
                   c{chains[i]}
                 </th>
                 {order.map((j) => {
@@ -135,7 +135,7 @@ export function CrossChainMatrix({ compat }: { compat: Compat }) {
                       <td
                         key={j}
                         title="non-finite"
-                        className="border border-white bg-neutral-50 px-1.5 py-1 text-center text-neutral-300"
+                        className="border border-surface bg-sunken px-1.5 py-1 text-center text-ghost"
                       >
                         —
                       </td>
@@ -147,10 +147,10 @@ export function CrossChainMatrix({ compat }: { compat: Compat }) {
                       key={j}
                       title={`log p(x_c${chains[j]} | θ_c${chains[i]}) − log p(x_c${chains[i]} | θ_c${chains[i]}) = ${v.toFixed(2)} nats`}
                       className={cn(
-                        'border border-white px-1.5 py-1 text-center',
+                        'border border-surface px-1.5 py-1 text-center',
                         diag
-                          ? 'font-semibold text-neutral-500'
-                          : 'text-neutral-900',
+                          ? 'font-semibold text-muted'
+                          : 'text-ink',
                       )}
                       style={
                         diag
@@ -168,28 +168,28 @@ export function CrossChainMatrix({ compat }: { compat: Compat }) {
         </table>
       </div>
 
-      <p className="font-mono text-[10px] leading-relaxed text-neutral-500">
+      <p className="font-mono text-[10px] leading-relaxed text-muted">
         Cell (row θ, column path) is{' '}
-        <span className="text-neutral-700">
+        <span className="text-body">
           log p(x_col | θ_row) − log p(x_row | θ_row)
         </span>{' '}
         in nats — how much worse another chain&apos;s path is under this
         row&apos;s parameters. Zero on the diagonal by construction. Blue is
-        worse, <span className="text-red-700">red is better than the row&apos;s
+        worse, <span className="text-danger-strong">red is better than the row&apos;s
         own path</span>. Rows and columns follow a clustering of the symmetrised
         matrix, so mutually-compatible chains sit together: a block is a mode,
         and all-singletons means every chain is stuck somewhere different.
       </p>
 
       {compat.n_nonfinite > 0 && (
-        <p className="font-mono text-[10px] text-amber-700">
+        <p className="font-mono text-[10px] text-warn-strong">
           {compat.n_nonfinite} non-finite{' '}
           {compat.n_nonfinite === 1 ? 'cell' : 'cells'}, drawn blank — a path
           with zero probability under those parameters.
         </p>
       )}
 
-      <p className="font-mono text-[10px] leading-relaxed text-neutral-500">
+      <p className="font-mono text-[10px] leading-relaxed text-muted">
         Chains refused at seeding are absent from this matrix, so {k} is what
         was scored, not what was launched
         {chains.length > 1 &&

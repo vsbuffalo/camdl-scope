@@ -28,10 +28,10 @@ type Term = Decomposition['terms'][number]
 
 /** Colour by role, not by rank, so a term keeps its hue as fits change. */
 const TERM_COLOR: Record<string, string> = {
-  obs_ll: 'bg-red-600',
-  transition_ll: 'bg-blue-700',
-  initial_state_ll: 'bg-emerald-700',
-  prior: 'bg-amber-500',
+  obs_ll: 'bg-danger',
+  transition_ll: 'bg-accent',
+  initial_state_ll: 'bg-good-strong',
+  prior: 'bg-warn-vivid',
 }
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`
@@ -78,7 +78,7 @@ function ShareBar({
     <div className={cn('relative min-w-0 flex-1', height)}>
       {axis.zero > 0.5 && (
         <div
-          className="absolute inset-y-0 w-px bg-neutral-200"
+          className="absolute inset-y-0 w-px bg-fill-faint"
           style={{ left: `${axis.zero}%` }}
         />
       )}
@@ -103,20 +103,20 @@ function TermBar({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="w-28 shrink-0 truncate font-mono text-[11px] text-neutral-700 sm:w-44">
+      <span className="w-28 shrink-0 truncate font-mono text-[11px] text-body sm:w-44">
         {term.label}
       </span>
       <ShareBar
         share={term.share}
         axis={axis}
-        color={TERM_COLOR[term.key] ?? 'bg-neutral-500'}
+        color={TERM_COLOR[term.key] ?? 'bg-fill-strong'}
         height="h-3"
       />
-      <span className="w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-neutral-900 sm:w-16">
+      <span className="w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink sm:w-16">
         {pct(term.share)}
       </span>
       {/* Secondary to the share; dropped on a phone so the bar keeps width. */}
-      <span className="hidden w-20 shrink-0 text-right font-mono text-[10px] tabular-nums text-neutral-500 sm:block">
+      <span className="hidden w-20 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted sm:block">
         {fmtNats(term.range_nats)} nats
       </span>
     </div>
@@ -126,7 +126,7 @@ function TermBar({
 export function TargetDecomposition({ dec }: { dec: Decomposition }) {
   if (!dec.available) {
     return (
-      <p className="px-3 py-2 font-mono text-[10px] leading-relaxed text-neutral-500">
+      <p className="px-3 py-2 font-mono text-[10px] leading-relaxed text-muted">
         No target decomposition — {dec.reason}
       </p>
     )
@@ -156,30 +156,30 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
           one line away should take this one. A negative share cannot be
           phrased as "explains −15% of the spread" — nothing explains a
           negative fraction — so that case gets its own sentence. */}
-      <p className="font-mono text-[11px] leading-relaxed text-neutral-700">
+      <p className="font-mono text-[11px] leading-relaxed text-body">
         Across {dec.chain_ids.length} chains the target spans{' '}
-        <span className="text-neutral-900">{fmtNats(dec.total_range)} nats</span>.
+        <span className="text-ink">{fmtNats(dec.total_range)} nats</span>.
         {traj && (
           <>
             {' '}
             The latent path accounts for{' '}
-            <span className="text-neutral-900">{pct(traj.share)}</span> of that
+            <span className="text-ink">{pct(traj.share)}</span> of that
             spread
           </>
         )}
         {obs && obs.share >= 0 && (
           <>
             ; the data accounts for{' '}
-            <span className="text-neutral-900">{pct(obs.share)}</span>
+            <span className="text-ink">{pct(obs.share)}</span>
           </>
         )}
         {obs && obs.share < 0 && (
           <>
             . The data term runs{' '}
-            <span className="text-neutral-900">against</span> it at{' '}
-            <span className="text-neutral-900">{pct(obs.share)}</span>
+            <span className="text-ink">against</span> it at{' '}
+            <span className="text-ink">{pct(obs.share)}</span>
             {obs.share > MATERIAL_OPPOSING && (
-              <span className="text-neutral-500">
+              <span className="text-muted">
                 {' '}
                 — small enough to be sampling noise
               </span>
@@ -190,7 +190,7 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
       </p>
 
       {obsOpposes && (
-        <p className="border-l-2 border-red-600 bg-red-50 px-2 py-1 font-mono text-[10px] leading-relaxed text-red-800">
+        <p className="border-l-2 border-danger bg-danger-surface px-2 py-1 font-mono text-[10px] leading-relaxed text-danger-deep">
           The observation term moves <em>against</em> the target: the chains the
           sampler ranks highest are the ones fitting the data worst. This is the
           complete-data target being gamed — a chain buys more trajectory
@@ -201,7 +201,7 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
       )}
 
       {dataLeads && (
-        <p className="border-l-2 border-red-600 bg-red-50 px-2 py-1 font-mono text-[10px] leading-relaxed text-red-800">
+        <p className="border-l-2 border-danger bg-danger-surface px-2 py-1 font-mono text-[10px] leading-relaxed text-danger-deep">
           The observation term outranks the trajectory term. The chains disagree
           about something the data can see — unusual, and worth following into
           the per-stream breakdown below.
@@ -214,7 +214,7 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
         ))}
       </div>
 
-      <p className="font-mono text-[10px] leading-relaxed text-neutral-500">
+      <p className="font-mono text-[10px] leading-relaxed text-muted">
         Share of the between-chain variance in the sampled target, signed —
         shares sum to 100%, so one above it means another is negative. A
         negative share means the term is anti-correlated with the total: chains
@@ -226,7 +226,7 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
       </p>
 
       {fewChains && (
-        <p className="font-mono text-[10px] leading-relaxed text-neutral-500">
+        <p className="font-mono text-[10px] leading-relaxed text-muted">
           Estimated from {dec.chain_ids.length} chain means, so the shares carry
           real sampling error — read the sign and the rough magnitude, not the
           decimal.
@@ -234,7 +234,7 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
       )}
 
       {dec.initial_state_derived && (
-        <p className="font-mono text-[10px] text-neutral-500">
+        <p className="font-mono text-[10px] text-muted">
           This run predates the <code>initial_state_ll</code> column; the
           initial-state term was recovered by subtraction, so it carries no
           independent check.
@@ -242,7 +242,7 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
       )}
 
       {residualBroken && (
-        <p className="font-mono text-[10px] text-amber-700">
+        <p className="font-mono text-[10px] text-warn-strong">
           The terms do not reconcile — largest residual{' '}
           {dec.residual_max.toExponential(1)} nats against a tolerance of{' '}
           {dec.residual_tol}. camdl is writing a term this view does not know
@@ -252,32 +252,32 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
       )}
 
       {dec.streams.length > 0 && (
-        <div className="mt-1 border-t border-neutral-100 pt-2">
-          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+        <div className="mt-1 border-t border-hairline pt-2">
+          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-faint">
             observation term, by stream
           </div>
           <div className="flex flex-col gap-1">
             {dec.streams.map((s) => (
               <div key={s.stream} className="flex items-center gap-3">
-                <span className="w-28 shrink-0 truncate font-mono text-[11px] text-neutral-600 sm:w-44">
+                <span className="w-28 shrink-0 truncate font-mono text-[11px] text-body-dim sm:w-44">
                   {s.stream}
                 </span>
                 <ShareBar
                   share={s.share}
                   axis={streamAxis}
-                  color="bg-red-600 opacity-70"
+                  color="bg-danger opacity-70"
                   height="h-2"
                 />
-                <span className="w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-neutral-900 sm:w-16">
+                <span className="w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink sm:w-16">
                   {pct(s.share)}
                 </span>
-                <span className="hidden w-20 shrink-0 text-right font-mono text-[10px] tabular-nums text-neutral-500 sm:block">
+                <span className="hidden w-20 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted sm:block">
                   {fmtNats(s.range_nats)} nats
                 </span>
               </div>
             ))}
           </div>
-          <p className="mt-1 font-mono text-[10px] leading-relaxed text-neutral-500">
+          <p className="mt-1 font-mono text-[10px] leading-relaxed text-muted">
             Share of the chain disagreement <em>within</em> the observation
             term. Sums to 100% over streams, so a share above it means another
             stream&apos;s is negative.
@@ -287,14 +287,14 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
 
       {/* Per-chain detail: the bars name the term, this names the chain — the
           handoff into the chain selector. */}
-      <details className="mt-1 border-t border-neutral-100 pt-2">
-        <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-wider text-neutral-400 hover:text-neutral-700">
+      <details className="mt-1 border-t border-hairline pt-2">
+        <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-wider text-faint hover:text-body">
           per-chain term means
         </summary>
         <div className="mt-1.5 overflow-x-auto">
           <table className="w-full border-collapse font-mono text-[10px]">
             <thead>
-              <tr className="text-neutral-500">
+              <tr className="text-muted">
                 <th className="px-2 py-1 text-left font-medium">chain</th>
                 {terms.map((t) => (
                   <th key={t.key} className="px-2 py-1 text-right font-medium">
@@ -305,8 +305,8 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
             </thead>
             <tbody>
               {dec.chain_ids.map((cid, i) => (
-                <tr key={cid} className="border-t border-neutral-100">
-                  <td className="px-2 py-0.5 text-neutral-700">c{cid}</td>
+                <tr key={cid} className="border-t border-hairline">
+                  <td className="px-2 py-0.5 text-body">c{cid}</td>
                   {terms.map((t) => {
                     const v = t.chain_means[i]
                     const mean =
@@ -321,8 +321,8 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
                         className={cn(
                           'px-2 py-0.5 text-right tabular-nums',
                           Math.abs(dev) > 2 * (t.sd_nats || 1)
-                            ? 'text-red-700'
-                            : 'text-neutral-600',
+                            ? 'text-danger-strong'
+                            : 'text-body-dim',
                         )}
                       >
                         {dev >= 0 ? '+' : ''}
@@ -334,7 +334,7 @@ export function TargetDecomposition({ dec }: { dec: Decomposition }) {
               ))}
             </tbody>
           </table>
-          <p className="mt-1 px-2 font-mono text-[10px] text-neutral-500">
+          <p className="mt-1 px-2 font-mono text-[10px] text-muted">
             Deviation from the cross-chain mean, in nats. Red is more than 2
             standard deviations from it — the chain to try excluding.
           </p>

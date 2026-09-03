@@ -59,7 +59,7 @@ export function Description({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-neutral-400 underline-offset-2 transition-colors hover:text-neutral-600 hover:underline"
+          className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-faint underline-offset-2 transition-colors hover:text-body-dim hover:underline"
           aria-expanded={open}
         >
           {open ? 'less' : 'more'}

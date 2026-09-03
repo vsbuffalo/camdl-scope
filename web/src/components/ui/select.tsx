@@ -15,18 +15,18 @@ export function SelectTrigger({
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        'flex w-full items-center justify-between gap-2 rounded-none border border-neutral-200',
-        'bg-white px-2.5 py-1.5 text-sm text-neutral-900',
-        'transition-colors hover:bg-neutral-50',
-        'focus:outline-none focus-visible:border-neutral-400',
-        'data-[state=open]:border-neutral-400 data-[placeholder]:text-neutral-400',
+        'flex w-full items-center justify-between gap-2 rounded-none border border-line',
+        'bg-surface px-2.5 py-1.5 text-sm text-ink',
+        'transition-colors hover:bg-sunken',
+        'focus:outline-none focus-visible:border-line-heavy',
+        'data-[state=open]:border-line-heavy data-[placeholder]:text-faint',
         className,
       )}
       {...props}
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDown className="size-4 shrink-0 text-neutral-400" />
+        <ChevronDown className="size-4 shrink-0 text-faint" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
@@ -45,7 +45,7 @@ export function SelectContent({
         sideOffset={6}
         className={cn(
           'z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)]',
-          'overflow-hidden rounded-none border border-neutral-200 bg-white',
+          'overflow-hidden rounded-none border border-line bg-surface',
           'data-[state=open]:animate-in data-[state=closed]:animate-out',
           className,
         )}
@@ -68,8 +68,8 @@ export function SelectItem({
     <SelectPrimitive.Item
       className={cn(
         'relative flex w-full cursor-pointer select-none items-center gap-2 rounded-none',
-        'border-b border-neutral-100 py-1.5 pl-2.5 pr-8 text-sm text-neutral-800 outline-none last:border-b-0',
-        'data-[highlighted]:bg-neutral-100 data-[state=checked]:font-medium',
+        'border-b border-hairline py-1.5 pl-2.5 pr-8 text-sm text-ink-dim outline-none last:border-b-0',
+        'data-[highlighted]:bg-raised data-[state=checked]:font-medium',
         'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         className,
       )}
@@ -77,7 +77,7 @@ export function SelectItem({
     >
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
       <SelectPrimitive.ItemIndicator className="absolute right-2 inline-flex items-center">
-        <Check className="size-4 text-neutral-500" />
+        <Check className="size-4 text-muted" />
       </SelectPrimitive.ItemIndicator>
     </SelectPrimitive.Item>
   )

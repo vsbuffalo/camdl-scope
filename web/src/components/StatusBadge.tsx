@@ -6,11 +6,11 @@ import { cn } from '@/lib/utils'
  * running=amber, warming=blue, done=emerald, failed=red, stalled=neutral.
  */
 const STATUS: Record<string, { swatch: string; label: string }> = {
-  running: { swatch: 'bg-amber-500', label: 'running' },
-  warming: { swatch: 'bg-blue-500', label: 'warming' },
-  done: { swatch: 'bg-emerald-500', label: 'done' },
-  failed: { swatch: 'bg-red-500', label: 'failed' },
-  stalled: { swatch: 'bg-neutral-400', label: 'stalled' },
+  running: { swatch: 'bg-warn-vivid', label: 'running' },
+  warming: { swatch: 'bg-accent-vivid', label: 'warming' },
+  done: { swatch: 'bg-good-vivid', label: 'done' },
+  failed: { swatch: 'bg-danger-vivid', label: 'failed' },
+  stalled: { swatch: 'bg-fill', label: 'stalled' },
 }
 
 export function StatusBadge({
@@ -20,11 +20,11 @@ export function StatusBadge({
   status: string
   className?: string
 }) {
-  const meta = STATUS[status] ?? { swatch: 'bg-neutral-400', label: status }
+  const meta = STATUS[status] ?? { swatch: 'bg-fill', label: status }
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 font-mono text-[11px] lowercase text-neutral-600',
+        'inline-flex items-center gap-1.5 font-mono text-[11px] lowercase text-body-dim',
         className,
       )}
     >

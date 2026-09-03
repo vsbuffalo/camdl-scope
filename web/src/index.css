@@ -1,5 +1,24 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   The palette.
+
+   Every colour in the app is named here and nowhere else. A component asks for
+   a role — `text-faint`, `border-hairline`, `bg-warn-surface` — and never for a
+   ramp step, so what a colour *means* is stated at the call site and what it
+   *is* is decided in one place.
+
+   The values are the Tailwind v4 defaults this app already used, copied
+   verbatim in the oklch form Tailwind emits, so naming them changed nothing on
+   screen. They are literals rather than `var(--color-neutral-900)` references
+   because the palette is the app's own from here on: a Tailwind release that
+   retunes its ramp should not silently retune this.
+
+   Roles, not shades: the same value can appear twice under different names
+   (`--color-raised` and `--color-hairline` are both neutral-100) precisely
+   because a panel fill and a divider are different decisions that happen to
+   agree today, and a second theme will want to move them apart.
+   --------------------------------------------------------------------------- */
 @theme {
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
@@ -7,6 +26,82 @@
   --font-mono:
     ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas,
     monospace;
+
+  /* Surfaces — what sits behind content. */
+  --color-page: oklch(100% 0 0); /* the document background */
+  --color-surface: oklch(100% 0 0); /* cards, panels */
+  --color-sunken: oklch(98.5% 0 0); /* inset strips, table headers */
+  --color-raised: oklch(97% 0 0); /* chips, progress tracks */
+
+  /* Text, strongest to weakest. The eye should land on `ink` and skim `faint`. */
+  --color-ink: oklch(20.5% 0 0); /* values, headings, emphasis */
+  --color-ink-dim: oklch(26.9% 0 0);
+  --color-body: oklch(37.1% 0 0); /* ordinary prose */
+  --color-body-dim: oklch(43.9% 0 0);
+  --color-muted: oklch(55.6% 0 0); /* captions, secondary prose */
+  --color-faint: oklch(70.8% 0 0); /* micro-labels, column headers */
+  --color-ghost: oklch(87% 0 0); /* placeholders, the em-dash for no value */
+
+  /* Rules and edges. `hairline` is the default divider and by far the commonest. */
+  --color-hairline: oklch(97% 0 0);
+  --color-sunken-line: oklch(98.5% 0 0);
+  --color-line: oklch(92.2% 0 0);
+  --color-line-strong: oklch(87% 0 0);
+  --color-line-heavy: oklch(70.8% 0 0);
+  --color-line-body: oklch(43.9% 0 0);
+  --color-line-ink: oklch(20.5% 0 0);
+
+  /* Solid neutral fills — bars, dots, tracks. */
+  --color-fill-faint: oklch(92.2% 0 0);
+  --color-fill-soft: oklch(87% 0 0);
+  --color-fill: oklch(70.8% 0 0);
+  --color-fill-strong: oklch(55.6% 0 0);
+
+  /* Reversed out: a dark chip on a light page, and the text on it. */
+  --color-inverse: oklch(20.5% 0 0);
+  --color-on-inverse: oklch(100% 0 0);
+
+  /* Warn (amber): a number worth a second look, not yet a failure. */
+  --color-warn: oklch(66.6% .179 58.318);
+  --color-warn-strong: oklch(55.5% .163 48.998);
+  --color-warn-deep: oklch(47.3% .137 46.201);
+  --color-warn-vivid: oklch(76.9% .188 70.08);
+  --color-warn-surface: oklch(98.7% .022 95.277);
+  --color-warn-line: oklch(92.4% .12 95.746);
+
+  /* Danger (red): a diagnostic that invalidates what is being read. */
+  --color-danger: oklch(57.7% .245 27.325);
+  --color-danger-strong: oklch(50.5% .213 27.518);
+  --color-danger-deep: oklch(44.4% .177 26.899);
+  --color-danger-vivid: oklch(63.7% .237 25.331);
+  --color-danger-surface: oklch(97.1% .013 17.38);
+  --color-danger-line: oklch(88.5% .062 18.334);
+  --color-danger-line-strong: oklch(80.8% .114 19.571);
+
+  /* Good (emerald): the likelihood is in charge, the chain is healthy. */
+  --color-good: oklch(59.6% .145 163.225);
+  --color-good-strong: oklch(50.8% .118 165.612);
+  --color-good-vivid: oklch(69.6% .17 162.48);
+  --color-good-surface: oklch(97.9% .021 166.113);
+  --color-good-line: oklch(90.5% .093 164.15);
+
+  /* Notice (orange): the second warning hue, kept distinct from amber where
+     two levels of concern appear in one view (store slack, particle health). */
+  --color-notice: oklch(55.3% .195 38.402);
+  --color-notice-solid: oklch(64.6% .222 41.116);
+  --color-notice-vivid: oklch(70.5% .213 47.604);
+
+  /* Accent (blue): the app's own mark — brand, selection, and the first
+     series in a categorical bar. */
+  --color-accent: oklch(48.8% .243 264.376);
+  --color-accent-deep: oklch(42.4% .199 265.638);
+  --color-accent-ink: oklch(37.9% .146 265.522);
+  --color-accent-vivid: oklch(62.3% .214 259.815);
+  --color-accent-surface: oklch(97% .014 254.604);
+  --color-accent-line: oklch(80.9% .105 251.813);
+
+  /* One-off emphasis in the flow diagram. */
+  --color-highlight: oklch(60.6% .25 292.717);
 }
 
 :root {
@@ -15,6 +110,11 @@
      GlobalHeader's height is padding-driven and measures 45px at every
      breakpoint; if that changes, change it here. */
   --app-header-h: 45px;
+
+  /* Scrollbar track and thumb. Not in @theme: these are consumed by the
+     handwritten rules below rather than by a utility class. */
+  --color-scroll-thumb: oklch(87% 0 0);
+  --color-scroll-thumb-hover: oklch(70.8% 0 0);
 }
 
 html {
@@ -27,7 +127,7 @@ html {
 
 body {
   margin: 0;
-  background: #ffffff;
+  background: var(--color-page);
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -48,7 +148,7 @@ svg[class^="plot-"] {
    overflows. */
 .scroll-x-visible {
   scrollbar-width: thin;
-  scrollbar-color: #d4d4d4 transparent;
+  scrollbar-color: var(--color-scroll-thumb) transparent;
 }
 .scroll-x-visible::-webkit-scrollbar {
   height: 8px;
@@ -57,9 +157,9 @@ svg[class^="plot-"] {
   background: transparent;
 }
 .scroll-x-visible::-webkit-scrollbar-thumb {
-  background-color: #d4d4d4;
+  background-color: var(--color-scroll-thumb);
   border-radius: 4px;
 }
 .scroll-x-visible::-webkit-scrollbar-thumb:hover {
-  background-color: #a3a3a3;
+  background-color: var(--color-scroll-thumb-hover);
 }

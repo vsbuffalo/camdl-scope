@@ -179,8 +179,8 @@ export function PairTab({
           fit log_posterior is the COMPLETE-DATA log posterior (path-dominated);
           obs_ll is the data-fit term to pair params against. */}
       {objectives.length > 0 && (
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-neutral-100 px-3 py-2">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-hairline px-3 py-2">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
             Objectives
           </span>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -197,9 +197,9 @@ export function PairTab({
                     onChange={() =>
                       setTargets(new Set(toggleInSet(targets, name)))
                     }
-                    className="size-3 accent-neutral-800"
+                    className="size-3 accent-ink-dim"
                   />
-                  <span className={on ? 'text-neutral-900' : 'text-neutral-500'}>
+                  <span className={on ? 'text-ink' : 'text-muted'}>
                     {name}
                   </span>
                 </label>
@@ -232,7 +232,7 @@ export function PairTab({
           <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2">
             {anyPrior && (
               <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] uppercase tracking-wide text-neutral-400">
+                <span className="font-mono text-[10px] uppercase tracking-wide text-faint">
                   x-axis
                 </span>
                 <XlimToggle value={priorXlimMode} onChange={setPriorXlimMode} />
@@ -243,11 +243,11 @@ export function PairTab({
                 type="checkbox"
                 checked={marginalsByChain}
                 onChange={() => setMarginalsByChain(!marginalsByChain)}
-                className="size-3 accent-neutral-800"
+                className="size-3 accent-ink-dim"
               />
               <span
                 className={
-                  marginalsByChain ? 'text-neutral-900' : 'text-neutral-500'
+                  marginalsByChain ? 'text-ink' : 'text-muted'
                 }
               >
                 marginals by chain
@@ -262,17 +262,17 @@ export function PairTab({
                   type="checkbox"
                   checked={forceLinear}
                   onChange={() => setForceLinear(!forceLinear)}
-                  className="size-3 accent-neutral-800"
+                  className="size-3 accent-ink-dim"
                 />
                 <span
-                  className={forceLinear ? 'text-neutral-900' : 'text-neutral-500'}
+                  className={forceLinear ? 'text-ink' : 'text-muted'}
                 >
                   linear axes
                 </span>
                 {/* A count, not a list: the model scale applies to every
                     multiplicative coordinate, so naming them all would be a
                     paragraph on a wide fit. */}
-                <span className="text-neutral-400">
+                <span className="text-faint">
                   ({derivedLog.length} of {visibleParams.length} on log)
                 </span>
               </label>
@@ -286,23 +286,23 @@ export function PairTab({
                   type="checkbox"
                   checked={showDivergences}
                   onChange={() => setShowDivergences(!showDivergences)}
-                  className="size-3 accent-orange-600"
+                  className="size-3 accent-notice-solid"
                 />
                 <span
                   className={
-                    showDivergences ? 'text-neutral-900' : 'text-neutral-500'
+                    showDivergences ? 'text-ink' : 'text-muted'
                   }
                 >
                   divergences
                 </span>
-                <span className="text-neutral-400">
+                <span className="text-faint">
                   ({nDivergent.toLocaleString()})
                 </span>
               </label>
             )}
           </div>
           {showDivergences && nDivergent != null && (
-            <p className="mb-2 text-[10px] leading-snug text-neutral-400">
+            <p className="mb-2 text-[10px] leading-snug text-faint">
               {shownDivergent.toLocaleString()} of the{' '}
               {draws.data.n_draws.toLocaleString()} plotted draws diverged
               {draws.data.n_draws > 0 && (
@@ -343,7 +343,7 @@ function XlimToggle({
     { v: 'prior', label: 'show prior breadth' },
   ]
   return (
-    <div className="inline-flex border border-neutral-200">
+    <div className="inline-flex border border-line">
       {opts.map((o, i) => (
         <button
           key={o.v}
@@ -352,10 +352,10 @@ function XlimToggle({
           aria-pressed={value === o.v}
           className={cn(
             'px-2 py-0.5 font-mono text-[11px] transition-colors',
-            i > 0 && 'border-l border-neutral-200',
+            i > 0 && 'border-l border-line',
             value === o.v
-              ? 'bg-neutral-900 text-white'
-              : 'text-neutral-500 hover:text-neutral-800',
+              ? 'bg-inverse text-on-inverse'
+              : 'text-muted hover:text-ink-dim',
           )}
         >
           {o.label}

@@ -31,7 +31,7 @@ function App() {
   const active = DEMO && workspace === 'compare' ? 'explore' : workspace
 
   return (
-    <div className="min-h-screen bg-white text-neutral-900 antialiased">
+    <div className="min-h-screen bg-surface text-ink antialiased">
       <GlobalHeader workspace={active} onWorkspace={onWorkspace} />
 
       <main className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 sm:py-6">

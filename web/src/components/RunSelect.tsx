@@ -37,12 +37,12 @@ export function RunSelect({ runs, value, onChange }: RunSelectProps) {
         {selected ? (
           <span className="flex min-w-0 items-center gap-2">
             <StatusBadge status={selected.status} />
-            <span className="truncate font-mono text-[13px] text-neutral-900">
+            <span className="truncate font-mono text-[13px] text-ink">
               {selectedTitle(selected, runs)}
             </span>
           </span>
         ) : (
-          <span className="text-neutral-400">Select a run…</span>
+          <span className="text-faint">Select a run…</span>
         )}
       </SelectTrigger>
       <SelectContent>
@@ -51,7 +51,7 @@ export function RunSelect({ runs, value, onChange }: RunSelectProps) {
             return (
               <div
                 key={row.key}
-                className="border-b border-neutral-100 bg-neutral-50 py-1 pl-2.5 pr-8 font-mono text-[11px] text-neutral-500"
+                className="border-b border-hairline bg-sunken py-1 pl-2.5 pr-8 font-mono text-[11px] text-muted"
               >
                 {row.title}
               </div>
@@ -61,10 +61,10 @@ export function RunSelect({ runs, value, onChange }: RunSelectProps) {
             return (
               <div
                 key={row.key}
-                className={`border-b border-neutral-100 py-1 pr-8 font-mono text-[12px] text-neutral-600 ${INDENT[row.indent]}`}
+                className={`border-b border-hairline py-1 pr-8 font-mono text-[12px] text-body-dim ${INDENT[row.indent]}`}
               >
                 {row.title}
-                <span className="ml-1.5 text-[11px] text-neutral-400">
+                <span className="ml-1.5 text-[11px] text-faint">
                   · {row.nSeeds} seeds
                 </span>
               </div>
@@ -76,7 +76,7 @@ export function RunSelect({ runs, value, onChange }: RunSelectProps) {
                 <StatusBadge status={row.run.status} />
                 <span className="truncate font-mono text-[13px]">{row.text}</span>
                 {row.isDefault && (
-                  <span className="font-mono text-[11px] text-neutral-400">default</span>
+                  <span className="font-mono text-[11px] text-faint">default</span>
                 )}
               </span>
             </SelectItem>

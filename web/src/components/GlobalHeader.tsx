@@ -34,19 +34,19 @@ export function GlobalHeader({
   return (
     // Height is mirrored by --app-header-h (index.css) so anything sticking
     // below this bar can offset by it; keep them in step.
-    <header className="sticky top-0 z-40 border-b border-neutral-200 bg-white">
+    <header className="sticky top-0 z-40 border-b border-line bg-surface">
       {/* Match the main content container so the wordmark lines up with panels. */}
       <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
         <div className="flex items-stretch gap-5 sm:gap-8">
           {/* Two-line wordmark + tall portrait mark. */}
           <div className="flex shrink-0 items-center gap-1.5 py-2.5">
-            <span className="w-2 shrink-0 self-stretch bg-blue-900" aria-hidden />
-            <span className="flex flex-col text-sm font-semibold leading-[0.95] tracking-tight text-neutral-900">
+            <span className="w-2 shrink-0 self-stretch bg-accent-ink" aria-hidden />
+            <span className="flex flex-col text-sm font-semibold leading-[0.95] tracking-tight text-ink">
               <span>camdl</span>
               {/* '_scope — the tick nods to camdl's #' doc syntax and reads as the
                   instrument clipping ('scope, as in oscilloscope/microscope). */}
-              <span className="text-neutral-400">
-                <span className="text-blue-900">{"'"}</span>scope
+              <span className="text-faint">
+                <span className="text-accent-ink">{"'"}</span>scope
               </span>
             </span>
           </div>
@@ -65,8 +65,8 @@ export function GlobalHeader({
                     // bottom border so the two read as one rule.
                     'relative -mb-px flex items-center border-b-2 px-0.5 text-[13px] font-medium tracking-tight transition-colors',
                     active
-                      ? 'border-blue-900 text-neutral-900'
-                      : 'border-transparent text-neutral-400 hover:text-neutral-600',
+                      ? 'border-accent-ink text-ink'
+                      : 'border-transparent text-faint hover:text-body-dim',
                   )}
                 >
                   {w.label}

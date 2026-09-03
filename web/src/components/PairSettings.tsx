@@ -61,35 +61,35 @@ export function PairSettings({
   }
 
   return (
-    <div className="border-b border-neutral-100 px-3 py-2.5">
+    <div className="border-b border-hairline px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="flex items-center gap-1.5 rounded-sm border border-neutral-200 px-2 py-1 font-mono text-[11px] text-neutral-600 transition-colors hover:bg-neutral-50"
+          className="flex items-center gap-1.5 rounded-sm border border-line px-2 py-1 font-mono text-[11px] text-body-dim transition-colors hover:bg-sunken"
         >
-          <span className="text-neutral-400">{open ? '▾' : '▸'}</span>
+          <span className="text-faint">{open ? '▾' : '▸'}</span>
           <span>{'⚙ params'}</span>
-          <span className="tabular-nums text-neutral-400">
+          <span className="tabular-nums text-faint">
             ({count}/{total})
           </span>
         </button>
 
         {open && (
-          <div className="flex items-center gap-2 font-mono text-[10px] text-neutral-400">
+          <div className="flex items-center gap-2 font-mono text-[10px] text-faint">
             <Quick
               label="defaults"
               onClick={() => onChange(new Set(groups.default_selection))}
             />
-            <span className="text-neutral-300">·</span>
+            <span className="text-ghost">·</span>
             <Quick
               label="scalars only"
               onClick={() => onChange(new Set(groups.scalars))}
             />
-            <span className="text-neutral-300">·</span>
+            <span className="text-ghost">·</span>
             <Quick label="all" onClick={() => onChange(new Set(allParams))} />
-            <span className="text-neutral-300">·</span>
+            <span className="text-ghost">·</span>
             {/* Clearing to nothing is the fast path to "show me one
                 coordinate": uncheck everything, then add back. */}
             <Quick label="none" onClick={() => onChange(new Set())} />
@@ -98,7 +98,7 @@ export function PairSettings({
       </div>
 
       {open && (
-        <div className="mt-2 rounded-sm border border-neutral-200 bg-[#fafafa] p-2.5">
+        <div className="mt-2 rounded-sm border border-line bg-[#fafafa] p-2.5">
           {groups.scalars.length > 0 && (
             <div>
               <SectionLabel>scalars</SectionLabel>
@@ -119,7 +119,7 @@ export function PairSettings({
             <div
               className={cn(
                 groups.scalars.length > 0 &&
-                  'mt-2.5 border-t border-neutral-200 pt-2.5',
+                  'mt-2.5 border-t border-line pt-2.5',
               )}
             >
               <SectionLabel>families</SectionLabel>
@@ -139,7 +139,7 @@ export function PairSettings({
                           onClick={() => toggleExpanded(fam.base)}
                           aria-expanded={isOpen}
                           aria-label={`${isOpen ? 'collapse' : 'expand'} ${fam.base}`}
-                          className="w-3 font-mono text-[10px] text-neutral-400 hover:text-neutral-700"
+                          className="w-3 font-mono text-[10px] text-faint hover:text-body"
                         >
                           {isOpen ? '▾' : '▸'}
                         </button>
@@ -147,7 +147,7 @@ export function PairSettings({
                           label={
                             <span className="font-mono text-[11px]">
                               {fam.base}{' '}
-                              <span className="tabular-nums text-neutral-400">
+                              <span className="tabular-nums text-faint">
                                 ({sel}/{fam.members.length})
                               </span>
                             </span>
@@ -158,7 +158,7 @@ export function PairSettings({
                         />
                       </div>
                       {isOpen && (
-                        <div className="ml-[1.375rem] mt-1 flex flex-wrap gap-x-4 gap-y-1 border-l border-neutral-200 pl-2">
+                        <div className="ml-[1.375rem] mt-1 flex flex-wrap gap-x-4 gap-y-1 border-l border-line pl-2">
                           {fam.members.map((m) => (
                             <Check
                               key={m}
@@ -184,7 +184,7 @@ export function PairSettings({
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+    <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">
       {children}
     </div>
   )
@@ -195,7 +195,7 @@ function Quick({ label, onClick }: { label: string; onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+      className="underline-offset-2 transition-colors hover:text-body hover:underline"
     >
       {label}
     </button>
@@ -218,7 +218,7 @@ function Check({
   onChange: () => void
 }) {
   return (
-    <label className="flex cursor-pointer select-none items-center gap-1.5 font-mono text-[11px] text-neutral-700">
+    <label className="flex cursor-pointer select-none items-center gap-1.5 font-mono text-[11px] text-body">
       <input
         type="checkbox"
         checked={checked}
@@ -226,7 +226,7 @@ function Check({
           if (el) el.indeterminate = indeterminate ?? false
         }}
         onChange={onChange}
-        className="h-3 w-3 accent-neutral-700"
+        className="h-3 w-3 accent-body"
       />
       {typeof label === 'string' ? <span>{label}</span> : label}
     </label>

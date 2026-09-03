@@ -225,7 +225,7 @@ export function ProfileSurface({ data }: { data: ProfileResponse }) {
   return (
     <div className="group/fig relative">
       <div className="mb-2 flex items-center gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-neutral-400">
+        <span className="font-mono text-[10px] uppercase tracking-wide text-faint">
           colour
         </span>
         <ColorToggle value={mode} onChange={setMode} />
@@ -258,7 +258,7 @@ function CellReadout({
 }) {
   if (!selected) {
     return (
-      <p className="mt-2 font-mono text-[10px] text-neutral-400">
+      <p className="mt-2 font-mono text-[10px] text-faint">
         click a cell for its log-likelihood and the nuisance-param MLE there
       </p>
     )
@@ -273,34 +273,34 @@ function CellReadout({
   const nuisance = pt ? Object.entries(pt.nuisance) : []
 
   return (
-    <div className="mt-2 rounded-sm border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-[11px] text-neutral-700">
+    <div className="mt-2 rounded-sm border border-line bg-sunken px-3 py-2 font-mono text-[11px] text-body">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <span>
-          <span className="text-neutral-400">cell </span>
+          <span className="text-faint">cell </span>
           {nameX}={fmtGrid(selected.gx)}, {nameY}={fmtGrid(selected.gy)}
         </span>
         {failed ? (
-          <span className="text-neutral-400">no feasible fit (sentinel)</span>
+          <span className="text-faint">no feasible fit (sentinel)</span>
         ) : isAbs ? (
           <span>
-            logL <span className="font-semibold text-neutral-900">{pt!.loglik.toFixed(2)}</span>{' '}
-            <span className="text-neutral-400">(Δ {dl.toFixed(2)})</span>
+            logL <span className="font-semibold text-ink">{pt!.loglik.toFixed(2)}</span>{' '}
+            <span className="text-faint">(Δ {dl.toFixed(2)})</span>
           </span>
         ) : (
           <span>
-            Δ <span className="font-semibold text-neutral-900">{dl.toFixed(2)}</span>{' '}
-            <span className="text-neutral-400">(logL {pt!.loglik.toFixed(2)})</span>
+            Δ <span className="font-semibold text-ink">{dl.toFixed(2)}</span>{' '}
+            <span className="text-faint">(logL {pt!.loglik.toFixed(2)})</span>
           </span>
         )}
       </div>
       {!failed && nuisance.length > 0 && (
         <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          <span className="text-[10px] uppercase tracking-wide text-neutral-400">
+          <span className="text-[10px] uppercase tracking-wide text-faint">
             nuisance MLE
           </span>
           {nuisance.map(([k, v]) => (
             <span key={k}>
-              {k} = <span className="tabular-nums text-neutral-900">{fmtGrid(v)}</span>
+              {k} = <span className="tabular-nums text-ink">{fmtGrid(v)}</span>
             </span>
           ))}
         </div>
@@ -322,7 +322,7 @@ function ColorToggle({
     { v: 'absolute', label: 'absolute logL' },
   ]
   return (
-    <div className="inline-flex border border-neutral-200">
+    <div className="inline-flex border border-line">
       {opts.map((o, i) => (
         <button
           key={o.v}
@@ -331,10 +331,10 @@ function ColorToggle({
           aria-pressed={value === o.v}
           className={cn(
             'px-2 py-0.5 font-mono text-[11px] transition-colors',
-            i > 0 && 'border-l border-neutral-200',
+            i > 0 && 'border-l border-line',
             value === o.v
-              ? 'bg-neutral-900 text-white'
-              : 'text-neutral-500 hover:text-neutral-800',
+              ? 'bg-inverse text-on-inverse'
+              : 'text-muted hover:text-ink-dim',
           )}
         >
           {o.label}

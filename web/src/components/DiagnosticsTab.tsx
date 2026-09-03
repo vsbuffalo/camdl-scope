@@ -38,12 +38,12 @@ const ROW_H = 24 // px per chain bar
  *  ESS carries no status because camdl assigns none per parameter. Both
  *  numbers are shown regardless. */
 function rhatClass(p: ParamDiagnostic): string {
-  if (p.rhat == null && p.rhat_text == null) return 'text-neutral-400'
+  if (p.rhat == null && p.rhat_text == null) return 'text-faint'
   return statusTextClass(p.rhat_status)
 }
 
 function essClass(ess: number | null | undefined): string {
-  return ess == null ? 'text-neutral-300' : 'text-neutral-400'
+  return ess == null ? 'text-ghost' : 'text-faint'
 }
 
 /** Compact readout: ≥100 or 0 as integers, else 3 sig-figs (e.g. 0.290). */
@@ -56,15 +56,15 @@ function fmtEff(v: number | null | undefined): string {
 
 /** Finding-line color keyed off camdl's severity. */
 function severityClass(severity: string): string {
-  if (severity === 'error') return 'text-red-600'
-  if (severity === 'warn') return 'text-amber-600'
-  return 'text-emerald-600'
+  if (severity === 'error') return 'text-danger'
+  if (severity === 'warn') return 'text-warn'
+  return 'text-good'
 }
 
 /** Small uppercase tracked section header, matching the other tabs' strips. */
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="border-b border-neutral-100 px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+    <div className="border-b border-hairline px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-faint">
       {children}
     </div>
   )
@@ -85,14 +85,14 @@ function CollapsibleSection({
 }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="border-b border-neutral-100 last:border-b-0">
+    <div className="border-b border-hairline last:border-b-0">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-neutral-400 transition-colors hover:bg-neutral-50 hover:text-neutral-600"
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-faint transition-colors hover:bg-sunken hover:text-body-dim"
       >
-        <span className="text-neutral-300">{open ? '▾' : '▸'}</span>
+        <span className="text-ghost">{open ? '▾' : '▸'}</span>
         {label}
       </button>
       {open && children}
@@ -237,14 +237,14 @@ function SamplerPanelTable({ panel }: { panel: SamplerPanel }) {
     <>
       <SectionLabel>{panel.title}</SectionLabel>
       {panel.note && (
-        <p className="px-3 pt-1 text-[11px] leading-snug text-neutral-500">
+        <p className="px-3 pt-1 text-[11px] leading-snug text-muted">
           {panel.note}
         </p>
       )}
       <div className="scroll-x-visible overflow-x-auto px-3 py-2">
         <table className="w-full border-collapse font-mono text-[11px] tabular-nums">
           <thead>
-            <tr className="border-b border-neutral-200 text-[9px] uppercase tracking-wider text-neutral-400">
+            <tr className="border-b border-line text-[9px] uppercase tracking-wider text-faint">
               <th className="px-2 py-1.5 text-left font-medium">chain</th>
               {panel.columns.map((c) => (
                 <th
@@ -259,8 +259,8 @@ function SamplerPanelTable({ panel }: { panel: SamplerPanel }) {
           </thead>
           <tbody>
             {panel.rows.map((chain, r) => (
-              <tr key={chain} className="border-t border-neutral-100">
-                <td className="px-2 py-1 text-left text-neutral-500">c{chain}</td>
+              <tr key={chain} className="border-t border-hairline">
+                <td className="px-2 py-1 text-left text-muted">c{chain}</td>
                 {panel.columns.map((c, i) => {
                   const v = panel.values[r]?.[i] ?? null
                   return (
@@ -269,8 +269,8 @@ function SamplerPanelTable({ panel }: { panel: SamplerPanel }) {
                       className={cn(
                         'px-2 py-1 text-right',
                         flagged(v, c)
-                          ? 'font-medium text-red-600'
-                          : 'text-neutral-700',
+                          ? 'font-medium text-danger'
+                          : 'text-body',
                       )}
                     >
                       {/* Proportions (acceptance, renewal) read as percentages;
@@ -292,12 +292,12 @@ function SamplerPanelTable({ panel }: { panel: SamplerPanel }) {
       {/* The columns worth a sentence explain themselves under the table —
           a tooltip is not readable on a phone and not discoverable anywhere. */}
       {panel.columns.some((c) => c.note) && (
-        <ul className="space-y-0.5 px-3 pb-2 text-[10px] leading-snug text-neutral-400">
+        <ul className="space-y-0.5 px-3 pb-2 text-[10px] leading-snug text-faint">
           {panel.columns
             .filter((c) => c.note)
             .map((c) => (
               <li key={c.key}>
-                <span className="text-neutral-600">{c.label}</span> — {c.note}
+                <span className="text-body-dim">{c.label}</span> — {c.note}
               </li>
             ))}
         </ul>
@@ -314,7 +314,7 @@ function LeafTable({ leaves }: { leaves: LeafRowModel[] }) {
   return (
     <table className="mt-2 w-full border-collapse font-mono text-[11px]">
       <thead>
-        <tr className="text-left text-neutral-400">
+        <tr className="text-left text-faint">
           <th className="py-0.5 pr-3 font-normal">method</th>
           <th className="py-0.5 pr-3 font-normal">leaf</th>
           <th className="py-0.5 pr-3 font-normal">status</th>
@@ -323,13 +323,13 @@ function LeafTable({ leaves }: { leaves: LeafRowModel[] }) {
       </thead>
       <tbody>
         {leaves.map((l) => (
-          <tr key={l.leaf} className={l.is_open ? 'bg-neutral-50' : undefined}>
-            <td className="py-0.5 pr-3 text-neutral-700">{l.method}</td>
-            <td className="py-0.5 pr-3 text-neutral-400">
+          <tr key={l.leaf} className={l.is_open ? 'bg-sunken' : undefined}>
+            <td className="py-0.5 pr-3 text-body">{l.method}</td>
+            <td className="py-0.5 pr-3 text-faint">
               {l.leaf}
               {l.is_open ? ' (open)' : ''}
             </td>
-            <td className="py-0.5 pr-3 text-neutral-500">{l.status}</td>
+            <td className="py-0.5 pr-3 text-muted">{l.status}</td>
             <td className={statusTextClass(l.verdict.status)}>{l.verdict.text}</td>
           </tr>
         ))}
@@ -349,9 +349,9 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
     data.verdict.kind,
   )
   return (
-    <div className="border-b border-neutral-100 px-3 py-2.5">
+    <div className="border-b border-hairline px-3 py-2.5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="font-mono text-[11px] text-neutral-500">
+        <span className="font-mono text-[11px] text-muted">
           {isCamdl
             ? `camdl · ${data.stage ?? '—'} verdict`
             : hasCamdlVerdict
@@ -359,7 +359,7 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
               : 'live arviz estimate — camdl has not assessed this run'}
         </span>
         <span
-          className="font-mono text-[10px] uppercase tracking-wider text-neutral-400"
+          className="font-mono text-[10px] uppercase tracking-wider text-faint"
           title="objective the diagnostics summarise"
         >
           {data.logpost_label}
@@ -372,15 +372,15 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
           since the chains that died are exactly those whose starting points
           the model could not evaluate. */}
       {data.n_chains_dead > 0 && (
-        <div className="mt-1.5 rounded-sm border border-red-300 bg-red-50 px-2 py-1.5">
-          <p className="font-mono text-[11px] font-medium text-red-700">
+        <div className="mt-1.5 rounded-sm border border-danger-line-strong bg-danger-surface px-2 py-1.5">
+          <p className="font-mono text-[11px] font-medium text-danger-strong">
             {data.n_chains_dead} of{' '}
             {data.n_chains + data.n_chains_dead} chains produced no draws
             {data.dead_chain_ids.length > 0 && (
               <> — c{data.dead_chain_ids.join(', c')}</>
             )}
           </p>
-          <p className="mt-0.5 text-[11px] leading-snug text-red-700/80">
+          <p className="mt-0.5 text-[11px] leading-snug text-danger-strong/80">
             Everything below is computed from the {data.n_chains} surviving
             chain{data.n_chains === 1 ? '' : 's'}. Chains skipped at
             initialisation are not a random subset — see the findings for the
@@ -390,7 +390,7 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
       )}
 
       {data.n_chains_warming > 0 && (
-        <p className="mt-1 font-mono text-[11px] text-amber-600">
+        <p className="mt-1 font-mono text-[11px] text-warn">
           {data.n_chains_warming} chain{data.n_chains_warming > 1 ? 's' : ''} still
           warming up (no post-warm-up draws) — R̂/ESS computed over the{' '}
           {data.n_chains} with draws.
@@ -411,13 +411,13 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
 
       <div className="mt-1.5 space-y-1">
         {data.findings.length === 0 ? (
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-muted">
             camdl has reported no findings for this run yet
           </p>
         ) : (
           data.findings.map((f, i) => (
             <p key={i} className={cn('text-xs', severityClass(f.severity))}>
-              <span className="mr-1 font-mono text-[10px] text-neutral-400">
+              <span className="mr-1 font-mono text-[10px] text-faint">
                 [{f.kind}]
               </span>
               {f.headline}
@@ -427,7 +427,7 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
                 <span className="mt-0.5 block space-y-0.5 pl-3 text-[11px] leading-snug">
                   {f.chain_messages.map((m) => (
                     <span key={m.chain} className="block">
-                      <span className="font-mono text-neutral-500">c{m.chain}</span>{' '}
+                      <span className="font-mono text-muted">c{m.chain}</span>{' '}
                       {m.message}
                     </span>
                   ))}
@@ -453,10 +453,10 @@ function Metric({
 }) {
   return (
     <span className="flex items-baseline gap-1.5" title={title}>
-      <span className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-faint">
         {label}
       </span>
-      <span className="font-mono text-xs tabular-nums text-neutral-800">
+      <span className="font-mono text-xs tabular-nums text-ink-dim">
         {fmtEff(value)}
       </span>
     </span>
@@ -476,8 +476,8 @@ function EfficiencyStrip({ data }: { data: DiagnosticsResponse }) {
   if (data.ess_per_iter == null && data.ess_per_sec == null && unreportable.length === 0)
     return null
   return (
-    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b border-neutral-100 px-3 py-2">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-b border-hairline px-3 py-2">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
         efficiency
       </span>
       {/* A withheld efficiency is a finding, not a gap: the minimum is bounded
@@ -485,7 +485,7 @@ function EfficiencyStrip({ data }: { data: DiagnosticsResponse }) {
           minimum over the converged parameters only — which improves as the fit
           gets worse. Say which parameters, the way camdl's fit summary does. */}
       {unreportable.length > 0 && (
-        <span className="font-mono text-[11px] text-amber-600">
+        <span className="font-mono text-[11px] text-warn">
           not reportable — no ESS for{' '}
           <span className="font-medium">{unreportable.slice(0, 3).join(', ')}</span>
           {unreportable.length > 3 && ` (+${unreportable.length - 3} more)`}{' '}
@@ -559,7 +559,7 @@ function ParamTable({
     <div className="overflow-x-auto">
       <table className="w-full min-w-max border-collapse font-mono text-[11px] tabular-nums">
         <thead>
-          <tr className="border-b border-neutral-200 text-[9px] uppercase tracking-wider text-neutral-400">
+          <tr className="border-b border-line text-[9px] uppercase tracking-wider text-faint">
             <th className="px-2 py-1.5 text-left font-medium">parameter</th>
             <th className="px-2 py-1.5 text-right font-medium" title={HEAD[vintageKey(vintage)].rhatTitle}>
               {HEAD[vintageKey(vintage)].rhat}
@@ -575,7 +575,7 @@ function ParamTable({
                 key={c.at}
                 className={cn(
                   'px-2 py-1.5 text-right font-medium',
-                  frozen.has(c.id) && 'text-red-600',
+                  frozen.has(c.id) && 'text-danger',
                 )}
                 title={frozen.has(c.id) ? 'camdl: this chain took no step after burn-in' : undefined}
               >
@@ -591,15 +591,15 @@ function ParamTable({
             return (
               <tr
                 key={p.name}
-                className="border-b border-neutral-100 last:border-b-0"
+                className="border-b border-hairline last:border-b-0"
               >
                 <td className="whitespace-nowrap px-2 py-1.5 text-left">
                   {hasSymbol && (
-                    <span className="font-semibold text-neutral-900">
+                    <span className="font-semibold text-ink">
                       {p.symbol}{' '}
                     </span>
                   )}
-                  <span className={hasSymbol ? 'text-neutral-400' : 'text-neutral-900'}>
+                  <span className={hasSymbol ? 'text-faint' : 'text-ink'}>
                     {p.name}
                   </span>
                 </td>
@@ -608,7 +608,7 @@ function ParamTable({
                   title={p.rhat == null && p.rhat_refused ? `camdl reported no R̂: ${p.rhat_refused.replace(/_/g, ' ')}` : undefined}
                 >
                   {p.rhat == null && p.rhat_refused ? (
-                    <span className="text-neutral-400">{p.rhat_refused.replace(/_/g, ' ')}</span>
+                    <span className="text-faint">{p.rhat_refused.replace(/_/g, ' ')}</span>
                   ) : (
                     (p.rhat_text ?? fmtRhat(p.rhat))
                   )}
@@ -619,10 +619,10 @@ function ParamTable({
                 <td className={cn('px-2 py-1.5 text-right', essClass(p.ess_tail))}>
                   {fmtEss(p.ess_tail)}
                 </td>
-                <td className="px-2 py-1.5 text-right text-neutral-500">
+                <td className="px-2 py-1.5 text-right text-muted">
                   {fmtValue(p.mcse)}
                 </td>
-                <td className="px-2 py-1.5 text-right text-neutral-500">
+                <td className="px-2 py-1.5 text-right text-muted">
                   {fmtValue(p.sep)}
                 </td>
                 {perChainCols.map((c) => {
@@ -630,7 +630,7 @@ function ParamTable({
                   return (
                     <td
                       key={c.at}
-                      className="px-2 py-1.5 text-right text-neutral-400"
+                      className="px-2 py-1.5 text-right text-faint"
                     >
                       {v != null ? fmtEss(v) : '—'}
                     </td>
@@ -759,7 +759,7 @@ export function DiagnosticsTab({
             <div className="px-3 py-2">
               <MixingChart mixing={data.mixing} />
               {data.mixing.band && (
-                <p className="mt-1 font-mono text-[10px] text-neutral-400">
+                <p className="mt-1 font-mono text-[10px] text-faint">
                   healthy band [{fmtValue(data.mixing.band[0])},{' '}
                   {fmtValue(data.mixing.band[1])}]
                 </p>
@@ -813,8 +813,8 @@ export function DiagnosticsTab({
             />
 
             {data.map_loglik != null && (
-              <div className="border-t border-neutral-100 px-3 py-2">
-                <span className="font-mono text-[11px] text-neutral-600">
+              <div className="border-t border-hairline px-3 py-2">
+                <span className="font-mono text-[11px] text-body-dim">
                   MAP log-lik {fmtValue(data.map_loglik)}
                   {data.map_chain != null ? ` · chain ${data.map_chain}` : ''}
                 </span>

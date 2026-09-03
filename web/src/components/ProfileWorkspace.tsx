@@ -99,21 +99,21 @@ function ProfileSelect({
   const selected = profiles.find((p) => p.base_id === value)
 
   return (
-    <div className="mb-4 border-b border-neutral-200 pb-1">
+    <div className="mb-4 border-b border-line pb-1">
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger
           className="min-w-0 sm:w-[22rem]"
           aria-label="Select a profile"
         >
           {selected ? (
-            <span className="truncate font-mono text-[13px] text-neutral-900">
+            <span className="truncate font-mono text-[13px] text-ink">
               {selected.label}
-              <span className="ml-1.5 text-neutral-400">
+              <span className="ml-1.5 text-faint">
                 · {selected.params.join(' × ')}
               </span>
             </span>
           ) : (
-            <span className="text-neutral-400">Select a profile…</span>
+            <span className="text-faint">Select a profile…</span>
           )}
         </SelectTrigger>
         <SelectContent>
@@ -121,7 +121,7 @@ function ProfileSelect({
             <SelectItem key={p.base_id} value={p.base_id}>
               <span className="truncate font-mono text-[13px]">
                 {p.label}
-                <span className="ml-1.5 text-neutral-400">
+                <span className="ml-1.5 text-faint">
                   · {p.params.join(' × ')}
                 </span>
               </span>
@@ -164,15 +164,15 @@ function ProfileCard({ baseId }: { baseId: string }) {
           const hasValid = realPoints.length > 0
           return (
             <>
-              <div className="border-b border-neutral-100 px-3 py-2.5">
+              <div className="border-b border-hairline px-3 py-2.5">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <span className="font-mono text-[11px] text-neutral-500">
+                  <span className="font-mono text-[11px] text-muted">
                     {data.label} · profile of{' '}
-                    <span className="text-neutral-800">
+                    <span className="text-ink-dim">
                       {data.params.join(' × ')}
                     </span>
                   </span>
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-faint">
                     {data.method} · {data.loglik_type}
                   </span>
                 </div>
@@ -222,7 +222,7 @@ function ProfileCard({ baseId }: { baseId: string }) {
                 ) : (
                   <div className="px-3 py-3">
                     <ProfileSurface data={data} />
-                    <p className="mt-1.5 font-mono text-[10px] text-neutral-400">
+                    <p className="mt-1.5 font-mono text-[10px] text-faint">
                       {data.points.length} grid cells · brighter = higher
                       likelihood, grey = no feasible fit · red outline = MLE,
                       white = 95% region (Δlogℓ ≥ −{data.ci_drop.toFixed(2)}) ·
@@ -245,7 +245,7 @@ function ProfileCard({ baseId }: { baseId: string }) {
               ) : (
                 <div className="px-3 py-3">
                   <ProfilePlot data={data} />
-                  <p className="mt-1 font-mono text-[10px] text-neutral-400">
+                  <p className="mt-1 font-mono text-[10px] text-faint">
                     {realPoints.length} fitted grid point
                     {realPoints.length === 1 ? '' : 's'}
                     {data.points.length > realPoints.length &&
@@ -273,12 +273,12 @@ function Stat({
 }) {
   return (
     <div className="flex items-baseline gap-1.5" title={hint}>
-      <dt className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+      <dt className="font-mono text-[10px] uppercase tracking-wider text-faint">
         {label}
       </dt>
-      <dd className="font-mono text-xs tabular-nums text-neutral-800">
+      <dd className="font-mono text-xs tabular-nums text-ink-dim">
         {value}
-        {hint && <span className="ml-1 text-amber-600">{hint}</span>}
+        {hint && <span className="ml-1 text-warn">{hint}</span>}
       </dd>
     </div>
   )

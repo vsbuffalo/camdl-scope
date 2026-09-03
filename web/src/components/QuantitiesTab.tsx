@@ -47,7 +47,7 @@ function ScenarioChip({ scenario, color }: { scenario: string; color: string }) 
         style={{ background: color }}
         aria-hidden
       />
-      <span className="text-neutral-600">{scenario}</span>
+      <span className="text-body-dim">{scenario}</span>
     </span>
   )
 }
@@ -186,9 +186,9 @@ function BandPanel({
   const figRef = useRef<HTMLDivElement>(null)
 
   return (
-    <div className="group/fig relative border-t border-neutral-100 px-3 py-2">
-      <div ref={figRef} className="bg-white">
-        <div className="font-mono text-[10px] text-neutral-500">{title}</div>
+    <div className="group/fig relative border-t border-hairline px-3 py-2">
+      <div ref={figRef} className="bg-surface">
+        <div className="font-mono text-[10px] text-muted">{title}</div>
         <div
           ref={ref}
           className="mt-1 w-full min-w-0 overflow-x-auto"
@@ -290,28 +290,28 @@ function SeriesQuantity({
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2">
-        <span className="text-sm font-semibold text-neutral-900">
+        <span className="text-sm font-semibold text-ink">
           {q.symbol ?? q.name}
         </span>
         {hasSymbol && (
-          <span className="font-mono text-[11px] font-medium text-neutral-400">
+          <span className="font-mono text-[11px] font-medium text-faint">
             {q.name}
           </span>
         )}
         {tag && (
-          <span className="font-mono text-[10px] uppercase tracking-wide text-neutral-400">
+          <span className="font-mono text-[10px] uppercase tracking-wide text-faint">
             {tag}
           </span>
         )}
         {q.description ? (
-          <span className="text-xs font-medium text-neutral-500" title={q.description}>
+          <span className="text-xs font-medium text-muted" title={q.description}>
             {q.description}
           </span>
         ) : (
-          <span className="font-mono text-[10px] text-neutral-400">banded over draws</span>
+          <span className="font-mono text-[10px] text-faint">banded over draws</span>
         )}
         {q.reference && (
-          <span className="ml-auto hidden shrink-0 text-[11px] italic text-neutral-400 sm:inline">
+          <span className="ml-auto hidden shrink-0 text-[11px] italic text-faint sm:inline">
             {q.reference}
           </span>
         )}
@@ -325,7 +325,7 @@ function SeriesQuantity({
         />
       )}
       {data && canByIndex && (
-        <div className="flex gap-4 border-t border-neutral-100 px-3 pt-2">
+        <div className="flex gap-4 border-t border-hairline px-3 pt-2">
           {(
             [
               ['series', 'Time series'],
@@ -340,8 +340,8 @@ function SeriesQuantity({
               className={cn(
                 '-mb-px border-b-2 py-1.5 font-mono text-xs transition-colors',
                 v === view
-                  ? 'border-neutral-900 text-neutral-900'
-                  : 'border-transparent text-neutral-500 hover:text-neutral-800',
+                  ? 'border-line-ink text-ink'
+                  : 'border-transparent text-muted hover:text-ink-dim',
               )}
             >
               {label}
@@ -363,7 +363,7 @@ function SeriesQuantity({
           ))
         ) : byIndex && byIndex.facets.some((f) => f.points.some((p) => p.pred != null)) ? (
           <>
-            <div className="flex flex-col gap-2 border-t border-neutral-100 px-3 py-2">
+            <div className="flex flex-col gap-2 border-t border-hairline px-3 py-2">
               <Segmented
                 label="Index (x)"
                 options={indexDims}
@@ -383,7 +383,7 @@ function SeriesQuantity({
                   levelColor={new Map(byIndex.facets.map((f) => [f.level, f.color]))}
                 />
               )}
-              <span className="font-mono text-[10px] text-neutral-400">
+              <span className="font-mono text-[10px] text-faint">
                 line = median · marginalised over time
               </span>
             </div>
@@ -425,15 +425,15 @@ export function ScalarBand({
   toDate?: ((t: number) => Date) | null
 }) {
   if (q50 == null) {
-    return <span className="text-neutral-400">— censored —</span>
+    return <span className="text-faint">— censored —</span>
   }
   if (unit != null && isTimePointUnit(unit) && toDate) {
     return (
       <span>
-        <span className="font-semibold text-neutral-900">
+        <span className="font-semibold text-ink">
           {fmtModelDate(toDate, q50)}
         </span>{' '}
-        <span className="text-neutral-500">
+        <span className="text-muted">
           [{q05 != null ? fmtModelDate(toDate, q05) : '—'},{' '}
           {q95 != null ? fmtModelDate(toDate, q95) : '—'}]
         </span>
@@ -442,12 +442,12 @@ export function ScalarBand({
   }
   return (
     <span>
-      <span className="font-semibold text-neutral-900">{fmtValue(q50)}</span>{' '}
-      <span className="text-neutral-500">
+      <span className="font-semibold text-ink">{fmtValue(q50)}</span>{' '}
+      <span className="text-muted">
         [{fmtValue(q05)}, {fmtValue(q95)}]
       </span>
       {unit != null && !isTimePointUnit(unit) && (
-        <span className="ml-1 text-[10px] text-neutral-400">{unit}</span>
+        <span className="ml-1 text-[10px] text-faint">{unit}</span>
       )}
     </span>
   )
@@ -516,25 +516,25 @@ function ScalarTable({
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-full items-baseline gap-2 px-3 py-2 text-left transition-colors hover:bg-neutral-50"
+        className="flex w-full items-baseline gap-2 px-3 py-2 text-left transition-colors hover:bg-sunken"
       >
-        <span className="text-[10px] text-neutral-400">{open ? '▾' : '▸'}</span>
-        <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <span className="text-[10px] text-faint">{open ? '▾' : '▸'}</span>
+        <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
           scalar quantities
         </span>
-        <span className="font-mono text-[10px] tabular-nums text-neutral-400">
+        <span className="font-mono text-[10px] tabular-nums text-faint">
           ({groups.length})
         </span>
         {!open && (
-          <span className="truncate font-mono text-[10px] text-neutral-400">
+          <span className="truncate font-mono text-[10px] text-faint">
             {groups.map(([name]) => name).join(' · ')}
           </span>
         )}
       </button>
-      <div className={cn('overflow-x-auto border-t border-neutral-200', !open && 'hidden')}>
+      <div className={cn('overflow-x-auto border-t border-line', !open && 'hidden')}>
         <table className="w-full border-collapse font-mono text-[12px] tabular-nums">
           <thead>
-            <tr className="border-b border-neutral-200 text-[10px] uppercase tracking-wide text-neutral-400">
+            <tr className="border-b border-line text-[10px] uppercase tracking-wide text-faint">
               <th className="px-3 py-2 text-left font-medium">Quantity</th>
               {showScenario && <th className="px-2 py-2 text-left font-medium">scenario</th>}
               <th className="px-2 py-2 text-left font-medium">reduce</th>
@@ -551,7 +551,7 @@ function ScalarTable({
                 return (
                   <tr
                     key={`${name}-${r.scenario}-${JSON.stringify(r.stratum)}`}
-                    className={cn(first && 'border-t border-neutral-100')}
+                    className={cn(first && 'border-t border-hairline')}
                   >
                     <td className="px-3 py-1.5 text-left align-top">
                       {first &&
@@ -561,23 +561,23 @@ function ScalarTable({
                           return (
                             <>
                               <div className="flex items-baseline gap-1.5">
-                                <span className="font-semibold text-neutral-900">
+                                <span className="font-semibold text-ink">
                                   {info?.symbol ?? name}
                                 </span>
                                 {hasSymbol && (
-                                  <span className="font-mono text-[10px] text-neutral-400">
+                                  <span className="font-mono text-[10px] text-faint">
                                     {name}
                                   </span>
                                 )}
                                 {sourceTag(r.source) && (
-                                  <span className="font-mono text-[10px] uppercase tracking-wide text-neutral-400">
+                                  <span className="font-mono text-[10px] uppercase tracking-wide text-faint">
                                     {sourceTag(r.source)}
                                   </span>
                                 )}
                               </div>
                               {info?.description && (
                                 <div
-                                  className="mt-0.5 max-w-[20rem] truncate text-[11px] font-normal text-neutral-500"
+                                  className="mt-0.5 max-w-[20rem] truncate text-[11px] font-normal text-muted"
                                   title={info.description}
                                 >
                                   {info.description}
@@ -592,11 +592,11 @@ function ScalarTable({
                         <ScenarioChip scenario={r.scenario} color={colorOf(r.scenario)} />
                       </td>
                     )}
-                    <td className="px-2 py-1.5 text-left text-neutral-500">
+                    <td className="px-2 py-1.5 text-left text-muted">
                       {first ? (r.reduce ?? '—') : ''}
                     </td>
                     {hasStrata && (
-                      <td className="px-2 py-1.5 text-left text-neutral-600">
+                      <td className="px-2 py-1.5 text-left text-body-dim">
                         {stratumLabel(r.stratum) || '—'}
                       </td>
                     )}
@@ -606,7 +606,7 @@ function ScalarTable({
                     <td
                       className={cn(
                         'px-3 py-1.5 text-right',
-                        censored && censored > 0 ? 'text-amber-600' : 'text-neutral-400',
+                        censored && censored > 0 ? 'text-warn' : 'text-faint',
                       )}
                     >
                       {censored == null ? '—' : `${censored}%`}
@@ -782,14 +782,14 @@ export function QuantitiesTab({ runId }: { runId: string }) {
               the tab. Sticks *below* the app header (--app-header-h) and under
               its z-index, so the two stack rather than overlap. */}
           <div
-            className="sticky z-30 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-neutral-200 bg-white px-1 py-2"
+            className="sticky z-30 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line bg-surface px-1 py-2"
             style={{ top: 'var(--app-header-h)' }}
           >
             <button
               type="button"
               onClick={() => setSeriesOpen(!seriesOpen)}
               aria-expanded={seriesOpen}
-              className="flex items-baseline gap-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400 transition-colors hover:text-neutral-600"
+              className="flex items-baseline gap-1 text-[10px] font-medium uppercase tracking-wider text-faint transition-colors hover:text-body-dim"
             >
               <span>{seriesOpen ? '▾' : '▸'}</span>
               <span>series quantities</span>
@@ -805,9 +805,9 @@ export function QuantitiesTab({ runId }: { runId: string }) {
                     type="checkbox"
                     checked={logY}
                     onChange={() => setLogY(!logY)}
-                    className="size-3 accent-neutral-800"
+                    className="size-3 accent-ink-dim"
                   />
-                  <span className={logY ? 'text-neutral-900' : 'text-neutral-500'}>
+                  <span className={logY ? 'text-ink' : 'text-muted'}>
                     log y
                   </span>
                 </label>

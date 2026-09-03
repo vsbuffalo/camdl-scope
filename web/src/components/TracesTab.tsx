@@ -135,7 +135,7 @@ function TracePanel({
  */
 function ChainLegend({ chains }: { chains: number[] }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-neutral-400">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-faint">
       <span className="uppercase tracking-wider">chains</span>
       {chains.map((c) => (
         <span key={c} className="flex items-center gap-1">
@@ -250,20 +250,20 @@ export function TracesTab({
       {data && data.traces.length > 0 && (
         <>
           {objectiveTraces.length > 0 && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-neutral-100 px-3 py-2">
-              <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-hairline px-3 py-2">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
                 objectives
               </span>
               {objectiveTraces.map((t) => (
                 <label
                   key={t.param}
-                  className="flex cursor-pointer select-none items-center gap-1.5 font-mono text-[11px] text-neutral-700"
+                  className="flex cursor-pointer select-none items-center gap-1.5 font-mono text-[11px] text-body"
                 >
                   <input
                     type="checkbox"
                     checked={!hiddenObjectives.has(t.param)}
                     onChange={() => toggleObjective(t.param)}
-                    className="h-3 w-3 accent-neutral-700"
+                    className="h-3 w-3 accent-body"
                   />
                   <span>{t.param}</span>
                 </label>
@@ -272,9 +272,9 @@ export function TracesTab({
           )}
 
           <div className="group/fig relative">
-            <div ref={figRef} className="bg-white">
-              <div className="flex items-center justify-between gap-3 border-b border-neutral-100 px-3 py-2">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+            <div ref={figRef} className="bg-surface">
+              <div className="flex items-center justify-between gap-3 border-b border-hairline px-3 py-2">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
                   iteration traces · mixing
                 </span>
                 <ChainLegend chains={chainDomain} />
@@ -283,9 +283,9 @@ export function TracesTab({
                 {visibleTraces.map((t, i) => (
                   <div
                     key={t.param}
-                    className="border-b border-neutral-100 px-3 py-1.5 last:border-b-0"
+                    className="border-b border-hairline px-3 py-1.5 last:border-b-0"
                   >
-                    <div className="font-mono text-[10px] text-neutral-500">
+                    <div className="font-mono text-[10px] text-muted">
                       {t.param}
                     </div>
                     <TracePanel

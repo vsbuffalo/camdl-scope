@@ -72,30 +72,30 @@ export function ChainSelect({
   }
 
   return (
-    <div className="border-b border-neutral-100 px-3 py-2.5">
+    <div className="border-b border-hairline px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="flex items-center gap-1.5 rounded-sm border border-neutral-200 px-2 py-1 font-mono text-[11px] text-neutral-600 transition-colors hover:bg-neutral-50"
+          className="flex items-center gap-1.5 rounded-sm border border-line px-2 py-1 font-mono text-[11px] text-body-dim transition-colors hover:bg-sunken"
         >
-          <span className="text-neutral-400">{open ? '▾' : '▸'}</span>
+          <span className="text-faint">{open ? '▾' : '▸'}</span>
           <span>chains</span>
-          <span className="tabular-nums text-neutral-400">
+          <span className="tabular-nums text-faint">
             ({includedCount}/{chainIds.length})
           </span>
         </button>
 
         {dead.size > 0 && (
-          <span className="font-mono text-[10px] text-neutral-400">
+          <span className="font-mono text-[10px] text-faint">
             {dead.size} dead (no draws)
           </span>
         )}
 
         {frozen.size > 0 && (
           <span
-            className="font-mono text-[10px] text-red-600"
+            className="font-mono text-[10px] text-danger"
             title="camdl's record: every retained draw of these chains is one parameter vector"
           >
             {frozen.size} frozen (took no step after burn-in)
@@ -103,26 +103,26 @@ export function ChainSelect({
         )}
 
         {anyExcluded && (
-          <span className="font-mono text-[10px] text-amber-600">
+          <span className="font-mono text-[10px] text-warn">
             {excluded.size} excluded — recomputed on the rest
           </span>
         )}
 
         {open && onSetExcluded && (
-          <div className="flex items-center gap-2 font-mono text-[10px] text-neutral-400">
+          <div className="flex items-center gap-2 font-mono text-[10px] text-faint">
             <button
               type="button"
               onClick={onReset}
-              className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+              className="underline-offset-2 transition-colors hover:text-body hover:underline"
             >
               all
             </button>
-            <span className="text-neutral-300">·</span>
+            <span className="text-ghost">·</span>
             <button
               type="button"
               onClick={soloFirst}
               title="leaves one chain — an empty selection is read as 'all'"
-              className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+              className="underline-offset-2 transition-colors hover:text-body hover:underline"
             >
               none
             </button>
@@ -131,7 +131,7 @@ export function ChainSelect({
       </div>
 
       {open && (
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 rounded-sm border border-neutral-200 bg-[#fafafa] p-2.5">
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 rounded-sm border border-line bg-[#fafafa] p-2.5">
           {chainIds.map((c) => {
             const included = !excluded.has(c)
             const isDead = dead.has(c)
@@ -143,10 +143,10 @@ export function ChainSelect({
                 className={cn(
                   'flex select-none items-center gap-1.5 font-mono text-[11px]',
                   isDead
-                    ? 'cursor-not-allowed text-neutral-300'
+                    ? 'cursor-not-allowed text-ghost'
                     : lockedOn
-                      ? 'cursor-not-allowed text-neutral-400'
-                      : 'cursor-pointer text-neutral-700',
+                      ? 'cursor-not-allowed text-faint'
+                      : 'cursor-pointer text-body',
                 )}
                 title={
                   isDead
@@ -163,7 +163,7 @@ export function ChainSelect({
                   checked={included && !isDead}
                   disabled={lockedOn || isDead}
                   onChange={() => onToggle(c)}
-                  className="h-3 w-3 accent-neutral-700"
+                  className="h-3 w-3 accent-body"
                 />
                 <span
                   className="inline-block h-2 w-3 rounded-[1px]"
@@ -184,7 +184,7 @@ export function ChainSelect({
                   c{c}
                 </span>
                 {frozen.has(c) && !isDead && (
-                  <span className="text-[10px] text-red-600">frozen</span>
+                  <span className="text-[10px] text-danger">frozen</span>
                 )}
               </label>
             )

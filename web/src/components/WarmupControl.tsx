@@ -30,15 +30,15 @@ export function WarmupControl({
   const pct = value ?? declaredPct ?? 50
   const shown = Math.round(pct)
   return (
-    <div className="border-b border-neutral-100 px-3 py-2.5">
+    <div className="border-b border-hairline px-3 py-2.5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
           Warm-up
         </span>
-        <span className="font-mono text-sm tabular-nums text-neutral-900">
+        <span className="font-mono text-sm tabular-nums text-ink">
           {shown}%
         </span>
-        <span className="text-[11px] text-neutral-400">
+        <span className="text-[11px] text-faint">
           {declared && declaredPct != null
             ? `the run's declared burn-in (${shown}% of each chain), as camdl uses`
             : declared
@@ -48,7 +48,7 @@ export function WarmupControl({
         {!declared && declaredPct != null && !DEMO && (
           <button
             type="button"
-            className="text-[11px] text-blue-700 underline-offset-2 hover:underline"
+            className="text-[11px] text-accent underline-offset-2 hover:underline"
             onClick={() => onChange(null)}
           >
             use declared ({Math.round(declaredPct)}%)
@@ -80,10 +80,10 @@ export function WarmupControl({
 function Readout({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="flex items-baseline gap-1.5">
-      <dt className="text-[10px] uppercase tracking-wider text-neutral-400">
+      <dt className="text-[10px] uppercase tracking-wider text-faint">
         {label}
       </dt>
-      <dd className="font-mono text-xs tabular-nums text-neutral-700">
+      <dd className="font-mono text-xs tabular-nums text-body">
         {value ?? '—'}
       </dd>
     </div>

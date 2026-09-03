@@ -97,7 +97,7 @@ export function ByIndexPlot({
 /** Swatches mapping each facet level to its colour (the by-index legend). */
 export function LevelLegend({ levelColor }: { levelColor: Map<string, string> }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-neutral-400">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-faint">
       {[...levelColor].map(([lvl, color]) => (
         <span key={lvl} className="flex items-center gap-1">
           <span

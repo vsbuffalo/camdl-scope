@@ -45,11 +45,11 @@ function QuantityScalarSection({ runId }: { runId: string }) {
 
   return (
     <>
-      <div className="flex items-baseline justify-between border-y border-neutral-200 bg-neutral-50 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+      <div className="flex items-baseline justify-between border-y border-line bg-sunken px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-faint">
         <span>generated quantities</span>
         <span>from camdl fit predict</span>
       </div>
-      <div className="divide-y divide-neutral-100">
+      <div className="divide-y divide-hairline">
         {rows.map((r) => {
           const info = infoOf.get(r.name)
           const stratum = Object.entries(r.stratum)
@@ -62,11 +62,11 @@ function QuantityScalarSection({ runId }: { runId: string }) {
             >
               <span className="flex min-w-0 flex-col gap-0.5">
                 <span className="flex min-w-0 items-baseline gap-1.5">
-                  <span className="shrink-0 font-mono text-[12px] font-semibold text-neutral-900">
+                  <span className="shrink-0 font-mono text-[12px] font-semibold text-ink">
                     {info?.symbol ?? r.name}
                   </span>
                   {stratum && (
-                    <span className="shrink-0 font-mono text-[10px] text-neutral-400">
+                    <span className="shrink-0 font-mono text-[10px] text-faint">
                       {stratum}
                     </span>
                   )}
@@ -74,7 +74,7 @@ function QuantityScalarSection({ runId }: { runId: string }) {
                 {info?.description && (
                   <Description
                     text={info.description}
-                    className="text-[11px] text-neutral-500"
+                    className="text-[11px] text-muted"
                   />
                 )}
               </span>
@@ -164,11 +164,11 @@ export function PosteriorTab({
 
       {data && data.params.length > 0 && (
         <>
-          <div className="flex items-baseline justify-between border-b border-neutral-200 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+          <div className="flex items-baseline justify-between border-b border-line px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-faint">
             <span>parameter · marginal posterior</span>
             <span>median · 90% · R&#x0302; / ESS</span>
           </div>
-          <div className="divide-y divide-neutral-100">
+          <div className="divide-y divide-hairline">
             {data.params
               .filter((p) => !p.is_objective)
               .map((param) => (
@@ -188,10 +188,10 @@ export function PosteriorTab({
               — a fit summary, set apart from the estimands (Stan's lp__). */}
           {data.params.some((p) => p.is_objective) && (
             <>
-              <div className="border-y border-neutral-200 bg-neutral-50 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+              <div className="border-y border-line bg-sunken px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-faint">
                 fit objectives
               </div>
-              <div className="divide-y divide-neutral-100">
+              <div className="divide-y divide-hairline">
                 {data.params
                   .filter((p) => p.is_objective)
                   .map((param) => (

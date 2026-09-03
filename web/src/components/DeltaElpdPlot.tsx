@@ -110,7 +110,7 @@ export function DeltaElpdPlot({
 
   return (
     <div className="group/fig relative">
-      <div ref={ref} className="w-full overflow-hidden bg-white" />
+      <div ref={ref} className="w-full overflow-hidden bg-surface" />
       <PlotDownloadButton targetRef={ref} name="delta-elpd" />
     </div>
   )

@@ -42,7 +42,7 @@ export function ScenarioChecks({
           type="button"
           onClick={() => setUserOpen(!open)}
           aria-expanded={open}
-          className="flex items-baseline gap-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400 transition-colors hover:text-neutral-600"
+          className="flex items-baseline gap-1 text-[10px] font-medium uppercase tracking-wider text-faint transition-colors hover:text-body-dim"
         >
           <span>{open ? '▾' : '▸'}</span>
           <span>Scenario</span>
@@ -51,7 +51,7 @@ export function ScenarioChecks({
           </span>
         </button>
       ) : (
-        <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
           Scenario
         </span>
       )}
@@ -66,23 +66,23 @@ export function ScenarioChecks({
             style={{ background: colorOf(pinned) }}
             aria-hidden
           />
-          <span className="text-neutral-900">{pinned}</span>
-          <span className="text-[10px] text-neutral-400">always</span>
+          <span className="text-ink">{pinned}</span>
+          <span className="text-[10px] text-faint">always</span>
         </span>
       )}
 
-      <span className="flex items-center gap-2 font-mono text-[10px] text-neutral-400">
+      <span className="flex items-center gap-2 font-mono text-[10px] text-faint">
         <button
           type="button"
           onClick={() => onSetAll([...options])}
-          className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+          className="underline-offset-2 transition-colors hover:text-body hover:underline"
         >
           all
         </button>
         <button
           type="button"
           onClick={() => onSetAll([])}
-          className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+          className="underline-offset-2 transition-colors hover:text-body hover:underline"
         >
           none
         </button>
@@ -104,7 +104,7 @@ export function ScenarioChecks({
                   className="size-3"
                   style={{ accentColor: colorOf(opt) }}
                 />
-                <span className={on ? 'text-neutral-900' : 'text-neutral-500'}>{opt}</span>
+                <span className={on ? 'text-ink' : 'text-muted'}>{opt}</span>
               </label>
             )
           })}

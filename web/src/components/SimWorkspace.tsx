@@ -101,16 +101,16 @@ function SimSelect({
   const tag = (s: SimSummary) =>
     `· ${s.n_members} member${s.n_members === 1 ? '' : 's'}${s.n_members > 1 ? ' · sweep' : ''}`
   return (
-    <div className="mb-4 border-b border-neutral-200 pb-1">
+    <div className="mb-4 border-b border-line pb-1">
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className="min-w-0 sm:w-[24rem]" aria-label="Select a sim">
           {selected ? (
-            <span className="truncate font-mono text-[13px] text-neutral-900">
+            <span className="truncate font-mono text-[13px] text-ink">
               {selected.model}
-              <span className="ml-1.5 text-neutral-400">{tag(selected)}</span>
+              <span className="ml-1.5 text-faint">{tag(selected)}</span>
             </span>
           ) : (
-            <span className="text-neutral-400">Select a sim…</span>
+            <span className="text-faint">Select a sim…</span>
           )}
         </SelectTrigger>
         <SelectContent>
@@ -118,7 +118,7 @@ function SimSelect({
             <SelectItem key={s.sim_id} value={s.sim_id}>
               <span className="truncate font-mono text-[13px]">
                 {s.model}
-                <span className="ml-1.5 text-neutral-400">{tag(s)}</span>
+                <span className="ml-1.5 text-faint">{tag(s)}</span>
               </span>
             </SelectItem>
           ))}
@@ -155,9 +155,9 @@ function SimCard({ sim }: { sim: SimSummary }) {
         isPlaceholderData && 'opacity-60',
       )}
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-neutral-100 px-3 py-2.5">
-        <span className="text-sm font-semibold text-neutral-900">{sim.model}</span>
-        <span className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-hairline px-3 py-2.5">
+        <span className="text-sm font-semibold text-ink">{sim.model}</span>
+        <span className="font-mono text-[10px] uppercase tracking-wider text-faint">
           forward sim · {sim.n_members} member{sim.n_members === 1 ? '' : 's'}
         </span>
       </div>
@@ -173,7 +173,7 @@ function SimCard({ sim }: { sim: SimSummary }) {
 
       {data && data.states.length > 0 && (
         <>
-          <div className="flex flex-col gap-2 border-b border-neutral-100 px-3 py-2">
+          <div className="flex flex-col gap-2 border-b border-hairline px-3 py-2">
             <Segmented
               label="Compartment"
               options={data.states}
@@ -181,12 +181,12 @@ function SimCard({ sim }: { sim: SimSummary }) {
               onChange={setState}
             />
             {data.mode === 'band' && (
-              <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs text-neutral-700">
+              <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs text-body">
                 <input
                   type="checkbox"
                   checked={showMembers}
                   onChange={() => setShowMembers((v) => !v)}
-                  className="size-3 accent-neutral-800"
+                  className="size-3 accent-ink-dim"
                 />
                 <span>
                   show {data.members.length} sample member
@@ -195,7 +195,7 @@ function SimCard({ sim }: { sim: SimSummary }) {
               </label>
             )}
             {data.mode === 'members' && data.members.length > 1 && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-neutral-500">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-muted">
                 {data.members.map((m, i) => (
                   <span key={m.member + i} className="flex items-center gap-1">
                     <span
@@ -207,16 +207,16 @@ function SimCard({ sim }: { sim: SimSummary }) {
                 ))}
               </div>
             )}
-            <span className="font-mono text-[10px] text-neutral-400">
+            <span className="font-mono text-[10px] text-faint">
               {data.mode === 'band'
                 ? `${data.n_members} sweep members → quantile band (5–95% · 25–75%) + median`
                 : `${data.n_members} sweep member${data.n_members === 1 ? '' : 's'} overlaid · summed over strata`}
             </span>
             {bounds[1] > bounds[0] && (
               <div className="mt-0.5 flex flex-col gap-1">
-                <div className="flex items-baseline justify-between font-mono text-[10px] text-neutral-400">
+                <div className="flex items-baseline justify-between font-mono text-[10px] text-faint">
                   <span className="uppercase tracking-wider">window</span>
-                  <span className="text-neutral-600">
+                  <span className="text-body-dim">
                     {fmtBound(sliderVal[0])} – {fmtBound(sliderVal[1])}
                     {win && (
                       <button
@@ -225,7 +225,7 @@ function SimCard({ sim }: { sim: SimSummary }) {
                           setWin(null)
                           setDrag(null)
                         }}
-                        className="ml-2 text-neutral-400 underline-offset-2 hover:text-neutral-700 hover:underline"
+                        className="ml-2 text-faint underline-offset-2 hover:text-body hover:underline"
                       >
                         reset
                       </button>

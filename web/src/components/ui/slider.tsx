@@ -17,16 +17,16 @@ export function Slider({
       )}
       {...props}
     >
-      <SliderPrimitive.Track className="relative h-1 w-full grow overflow-hidden rounded-none bg-neutral-200">
-        <SliderPrimitive.Range className="absolute h-full bg-neutral-900" />
+      <SliderPrimitive.Track className="relative h-1 w-full grow overflow-hidden rounded-none bg-fill-faint">
+        <SliderPrimitive.Range className="absolute h-full bg-inverse" />
       </SliderPrimitive.Track>
       {Array.from({ length: n }, (_, i) => (
         <SliderPrimitive.Thumb
           key={i}
           className={cn(
-            'block h-3.5 w-2 rounded-none border border-neutral-400 bg-neutral-900',
-            'transition-colors hover:border-neutral-600',
-            'focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900/40',
+            'block h-3.5 w-2 rounded-none border border-line-heavy bg-inverse',
+            'transition-colors hover:border-line-body',
+            'focus:outline-none focus-visible:ring-1 focus-visible:ring-ink/40',
           )}
           aria-label={n > 1 ? `window bound ${i + 1}` : 'slider'}
         />

@@ -10,7 +10,7 @@ const DENSITY_HEIGHT = 66
  *  verdict (warn / error where camdl flagged this parameter, else neutral). The
  *  number is shown either way; no bar is applied to it here. */
 function rhatClass(param: ParamPosterior): string {
-  if (param.rhat == null && param.rhat_text == null) return 'text-neutral-400'
+  if (param.rhat == null && param.rhat_text == null) return 'text-faint'
   return statusTextClass(param.rhat_status)
 }
 
@@ -44,16 +44,16 @@ export function ForestRow({
           line below: it is prose, and clipping it to the tail of this row hid
           the reasoning it exists to carry. */}
       <div className="flex min-w-0 items-baseline gap-2">
-        <span className="shrink-0 text-base font-semibold leading-none text-neutral-900">
+        <span className="shrink-0 text-base font-semibold leading-none text-ink">
           {param.symbol ?? param.name}
         </span>
         {hasSymbol && (
-          <span className="shrink-0 font-mono text-[11px] font-medium text-neutral-400">
+          <span className="shrink-0 font-mono text-[11px] font-medium text-faint">
             {param.name}
           </span>
         )}
         {param.reference && (
-          <span className="ml-auto hidden shrink-0 text-[11px] italic text-neutral-400 sm:inline">
+          <span className="ml-auto hidden shrink-0 text-[11px] italic text-faint sm:inline">
             {param.reference}
           </span>
         )}
@@ -61,7 +61,7 @@ export function ForestRow({
       {param.description && (
         <Description
           text={param.description}
-          className="text-xs font-medium text-neutral-500"
+          className="text-xs font-medium text-muted"
         />
       )}
 
@@ -83,17 +83,17 @@ export function ForestRow({
           ) : (
             // Hold the row's height so loading draws don't jolt the layout.
             <div
-              className="w-full animate-pulse rounded bg-neutral-100"
+              className="w-full animate-pulse rounded bg-raised"
               style={{ height: DENSITY_HEIGHT }}
             />
           )}
         </div>
         <div className="flex items-baseline justify-between gap-4 sm:ml-auto sm:items-center sm:justify-end">
           <div className="shrink-0 whitespace-nowrap text-right font-mono tabular-nums sm:w-36">
-            <div className="text-sm font-semibold leading-tight text-neutral-900">
+            <div className="text-sm font-semibold leading-tight text-ink">
               {fmtValue(param.q50)}
             </div>
-            <div className="text-[11px] font-medium leading-tight text-neutral-500">
+            <div className="text-[11px] font-medium leading-tight text-muted">
               [{fmtValue(param.q05)}, {fmtValue(param.q95)}]
             </div>
           </div>
@@ -101,7 +101,7 @@ export function ForestRow({
             <div className={rhatClass(param)}>
               R&#x0302; {rhatText(param)}
             </div>
-            <div className="text-neutral-400">ESS {fmtEss(param.ess)}</div>
+            <div className="text-faint">ESS {fmtEss(param.ess)}</div>
           </div>
         </div>
       </div>

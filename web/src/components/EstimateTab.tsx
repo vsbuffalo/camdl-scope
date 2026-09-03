@@ -29,18 +29,18 @@ export function EstimateTab({ runId }: { runId: string }) {
 
         {data && (
           <>
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-neutral-100 px-3 py-2.5">
-              <span className="font-mono text-[11px] text-neutral-500">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-hairline px-3 py-2.5">
+              <span className="font-mono text-[11px] text-muted">
                 MLE point estimate ·{' '}
-                <span className="text-neutral-800">
+                <span className="text-ink-dim">
                   logL {fmtValue(data.loglik)}
                 </span>
               </span>
-              <span className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-faint">
                 {data.algorithm} / {data.backend} ·{' '}
                 <span
                   className={
-                    data.n_converged < data.n_restarts ? 'text-amber-600' : ''
+                    data.n_converged < data.n_restarts ? 'text-warn' : ''
                   }
                 >
                   {data.n_converged}/{data.n_restarts} restarts converged
@@ -51,7 +51,7 @@ export function EstimateTab({ runId }: { runId: string }) {
             <div className="overflow-x-auto">
               <table className="w-full min-w-max border-collapse font-mono text-[11px] tabular-nums">
                 <thead>
-                  <tr className="border-b border-neutral-200 text-[9px] uppercase tracking-wider text-neutral-400">
+                  <tr className="border-b border-line text-[9px] uppercase tracking-wider text-faint">
                     <th className="px-3 py-1.5 text-left font-medium">
                       parameter
                     </th>
@@ -77,40 +77,40 @@ export function EstimateTab({ runId }: { runId: string }) {
                     return (
                       <tr
                         key={p.name}
-                        className="border-b border-neutral-100 last:border-b-0"
+                        className="border-b border-hairline last:border-b-0"
                       >
                         <td className="whitespace-nowrap px-3 py-1.5 text-left">
                           {hasSymbol && (
-                            <span className="font-semibold text-neutral-900">
+                            <span className="font-semibold text-ink">
                               {p.symbol}{' '}
                             </span>
                           )}
                           <span
                             className={
-                              hasSymbol ? 'text-neutral-400' : 'text-neutral-900'
+                              hasSymbol ? 'text-faint' : 'text-ink'
                             }
                             title={p.description ?? undefined}
                           >
                             {p.name}
                           </span>
                         </td>
-                        <td className="px-3 py-1.5 text-right font-semibold text-neutral-900">
+                        <td className="px-3 py-1.5 text-right font-semibold text-ink">
                           {fmtValue(p.value)}
                           {atBound && (
                             <span
-                              className="ml-1 text-amber-600"
+                              className="ml-1 text-warn"
                               title="at a parameter bound"
                             >
                               ⚠
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-1.5 text-right text-neutral-500">
+                        <td className="px-3 py-1.5 text-right text-muted">
                           {p.restart_lo != null && p.restart_hi != null
                             ? `[${fmtValue(p.restart_lo)}, ${fmtValue(p.restart_hi)}]`
                             : '—'}
                         </td>
-                        <td className="px-3 py-1.5 text-right text-neutral-400">
+                        <td className="px-3 py-1.5 text-right text-faint">
                           {p.bounds != null
                             ? `[${fmtValue(p.bounds[0])}, ${fmtValue(p.bounds[1])}]`
                             : '—'}
@@ -123,7 +123,7 @@ export function EstimateTab({ runId }: { runId: string }) {
             </div>
 
             {data.n_converged < data.n_restarts && (
-              <p className="border-t border-neutral-100 px-3 py-2 font-mono text-[10px] text-amber-600">
+              <p className="border-t border-hairline px-3 py-2 font-mono text-[10px] text-warn">
                 {data.n_restarts - data.n_converged} of {data.n_restarts}{' '}
                 restarts failed to converge — see the Restarts tab. A point
                 estimate from an unreliable optimization should be read with

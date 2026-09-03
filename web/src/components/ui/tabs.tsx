@@ -11,7 +11,7 @@ export function TabsList({
   return (
     <TabsPrimitive.List
       className={cn(
-        'flex w-full items-center gap-x-5 gap-y-1 border-b border-neutral-200',
+        'flex w-full items-center gap-x-5 gap-y-1 border-b border-line',
         // On a phone the strip is wider than the screen. It used to scroll with
         // the scrollbar explicitly hidden, which is the worst pair: tabs off
         // screen and nothing saying so. Wrap instead — every tab visible, no
@@ -33,11 +33,11 @@ export function TabsTrigger({
   return (
     <TabsPrimitive.Trigger
       className={cn(
-        'shrink-0 border-b-2 border-transparent pb-2 -mb-px text-sm text-neutral-500',
-        'transition-colors hover:text-neutral-800',
-        'focus:outline-none focus-visible:text-neutral-900',
+        'shrink-0 border-b-2 border-transparent pb-2 -mb-px text-sm text-muted',
+        'transition-colors hover:text-ink-dim',
+        'focus:outline-none focus-visible:text-ink',
         'disabled:pointer-events-none disabled:opacity-50',
-        'data-[state=active]:border-neutral-900 data-[state=active]:text-neutral-900 data-[state=active]:font-medium',
+        'data-[state=active]:border-line-ink data-[state=active]:text-ink data-[state=active]:font-medium',
         className,
       )}
       {...props}

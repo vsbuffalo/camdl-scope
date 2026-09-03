@@ -69,10 +69,10 @@ export function BandLayerChecks({
               type="checkbox"
               checked={on}
               onChange={() => onToggle(key)}
-              className="size-3 accent-neutral-800"
+              className="size-3 accent-ink-dim"
             />
             <LayerSwatch layer={key} on={on} />
-            <span className={on ? 'text-neutral-900' : 'text-neutral-500'}>
+            <span className={on ? 'text-ink' : 'text-muted'}>
               {label}
             </span>
           </label>

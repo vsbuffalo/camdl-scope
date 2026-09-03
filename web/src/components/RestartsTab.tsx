@@ -40,28 +40,28 @@ export function RestartsTab({ runId }: { runId: string }) {
 
         {data && (
           <>
-            <div className="border-b border-neutral-100 px-3 py-2.5 font-mono text-[11px] text-neutral-500">
+            <div className="border-b border-hairline px-3 py-2.5 font-mono text-[11px] text-muted">
               {data.n_restarts} restarts ·{' '}
               <span
                 className={
                   data.n_converged < data.n_restarts
-                    ? 'text-amber-600'
-                    : 'text-emerald-600'
+                    ? 'text-warn'
+                    : 'text-good'
                 }
               >
                 {data.n_converged} converged
               </span>
               {data.n_converged < data.n_restarts && (
-                <span className="text-neutral-400">
+                <span className="text-faint">
                   {' '}
                   · {data.n_restarts - data.n_converged} failed
                 </span>
               )}
               {converged.length > 1 && (
-                <span className="text-neutral-400">
+                <span className="text-faint">
                   {' '}
                   · best logL{' '}
-                  <span className="text-neutral-800">{fmtValue(best)}</span>,
+                  <span className="text-ink-dim">{fmtValue(best)}</span>,
                   spread{' '}
                   {fmtValue(best - Math.min(...converged.map((r) => r.loglik)))}
                 </span>
@@ -71,7 +71,7 @@ export function RestartsTab({ runId }: { runId: string }) {
             {converged.length > 0 ? (
               <div className="px-3 py-3">
                 <RestartStrip restarts={converged} best={best} />
-                <p className="mt-1 font-mono text-[10px] text-neutral-400">
+                <p className="mt-1 font-mono text-[10px] text-faint">
                   each dot is a converged restart's optimum; the red one is the
                   reported θ̂. Tightly clustered ⇒ the mode is reliable; scattered
                   ⇒ multiple local optima.
@@ -85,10 +85,10 @@ export function RestartsTab({ runId }: { runId: string }) {
               />
             )}
 
-            <div className="overflow-x-auto border-t border-neutral-100">
+            <div className="overflow-x-auto border-t border-hairline">
               <table className="w-full min-w-max border-collapse font-mono text-[11px] tabular-nums">
                 <thead>
-                  <tr className="border-b border-neutral-200 text-[9px] uppercase tracking-wider text-neutral-400">
+                  <tr className="border-b border-line text-[9px] uppercase tracking-wider text-faint">
                     <th className="px-3 py-1.5 text-left font-medium">restart</th>
                     <th className="px-3 py-1.5 text-right font-medium">logL</th>
                     <th className="px-3 py-1.5 text-left font-medium">status</th>
@@ -102,12 +102,12 @@ export function RestartsTab({ runId }: { runId: string }) {
                     return (
                       <tr
                         key={r.chain}
-                        className="border-b border-neutral-100 last:border-b-0"
+                        className="border-b border-hairline last:border-b-0"
                       >
-                        <td className="px-3 py-1.5 text-left text-neutral-500">
+                        <td className="px-3 py-1.5 text-left text-muted">
                           c{r.chain}
                           {isBest && (
-                            <span className="ml-1 text-red-600" title="reported θ̂">
+                            <span className="ml-1 text-danger" title="reported θ̂">
                               ★
                             </span>
                           )}
@@ -116,10 +116,10 @@ export function RestartsTab({ runId }: { runId: string }) {
                           className={cn(
                             'px-3 py-1.5 text-right',
                             failed
-                              ? 'text-neutral-400'
+                              ? 'text-faint'
                               : isBest
-                                ? 'font-semibold text-neutral-900'
-                                : 'text-neutral-700',
+                                ? 'font-semibold text-ink'
+                                : 'text-body',
                           )}
                         >
                           {failed ? 'failed' : fmtValue(r.loglik)}
@@ -127,12 +127,12 @@ export function RestartsTab({ runId }: { runId: string }) {
                         <td
                           className={cn(
                             'px-3 py-1.5 text-left',
-                            failed ? 'text-amber-600' : 'text-neutral-500',
+                            failed ? 'text-warn' : 'text-muted',
                           )}
                         >
                           {r.status}
                         </td>
-                        <td className="px-3 py-1.5 text-right text-neutral-400">
+                        <td className="px-3 py-1.5 text-right text-faint">
                           {r.n_evals.toLocaleString()}
                         </td>
                       </tr>
@@ -142,8 +142,8 @@ export function RestartsTab({ runId }: { runId: string }) {
               </table>
             </div>
 
-            <div className="border-t border-neutral-100">
-              <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+            <div className="border-t border-hairline">
+              <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-faint">
                 per-start log-likelihood · camdl&apos;s comparison
               </div>
               <ChainLoglikTable

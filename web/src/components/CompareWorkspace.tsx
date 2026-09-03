@@ -27,7 +27,7 @@ function BaselineSelect({
   ]
   return (
     <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
         Baseline
       </span>
       <div className="flex flex-wrap items-center gap-3">
@@ -39,8 +39,8 @@ function BaselineSelect({
             className={cn(
               '-mb-px border-b-2 border-transparent pb-0.5 font-mono text-xs transition-colors',
               o.id === value
-                ? 'border-neutral-900 text-neutral-900'
-                : 'text-neutral-500 hover:text-neutral-800',
+                ? 'border-line-ink text-ink'
+                : 'text-muted hover:text-ink-dim',
             )}
           >
             {o.label}
@@ -152,18 +152,18 @@ function CompareResult({
 
       {data.commensurable && data.rows.length > 0 && (
         <Card className="overflow-hidden">
-          <div className="px-3 pb-1 pt-3 font-mono text-[10px] uppercase tracking-wide text-neutral-400">
+          <div className="px-3 pb-1 pt-3 font-mono text-[10px] uppercase tracking-wide text-faint">
             Δelpd ± 2·se vs baseline
           </div>
           <div className="px-2 pb-2">
             <DeltaElpdPlot rows={data.rows} aliasOf={aliasOf} />
           </div>
           {/* Alias legend — decodes the plot's M-tickers on any screen. */}
-          <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-neutral-100 px-3 py-2 font-mono text-[10px] text-neutral-500">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-hairline px-3 py-2 font-mono text-[10px] text-muted">
             {[...aliasOf.entries()].map(([id, alias]) => (
               <span key={id} className="flex items-center gap-1">
-                <span className="font-semibold text-neutral-700">{alias}</span>
-                <span className="text-neutral-300">=</span>
+                <span className="font-semibold text-body">{alias}</span>
+                <span className="text-ghost">=</span>
                 <span className="truncate">{labelOf.get(id) ?? id}</span>
               </span>
             ))}
@@ -172,15 +172,15 @@ function CompareResult({
       )}
 
       {(notes.length > 0 || missing.length > 0) && (
-        <div className="space-y-1 px-1 text-[11px] leading-relaxed text-neutral-500">
+        <div className="space-y-1 px-1 text-[11px] leading-relaxed text-muted">
           {notes.map((n, i) => (
             <p key={i} className="flex gap-1.5">
-              <span className="shrink-0 text-neutral-400">ⓘ</span>
+              <span className="shrink-0 text-faint">ⓘ</span>
               <span>{n}</span>
             </p>
           ))}
           {missing.length > 0 && (
-            <p className="text-neutral-400">
+            <p className="text-faint">
               Dropped (no prequential.json): {missing.join(', ')}
             </p>
           )}

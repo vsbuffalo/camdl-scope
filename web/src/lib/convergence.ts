@@ -21,13 +21,13 @@ export function asStatus(s: string | null | undefined): VerdictStatus {
 export function statusTextClass(s: string | null | undefined): string {
   switch (asStatus(s)) {
     case 'error':
-      return 'text-red-600 font-medium'
+      return 'text-danger font-medium'
     case 'warn':
-      return 'text-amber-600 font-medium'
+      return 'text-warn font-medium'
     case 'ok':
-      return 'text-emerald-600'
+      return 'text-good'
     case 'neutral':
-      return 'text-neutral-500'
+      return 'text-muted'
   }
 }
 
@@ -35,12 +35,12 @@ export function statusTextClass(s: string | null | undefined): string {
 export function statusChipClasses(s: string | null | undefined): string {
   switch (asStatus(s)) {
     case 'error':
-      return 'bg-red-50 text-red-700 border-red-200'
+      return 'bg-danger-surface text-danger-strong border-danger-line'
     case 'warn':
-      return 'bg-amber-50 text-amber-700 border-amber-200'
+      return 'bg-warn-surface text-warn-strong border-warn-line'
     case 'ok':
-      return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      return 'bg-good-surface text-good-strong border-good-line'
     case 'neutral':
-      return 'bg-neutral-50 text-neutral-500 border-neutral-200'
+      return 'bg-sunken text-muted border-line'
   }
 }

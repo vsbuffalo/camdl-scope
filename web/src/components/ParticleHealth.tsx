@@ -66,19 +66,19 @@ function RenewalProfile({ profile }: { profile: number[] }) {
             <div
               className={cn(
                 'w-full rounded-t-[2px]',
-                v < 0.05 ? 'bg-orange-500' : 'bg-blue-700',
+                v < 0.05 ? 'bg-notice-vivid' : 'bg-accent',
               )}
               style={{ height: `${Math.max(2, (v / max) * 60)}px` }}
             />
           </div>
         ))}
       </div>
-      <div className="flex justify-between font-mono text-[10px] text-neutral-400">
+      <div className="flex justify-between font-mono text-[10px] text-faint">
         <span>start of trajectory</span>
         <span>end</span>
       </div>
       {skewed && (
-        <p className="font-mono text-[10px] leading-relaxed text-amber-700">
+        <p className="font-mono text-[10px] leading-relaxed text-warn-strong">
           Renewal climbs from {fmtFraction(first)} to {fmtFraction(last)} across the
           trajectory: the early path is effectively frozen while the late path
           moves freely. Draws are being reused for the start of the epidemic,
@@ -93,7 +93,7 @@ function RenewalProfile({ profile }: { profile: number[] }) {
 export function ParticleHealth({ health }: { health: Health }) {
   if (!health.available) {
     return (
-      <p className="px-3 py-2 font-mono text-[10px] leading-relaxed text-neutral-500">
+      <p className="px-3 py-2 font-mono text-[10px] leading-relaxed text-muted">
         No particle diagnostics — {health.reason}
       </p>
     )
@@ -103,7 +103,7 @@ export function ParticleHealth({ health }: { health: Health }) {
 
   return (
     <div className="flex flex-col gap-3 px-3 py-2">
-      <div className="font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+      <div className="font-mono text-[10px] uppercase tracking-wider text-faint">
         {health.method || 'sampler'}
       </div>
 
@@ -117,28 +117,28 @@ export function ParticleHealth({ health }: { health: Health }) {
         {health.stats.map((s) => (
           <div
             key={s.key}
-            className="flex flex-col gap-0.5 border-b border-neutral-50 pb-1.5 last:border-b-0 sm:flex-row sm:items-baseline sm:gap-3 sm:border-b-0 sm:pb-0"
+            className="flex flex-col gap-0.5 border-b border-sunken-line pb-1.5 last:border-b-0 sm:flex-row sm:items-baseline sm:gap-3 sm:border-b-0 sm:pb-0"
           >
             <div className="flex items-baseline gap-2 sm:contents">
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-neutral-700 sm:w-48 sm:flex-none sm:shrink-0">
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-body sm:w-48 sm:flex-none sm:shrink-0">
                 {s.label}
               </span>
               <span
                 className={cn(
                   'shrink-0 text-right font-mono text-[12px] tabular-nums sm:w-24',
-                  s.severity === 'warn' ? 'text-orange-700' : 'text-neutral-900',
+                  s.severity === 'warn' ? 'text-notice' : 'text-ink',
                 )}
               >
                 {s.value == null ? '—' : fmt(s.value, s.unit)}
               </span>
-              <span className="shrink-0 font-mono text-[10px] text-neutral-400 sm:w-16">
+              <span className="shrink-0 font-mono text-[10px] text-faint sm:w-16">
                 {s.unit === 'fraction' ? '' : s.unit}
               </span>
             </div>
-            <span className="font-mono text-[10px] leading-relaxed text-neutral-500 sm:min-w-0 sm:flex-1">
+            <span className="font-mono text-[10px] leading-relaxed text-muted sm:min-w-0 sm:flex-1">
               {s.note}
               {s.band && (
-                <span className="text-neutral-400">
+                <span className="text-faint">
                   {' '}
                   Conventional range{' '}
                   {s.unit === 'fraction'
@@ -153,12 +153,12 @@ export function ParticleHealth({ health }: { health: Health }) {
       </div>
 
       {health.renewal_profile.length > 0 && (
-        <div className="border-t border-neutral-100 pt-2">
-          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+        <div className="border-t border-hairline pt-2">
+          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-faint">
             renewal along the trajectory
           </div>
           <RenewalProfile profile={health.renewal_profile} />
-          <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-neutral-500">
+          <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-muted">
             Fraction of the conditioned path replaced per sweep, in tenths of
             the substeps. This is the shape to read rather than the scalar: a
             flat-but-low profile is a filter that cannot renew anywhere, while a
@@ -169,8 +169,8 @@ export function ParticleHealth({ health }: { health: Health }) {
       )}
 
       {chainRenewal.length > 1 && (
-        <div className="border-t border-neutral-100 pt-2">
-          <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+        <div className="border-t border-hairline pt-2">
+          <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-faint">
             renewal by chain
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -178,11 +178,11 @@ export function ParticleHealth({ health }: { health: Health }) {
               .sort((a, b) => Number(a[0]) - Number(b[0]))
               .map(([cid, v]) => (
                 <span key={cid} className="font-mono text-[10px]">
-                  <span className="text-neutral-400">c{cid}</span>{' '}
+                  <span className="text-faint">c{cid}</span>{' '}
                   <span
                     className={cn(
                       'tabular-nums',
-                      v < 0.01 ? 'text-orange-700' : 'text-neutral-700',
+                      v < 0.01 ? 'text-notice' : 'text-body',
                     )}
                   >
                     {fmtFraction(v)}
@@ -190,15 +190,15 @@ export function ParticleHealth({ health }: { health: Health }) {
                 </span>
               ))}
           </div>
-          <p className="mt-1 font-mono text-[10px] text-neutral-500">
+          <p className="mt-1 font-mono text-[10px] text-muted">
             One frozen chain among healthy ones is invisible in the pooled mean.
           </p>
         </div>
       )}
 
       {stalls.length > 0 && (
-        <div className="border-t border-neutral-100 pt-2">
-          <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-neutral-400">
+        <div className="border-t border-hairline pt-2">
+          <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-faint">
             longest stall by chain
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -206,14 +206,14 @@ export function ParticleHealth({ health }: { health: Health }) {
               .sort((a, b) => b[1] - a[1])
               .map(([cid, v]) => (
                 <span key={cid} className="font-mono text-[10px]">
-                  <span className="text-neutral-400">c{cid}</span>{' '}
-                  <span className="tabular-nums text-neutral-700">
+                  <span className="text-faint">c{cid}</span>{' '}
+                  <span className="tabular-nums text-body">
                     {v.toLocaleString()}
                   </span>
                 </span>
               ))}
           </div>
-          <p className="mt-1 font-mono text-[10px] text-neutral-500">
+          <p className="mt-1 font-mono text-[10px] text-muted">
             Consecutive rejected proposals. A long stall is estimator variance,
             not a tuning problem — the fix is more particles, not more sweeps.
           </p>

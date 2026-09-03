@@ -46,10 +46,10 @@ export function CopyButton({
       className={cn(
         'inline-flex size-4 shrink-0 cursor-pointer items-center justify-center align-middle transition-colors',
         state === 'copied'
-          ? 'text-emerald-600'
+          ? 'text-good'
           : state === 'failed'
-            ? 'text-red-600'
-            : 'text-neutral-400 hover:text-neutral-800',
+            ? 'text-danger'
+            : 'text-faint hover:text-ink-dim',
         className,
       )}
     >

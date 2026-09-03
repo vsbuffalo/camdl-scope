@@ -24,22 +24,22 @@ export function PrequentialPicker({
   const others = runs.length - comparable.length
 
   return (
-    <div className="border border-neutral-200">
-      <div className="flex items-center justify-between border-b border-neutral-100 px-3 py-2">
-        <span className="font-mono text-[11px] uppercase tracking-wide text-neutral-500">
+    <div className="border border-line">
+      <div className="flex items-center justify-between border-b border-hairline px-3 py-2">
+        <span className="font-mono text-[11px] uppercase tracking-wide text-muted">
           Models to compare
         </span>
-        <span className="font-mono text-[11px] tabular-nums text-neutral-400">
+        <span className="font-mono text-[11px] tabular-nums text-faint">
           {selected.size} selected
         </span>
       </div>
 
       {comparable.length === 0 ? (
-        <p className="px-3 py-4 text-sm leading-relaxed text-neutral-400">
-          No runs have a <code className="text-neutral-500">prequential.json</code>{' '}
+        <p className="px-3 py-4 text-sm leading-relaxed text-faint">
+          No runs have a <code className="text-muted">prequential.json</code>{' '}
           yet. Score a pfilter stage (
-          <code className="text-neutral-500">camdl pfilter --save-prequential</code>
-          , or a <code className="text-neutral-500">fit run</code> with a pfilter
+          <code className="text-muted">camdl pfilter --save-prequential</code>
+          , or a <code className="text-muted">fit run</code> with a pfilter
           stage) to enable model comparison.
         </p>
       ) : (
@@ -53,25 +53,25 @@ export function PrequentialPicker({
                 onClick={() => onToggle(run.run_id)}
                 aria-pressed={on}
                 className={cn(
-                  'flex w-full items-center gap-2.5 border-b border-neutral-100 px-3 py-1.5 text-left last:border-b-0 hover:bg-neutral-50',
-                  on && 'bg-blue-50/40',
+                  'flex w-full items-center gap-2.5 border-b border-hairline px-3 py-1.5 text-left last:border-b-0 hover:bg-sunken',
+                  on && 'bg-accent-surface/40',
                 )}
               >
                 <span
                   className={cn(
-                    'flex size-3.5 shrink-0 items-center justify-center border text-[9px] font-bold leading-none text-white',
-                    on ? 'border-blue-700 bg-blue-700' : 'border-neutral-300',
+                    'flex size-3.5 shrink-0 items-center justify-center border text-[9px] font-bold leading-none text-on-inverse',
+                    on ? 'border-accent bg-accent' : 'border-line-strong',
                   )}
                   aria-hidden
                 >
                   {on ? '✓' : ''}
                 </span>
                 <StatusBadge status={run.status} />
-                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-neutral-800">
+                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-dim">
                   {run.label}
                 </span>
                 {on && (
-                  <span className="shrink-0 border border-neutral-300 px-1 font-mono text-[10px] font-medium leading-tight text-neutral-600">
+                  <span className="shrink-0 border border-line-strong px-1 font-mono text-[10px] font-medium leading-tight text-body-dim">
                     {aliasOf.get(run.run_id)}
                   </span>
                 )}
@@ -82,7 +82,7 @@ export function PrequentialPicker({
       )}
 
       {others > 0 && (
-        <div className="border-t border-neutral-100 px-3 py-1.5 font-mono text-[10px] text-neutral-400">
+        <div className="border-t border-hairline px-3 py-1.5 font-mono text-[10px] text-faint">
           {others} run{others === 1 ? '' : 's'} without a prequential.json — not
           comparable
         </div>

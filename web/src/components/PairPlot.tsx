@@ -664,32 +664,32 @@ export function PairPlot({
     // not the inner overflow-x-auto box (which shrink-wraps to the grid).
     <div ref={containerRef} className="group/fig relative">
       {n < 2 ? (
-        <p className="text-sm text-neutral-500">
+        <p className="text-sm text-muted">
           The pair plot needs at least two selected parameters — open{' '}
           <span className="font-mono">⚙ params</span> to choose more.
         </p>
       ) : (
         <>
         {info && (
-          <div className="mb-2 flex items-baseline gap-2 border border-neutral-200 bg-neutral-50 px-3 py-2">
-            <span className="shrink-0 font-mono text-[12px] font-semibold text-neutral-900">
+          <div className="mb-2 flex items-baseline gap-2 border border-line bg-sunken px-3 py-2">
+            <span className="shrink-0 font-mono text-[12px] font-semibold text-ink">
               {info.symbol}
             </span>
             {info.symbol !== info.name && (
-              <span className="shrink-0 font-mono text-[10px] text-neutral-400">
+              <span className="shrink-0 font-mono text-[10px] text-faint">
                 {info.name}
               </span>
             )}
-            <span className="min-w-0 text-[12px] leading-snug text-neutral-600">
+            <span className="min-w-0 text-[12px] leading-snug text-body-dim">
               {info.description ?? (
-                <span className="italic text-neutral-400">
+                <span className="italic text-faint">
                   no description — add a{' '}
                   <span className="font-mono not-italic">{"#'"}</span> doc
                   comment above this parameter in the model
                 </span>
               )}
               {info.reference && (
-                <span className="ml-1.5 text-[11px] italic text-neutral-400">
+                <span className="ml-1.5 text-[11px] italic text-faint">
                   {info.reference}
                 </span>
               )}
@@ -698,14 +698,14 @@ export function PairPlot({
               type="button"
               onClick={() => setInfoParam(null)}
               aria-label="close description"
-              className="ml-auto shrink-0 font-mono text-[11px] text-neutral-400 transition-colors hover:text-neutral-700"
+              className="ml-auto shrink-0 font-mono text-[11px] text-faint transition-colors hover:text-body"
             >
               ✕
             </button>
           </div>
         )}
         <div className="overflow-x-auto">
-          <div ref={figRef} className="w-max bg-white">
+          <div ref={figRef} className="w-max bg-surface">
           {(anyPrior || divergenceView) && (
             <Legend prior={anyPrior} divergences={divergenceView} />
           )}
@@ -729,8 +729,8 @@ export function PairPlot({
                 className={cn(
                   'flex cursor-pointer items-center justify-center font-medium transition-colors',
                   infoParam === rowName
-                    ? 'bg-neutral-100 text-neutral-900'
-                    : 'text-neutral-500 hover:text-neutral-900',
+                    ? 'bg-raised text-ink'
+                    : 'text-muted hover:text-ink',
                 )}
                 title={`${meta[r]!.symbol} — click for description`}
               >
@@ -825,7 +825,7 @@ export function PairPlot({
           {params.map((colName, c) => (
             <div
               key={colName}
-              className="flex items-start justify-center overflow-hidden pt-1 font-medium text-neutral-500"
+              className="flex items-start justify-center overflow-hidden pt-1 font-medium text-muted"
               style={{ fontSize: labelFs }}
             >
               <span className="max-w-full truncate" title={meta[c]!.symbol}>
@@ -859,7 +859,7 @@ function Legend({
     />
   )
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-neutral-400">
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-faint">
       {prior && (
         <>
           <span className="flex items-center gap-1.5">
@@ -869,7 +869,7 @@ function Legend({
             />
             posterior
           </span>
-          <span className="text-neutral-300">·</span>
+          <span className="text-ghost">·</span>
           <span className="flex items-center gap-1.5">
             <span
               className="inline-block h-2 w-3 rounded-[1px] border"
@@ -883,14 +883,14 @@ function Legend({
           </span>
         </>
       )}
-      {prior && divergences && <span className="text-neutral-300">·</span>}
+      {prior && divergences && <span className="text-ghost">·</span>}
       {divergences && (
         <>
           <span className="flex items-center gap-1.5">
             {dot(CLEAN_DOT, 0.7)}
             clean draw
           </span>
-          <span className="text-neutral-300">·</span>
+          <span className="text-ghost">·</span>
           <span className="flex items-center gap-1.5">
             {dot(DIVERGENT_DOT, 0.7)}
             divergent

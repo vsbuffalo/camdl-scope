@@ -230,14 +230,14 @@ function TexLabel({ l }: { l: LabelSpec }) {
         <span
           className={cn(
             'font-mono',
-            l.chip ? 'rounded bg-white/85 px-0.5' : undefined,
+            l.chip ? 'rounded bg-surface/85 px-0.5' : undefined,
           )}
         >
           {l.tex}
         </span>
       ) : (
         <span
-          className={l.chip ? 'rounded bg-white/85 px-0.5' : undefined}
+          className={l.chip ? 'rounded bg-surface/85 px-0.5' : undefined}
           // KaTeX output is sanitized markup for a trusted, model-derived string.
           dangerouslySetInnerHTML={{ __html: katexHtml(l.tex) }}
         />
@@ -383,7 +383,7 @@ export function FlowDiagram({
       tex: wide ? e.id : e.rate,
       plain: wide,
       size: wide ? 10 : 11,
-      color: wide ? 'text-neutral-500' : 'text-neutral-600',
+      color: wide ? 'text-muted' : 'text-body-dim',
       chip: true,
     })
   }
@@ -402,7 +402,7 @@ export function FlowDiagram({
       tex: wide ? e.id : e.rate,
       plain: wide,
       size: wide ? 10 : 11,
-      color: 'text-violet-500',
+      color: 'text-highlight',
     })
   }
   for (const n of cells) {
@@ -414,17 +414,17 @@ export function FlowDiagram({
       h: NODE_H,
       tex: n.label,
       size: 13,
-      color: 'text-neutral-900',
+      color: 'text-ink',
     })
   }
 
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-baseline gap-x-3 border-b border-neutral-200 px-3 py-2">
-        <span className="text-sm font-semibold text-neutral-900">{graph.model}</span>
-        <span className="font-mono text-[11px] text-neutral-400">flow diagram</span>
+      <div className="flex flex-wrap items-baseline gap-x-3 border-b border-line px-3 py-2">
+        <span className="text-sm font-semibold text-ink">{graph.model}</span>
+        <span className="font-mono text-[11px] text-faint">flow diagram</span>
         {plateLabel && (
-          <span className="ml-auto rounded-sm bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-500">
+          <span className="ml-auto rounded-sm bg-raised px-1.5 py-0.5 font-mono text-[10px] text-muted">
             plates: {plateLabel}
           </span>
         )}
@@ -535,7 +535,7 @@ export function FlowDiagram({
                   x={cx + CHIP_W / 2}
                   y={cy + 3.5}
                   textAnchor="middle"
-                  className="fill-neutral-500 text-[9px]"
+                  className="fill-muted text-[9px]"
                 >
                   birth
                 </text>
@@ -582,7 +582,7 @@ export function FlowDiagram({
                   x={cx + CHIP_W / 2}
                   y={cy + 3.5}
                   textAnchor="middle"
-                  className="fill-neutral-500 text-[9px]"
+                  className="fill-muted text-[9px]"
                 >
                   exit
                 </text>
@@ -624,8 +624,8 @@ export function FlowDiagram({
           gives compartments a label but no prose, so rather than invent
           definitions we name the reactions into and out of the focused one,
           in the model's own vocabulary. */}
-      <div className="border-t border-neutral-100 px-3 py-2">
-        <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+      <div className="border-t border-hairline px-3 py-2">
+        <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">
           compartments
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -640,8 +640,8 @@ export function FlowDiagram({
                 className={cn(
                   'rounded-sm border px-1.5 py-0.5 font-mono text-[11px] transition-colors',
                   on
-                    ? 'border-blue-300 bg-blue-50 text-blue-900'
-                    : 'border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:text-neutral-900',
+                    ? 'border-accent-line bg-accent-surface text-accent-ink'
+                    : 'border-line bg-surface text-body-dim hover:border-line-strong hover:text-ink',
                 )}
               >
                 {n.id}
@@ -652,24 +652,24 @@ export function FlowDiagram({
             <button
               type="button"
               onClick={() => setFocus(null)}
-              className="ml-1 font-mono text-[10px] text-neutral-400 underline-offset-2 hover:text-neutral-600 hover:underline"
+              className="ml-1 font-mono text-[10px] text-faint underline-offset-2 hover:text-body-dim hover:underline"
             >
               clear
             </button>
           )}
         </div>
         {flows && (
-          <div className="mt-1.5 space-y-0.5 text-[11px] leading-snug text-neutral-600">
+          <div className="mt-1.5 space-y-0.5 text-[11px] leading-snug text-body-dim">
             {flows.into.length === 0 && flows.out.length === 0 && (
               <div>
-                <span className="font-mono text-neutral-900">{focus}</span> — no
+                <span className="font-mono text-ink">{focus}</span> — no
                 reactions touch this compartment.
               </div>
             )}
             {flows.into.length > 0 && (
               <div>
-                <span className="font-mono text-neutral-900">{focus}</span>{' '}
-                <span className="text-neutral-400">in ←</span>{' '}
+                <span className="font-mono text-ink">{focus}</span>{' '}
+                <span className="text-faint">in ←</span>{' '}
                 {flows.into
                   .map((e) => `${e.id}${e.from ? ` (from ${e.from})` : ' (exogenous)'}`)
                   .join(', ')}
@@ -677,8 +677,8 @@ export function FlowDiagram({
             )}
             {flows.out.length > 0 && (
               <div>
-                <span className="font-mono text-neutral-900">{focus}</span>{' '}
-                <span className="text-neutral-400">out →</span>{' '}
+                <span className="font-mono text-ink">{focus}</span>{' '}
+                <span className="text-faint">out →</span>{' '}
                 {flows.out
                   .map((e) => `${e.id}${e.to ? ` (to ${e.to})` : ' (exit)'}`)
                   .join(', ')}
@@ -692,8 +692,8 @@ export function FlowDiagram({
           narrow enough to sit legibly on them; every rate is here regardless,
           with a row to itself, so nothing is lost to the layout. */}
       {reactions.length > 0 && (
-        <div className="border-t border-neutral-100 px-3 py-2">
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <div className="border-t border-hairline px-3 py-2">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">
             reactions
           </div>
           <div className="scroll-x-visible overflow-x-auto">
@@ -710,15 +710,15 @@ export function FlowDiagram({
                         focus != null && !on && 'opacity-40',
                       )}
                     >
-                      <td className="py-0.5 pr-3 font-mono text-[10px] text-neutral-400">
+                      <td className="py-0.5 pr-3 font-mono text-[10px] text-faint">
                         {e.id}
                       </td>
-                      <td className="whitespace-nowrap py-0.5 pr-4 font-mono text-neutral-700">
+                      <td className="whitespace-nowrap py-0.5 pr-4 font-mono text-body">
                         {e.from ?? '•'}
-                        <span className="mx-1 text-neutral-400">→</span>
+                        <span className="mx-1 text-faint">→</span>
                         {e.to ?? '•'}
                       </td>
-                      <td className="py-0.5 text-neutral-800">
+                      <td className="py-0.5 text-ink-dim">
                         <span
                           // Trusted, model-derived KaTeX.
                           dangerouslySetInnerHTML={{ __html: katexHtml(e.rate) }}
@@ -737,27 +737,27 @@ export function FlowDiagram({
           diagram's arrows are labelled with symbols, and this is where the
           reader learns what each one means without leaving the view. */}
       {glossary.length > 0 && (
-        <div className="border-t border-neutral-100 px-3 py-2">
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <div className="border-t border-hairline px-3 py-2">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">
             rate parameters
           </div>
           <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1">
             {glossary.map((p) => (
               <Fragment key={p.name}>
-                <dt className="text-right text-[13px] text-neutral-900">
+                <dt className="text-right text-[13px] text-ink">
                   <span
                     // KaTeX output for a trusted, model-derived symbol.
                     dangerouslySetInnerHTML={{ __html: katexHtml(p.symbol) }}
                   />
                 </dt>
-                <dd className="min-w-0 text-[11px] text-neutral-600">
-                  <span className="font-mono text-[10px] text-neutral-400">
+                <dd className="min-w-0 text-[11px] text-body-dim">
+                  <span className="font-mono text-[10px] text-faint">
                     {p.name}
                   </span>
                   {p.description && (
                     <Description
                       text={p.description}
-                      className="text-[11px] text-neutral-600"
+                      className="text-[11px] text-body-dim"
                     />
                   )}
                 </dd>
@@ -768,10 +768,10 @@ export function FlowDiagram({
       )}
 
       {(L.iterator.length > 0 || pools.length > 0) && (
-        <div className="space-y-1 border-t border-neutral-100 px-3 py-2 text-[11px] text-neutral-500">
+        <div className="space-y-1 border-t border-hairline px-3 py-2 text-[11px] text-muted">
           {L.iterator.map((e) => (
             <div key={e.id}>
-              <span className="font-mono text-[10px] text-neutral-400">{e.id}</span>{' '}
+              <span className="font-mono text-[10px] text-faint">{e.id}</span>{' '}
               applies to every compartment
               {e.advances ? `, stepping the ${e.advances} plate` : ''}.
             </div>
@@ -779,7 +779,7 @@ export function FlowDiagram({
           {pools.length > 0 && (
             <div>
               mean-field pools:{' '}
-              <span className="font-mono text-[10px] text-neutral-600">
+              <span className="font-mono text-[10px] text-body-dim">
                 {pools.join(', ')}
               </span>{' '}
               — read by {[...readsPool].join(', ') || 'coupled edges'}.

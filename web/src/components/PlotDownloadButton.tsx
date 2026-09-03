@@ -74,8 +74,8 @@ export function PlotDownloadButton({
         'focus-visible:opacity-100 group-hover/fig:opacity-100',
         busy && 'opacity-100',
         failed
-          ? 'border-red-300 bg-red-50/90 text-red-700'
-          : 'border-neutral-200 bg-white/85 text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800',
+          ? 'border-danger-line-strong bg-danger-surface/90 text-danger-strong'
+          : 'border-line bg-surface/85 text-muted hover:bg-sunken hover:text-ink-dim',
         className,
       )}
     >

@@ -15,7 +15,7 @@ export function Segmented({
 }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
         {label}
       </span>
       <div className="flex flex-wrap items-center gap-3">
@@ -27,8 +27,8 @@ export function Segmented({
             className={cn(
               '-mb-px border-b-2 border-transparent pb-0.5 font-mono text-xs transition-colors',
               opt === value
-                ? 'border-neutral-900 text-neutral-900'
-                : 'text-neutral-500 hover:text-neutral-800',
+                ? 'border-line-ink text-ink'
+                : 'text-muted hover:text-ink-dim',
             )}
           >
             {opt || '∅'}
