@@ -608,3 +608,68 @@ def test_bounded_flat_prior_gets_a_normalised_uniform_band():
     ys = [y for y in curves["bounded"].y if y > 0]
     assert ys, "bounded flat prior must produce a band"
     assert ys == pytest.approx([1.0 / 16.0] * len(ys))  # 1 / (18 - 2)
+
+
+# --- Store workspace ---------------------------------------------------------
+
+
+def _store_snapshot(client, timeout_s: float = 30.0):
+    """Drive /api/store until the background walk publishes a snapshot."""
+    import time
+
+    deadline = time.time() + timeout_s
+    body = client.get("/api/store").json()
+    while body["snapshot"] is None and time.time() < deadline:
+        time.sleep(0.05)
+        body = client.get("/api/store").json()
+    return body
+
+
+def test_store_starts_a_scan_and_reports_progress(client):
+    # The first call must return immediately rather than block on the walk — a
+    # real results/ tree is millions of files and takes minutes.
+    body = client.get("/api/store").json()
+    assert body["scan"]["state"] in {"scanning", "done"}
+
+
+def test_store_snapshot_projects_runs_with_their_status(client):
+    body = _store_snapshot(client)
+    snap = body["snapshot"]
+    assert snap is not None
+    assert snap["total_files"] > 0
+    assert snap["total_alloc"] >= snap["total_bytes"]
+    # The golden store's one run must be joined to a real status and label, not
+    # left as an unreadable directory.
+    assert len(snap["runs"]) == 1
+    row = snap["runs"][0]
+    assert row["status"] is not None
+    assert row["label"]
+    assert row["bytes"] > 0
+    assert snap["orphan_dirs"] == 0
+    assert sum(snap["status_counts"].values()) == 1
+
+
+def test_store_counts_a_non_run_directory_as_an_orphan(client, tmp_path):
+    # Debris the watcher cannot open must be visible AS debris; folding it into
+    # the run list with a blank status is how a store hides junk.
+    (tmp_path / "not-a-run-deadbeef").mkdir()
+    client.post("/api/store/rescan")
+    snap = _store_snapshot(client)["snapshot"]
+    assert snap["orphan_dirs"] == 1
+    orphans = [r for r in snap["runs"] if r["status"] is None]
+    assert [r["run_id"] for r in orphans] == ["not-a-run-deadbeef"]
+
+
+def test_store_kinds_roll_up_by_filename(client):
+    snap = _store_snapshot(client)["snapshot"]
+    names = {k["name"] for k in snap["kinds"]}
+    assert "trace.tsv" in names
+    assert sum(k["files"] for k in snap["kinds"]) <= snap["total_files"]
+
+
+def test_store_rescan_is_idempotent_and_keeps_serving(client):
+    _store_snapshot(client)
+    r = client.post("/api/store/rescan")
+    assert r.status_code == 200
+    # The previous snapshot stays served while a new walk runs.
+    assert r.json()["scan"]["state"] in {"scanning", "done"}

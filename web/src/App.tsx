@@ -4,6 +4,7 @@ import { ExploreWorkspace } from '@/components/ExploreWorkspace'
 import { CompareWorkspace } from '@/components/CompareWorkspace'
 import { ProfileWorkspace } from '@/components/ProfileWorkspace'
 import { SimWorkspace } from '@/components/SimWorkspace'
+import { StoreWorkspace } from '@/components/StoreWorkspace'
 import { loadJson, saveJson } from '@/lib/persist'
 import { DEMO } from '@/lib/demo'
 
@@ -33,6 +34,7 @@ function App() {
         {active === 'compare' && <CompareWorkspace />}
         {active === 'profile' && <ProfileWorkspace />}
         {active === 'sims' && <SimWorkspace />}
+        {active === 'store' && <StoreWorkspace />}
       </main>
     </div>
   )

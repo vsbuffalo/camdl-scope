@@ -156,6 +156,8 @@ export function TracesTab({
   excludedChains,
   onToggleChain,
   onResetChains,
+  onSetExcludedChains,
+  deadChainIds,
   warmupPct,
   onWarmupPct,
 }: { runId: string } & ChainControls) {
@@ -218,6 +220,8 @@ export function TracesTab({
           excluded={excludedChains}
           onToggle={onToggleChain}
           onReset={onResetChains}
+          onSetExcluded={onSetExcludedChains}
+          deadIds={deadChainIds}
         />
       )}
 

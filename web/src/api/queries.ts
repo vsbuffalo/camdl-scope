@@ -15,6 +15,7 @@ import {
   getModelGraph,
   getRun,
   getRuns,
+  getStore,
   getMle,
   getSims,
   getSimSeries,
@@ -25,6 +26,7 @@ import {
 /** Query-key factory — keeps cache keys consistent across the app. */
 export const qk = {
   runs: ['runs'] as const,
+  store: ['store'] as const,
   run: (id: string) => ['run', id] as const,
   posterior: (id: string, warmupPct: number, chains: string) =>
     ['posterior', id, warmupPct, chains] as const,
@@ -51,12 +53,17 @@ function chainKey(chains: number[] | null | undefined): string {
   return chains && chains.length ? chains.join(',') : 'all'
 }
 
-/** List of runs for the selector. Refetches occasionally so new fits appear. */
+/** List of runs for the selector.
+ *
+ * Polled fast enough that a just-launched fit shows up in the dropdown without
+ * a reload — 30 s was long enough that reloading felt like the only way to see
+ * one. The endpoint is built to be cheap for exactly this (a run *overview*,
+ * not a parsed run state): 0.32 s warm over a 149-run store. */
 export function useRuns() {
   return useQuery({
     queryKey: qk.runs,
     queryFn: getRuns,
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
   })
 }
 
@@ -301,5 +308,18 @@ export function useProfile(baseId: string | undefined) {
     enabled: Boolean(baseId),
     placeholderData: (prev) => prev,
     refetchInterval: 8_000,
+  })
+}
+
+/** Store disk usage. Polls while a walk is in flight so the progress counters
+ *  advance, then backs off — a completed snapshot only changes on a rescan or
+ *  when fits are written, neither of which is worth a tight loop over a number
+ *  that took minutes to produce. */
+export function useStore() {
+  return useQuery({
+    queryKey: qk.store,
+    queryFn: getStore,
+    refetchInterval: (q) =>
+      q.state.data?.scan.state === 'scanning' ? 1_000 : 60_000,
   })
 }

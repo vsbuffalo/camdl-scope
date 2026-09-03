@@ -89,6 +89,10 @@ export function PairSettings({
             />
             <span className="text-neutral-300">·</span>
             <Quick label="all" onClick={() => onChange(new Set(allParams))} />
+            <span className="text-neutral-300">·</span>
+            {/* Clearing to nothing is the fast path to "show me one
+                coordinate": uncheck everything, then add back. */}
+            <Quick label="none" onClick={() => onChange(new Set())} />
           </div>
         )}
       </div>

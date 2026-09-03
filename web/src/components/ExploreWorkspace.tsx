@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { RunSummary } from '@/api/client'
 import { useRun, useRuns } from '@/api/queries'
@@ -119,6 +119,8 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
       return commitExcluded(next)
     })
   const onResetChains = () => setExcludedChains(commitExcluded(new Set()))
+  const onSetExcludedChains = (next: Set<number>) =>
+    setExcludedChains(commitExcluded(new Set(next)))
 
   const [warmupPct, setWarmupPct] = useState<number>(() =>
     loadJson(warmupKey(run.run_id), DEFAULT_WARMUP_PCT),
@@ -136,6 +138,8 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
     excludedChains,
     onToggleChain,
     onResetChains,
+    onSetExcludedChains,
+    deadChainIds: detail.data?.dead_chain_ids ?? [],
     warmupPct,
     onWarmupPct,
   }
@@ -213,27 +217,48 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
 export function ExploreWorkspace() {
   const { data, isPending, isError } = useRuns()
   const runs = data ?? []
-  // Restore the last-viewed run across reloads; fall back to the newest if it's
-  // gone.
-  const [selectedId, setSelectedId] = useState<string | undefined>(() =>
+
+  // Where a page load lands, decided ONCE per mount and then frozen.
+  //
+  // Reloading is how a just-launched fit gets looked at, so a load opens the
+  // newest still-sampling run — `runs` is sorted newest-first, so the first
+  // live one IS the newest. Failing that it reopens whatever was last in view,
+  // and failing that the newest run in the store.
+  //
+  // Frozen in a ref rather than recomputed, because `runs` is repolled: a fit
+  // starting while someone is reading would otherwise move them off the run
+  // they are on, taking its per-run warm-up and chain exclusions with it. The
+  // jump is a load-time decision, never a live one.
+  const lastViewed = useRef<string | undefined>(
     loadJson<string | undefined>('explore:run', undefined),
   )
-  const selected =
-    runs.find((r) => r.run_id === selectedId) ?? runs[0] ?? undefined
-  // Pin the *effective* run (the default counts), in STATE as well as storage.
-  // Saving only to storage pinned nothing within a session: `selectedId` stayed
-  // undefined until the user picked from the dropdown, so `selected` fell
-  // through to `runs[0]` on every render — and that list is sorted by mtime, so
-  // a store with a live fit reorders under you. The open run then changed by
-  // itself, taking its per-run warm-up and chain exclusions with it, which read
-  // as "the slider resets when I switch tabs". A fresh visitor still opens on
-  // the newest; once a run is in view it stays put until they pick another.
-  const selectedRunId = selected?.run_id
+  const landing = useRef<string | undefined>(undefined)
+  if (landing.current === undefined && runs.length > 0) {
+    landing.current =
+      runs.find((r) => r.status === 'running' || r.status === 'warming')
+        ?.run_id ??
+      runs.find((r) => r.run_id === lastViewed.current)?.run_id ??
+      runs[0]?.run_id
+  }
+
+  // An explicit pick outranks the landing choice for the rest of the session,
+  // and is dropped if that run leaves the store.
+  const [pickedId, setPickedId] = useState<string | undefined>(undefined)
+  const selectedId =
+    pickedId && runs.some((r) => r.run_id === pickedId)
+      ? pickedId
+      : landing.current
+  const selected = runs.find((r) => r.run_id === selectedId)
+
+  // Persist whatever is actually in view — the landing choice counts. Writing
+  // only on an explicit pick left storage holding the run auto-selected on the
+  // very first visit, forever: the save was gated on the stored id differing
+  // from the open one, which after a manual pick it never does.
   useEffect(() => {
-    if (!selectedRunId || selectedRunId === selectedId) return
-    setSelectedId(selectedRunId)
-    saveJson('explore:run', selectedRunId)
-  }, [selectedRunId, selectedId])
+    if (!selectedId) return
+    lastViewed.current = selectedId
+    saveJson('explore:run', selectedId)
+  }, [selectedId])
 
   // Live monitoring: while the open run is still sampling, refresh its data (and
   // the run list, for the progress blurb) on a short interval so the tabs track
@@ -260,7 +285,7 @@ export function ExploreWorkspace() {
       <RunBar
         runs={runs}
         value={selected?.run_id}
-        onChange={setSelectedId}
+        onChange={setPickedId}
         loading={isPending}
         error={isError}
       />

@@ -23,6 +23,9 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 
 from .. import compare as compare_mod
+from .. import crosschain as crosschain_mod
+from .. import decomposition as decomp_mod
+from .. import particles as particles_mod
 from .. import diagnostics as diag_mod
 from .. import ingest
 from .. import mle as mle_mod
@@ -30,6 +33,7 @@ from .. import model_graph as model_graph_mod
 from .. import model_render as model_render_mod
 from .. import predictive
 from .. import sims as sims_mod
+from .. import storeinfo
 from .. import profiles as profiles_mod
 from .. import quantities as quantities_mod
 from ..assembly import RunOverview, build_run_overview, build_run_state
@@ -93,6 +97,18 @@ from .models import (
     StreamInfo,
     TraceSeries,
     TracesResponse,
+    StoreDirRow,
+    StoreKindRow,
+    StoreResponse,
+    StoreRunRow,
+    StoreScanState,
+    StoreSnapshotModel,
+    StreamSpreadRow,
+    TargetDecompositionModel,
+    TargetTermRow,
+    CrossChainCompatModel,
+    HealthStatRow,
+    ParticleHealthModel,
 )
 
 router = APIRouter(prefix="/api")
@@ -153,6 +169,86 @@ def _camdl_findings(summary: ChainSummary | None) -> list[FindingGroup]:
         )
         for g in diag_mod.summarize_findings(summary.findings)
     ]
+
+
+def _particle_health(rs: RunState, cutoff: int) -> ParticleHealthModel:
+    """Project filter health. Chain-keyed maps go out with string keys, since
+    JSON object keys are strings and a numeric key would round-trip as one
+    anyway."""
+    h = particles_mod.particle_health(rs, cutoff)
+    return ParticleHealthModel(
+        method=h.method,
+        available=h.available,
+        reason=h.reason,
+        particles=h.particles,
+        stats=[
+            HealthStatRow(
+                key=s.key, label=s.label, value=s.value, unit=s.unit,
+                note=s.note, band=s.band, severity=s.severity,
+            )
+            for s in h.stats
+        ],
+        renewal_profile=h.renewal_profile,
+        renewal_by_chain={str(k): v for k, v in h.renewal_by_chain.items()},
+        longest_stall_by_chain={str(k): v for k, v in h.longest_stall_by_chain.items()},
+    )
+
+
+def _cross_chain(meta: RunMeta) -> CrossChainCompatModel | None:
+    """Project the cross-chain matrix, mapping non-finite cells to ``null``.
+
+    JSON has no NaN, and emitting a bare ``NaN`` token produces a body the
+    browser refuses to parse — the whole response would fail, not just the
+    cell."""
+    c = crosschain_mod.find_compat(meta.run_dir)
+    if c is None:
+        return None
+    return CrossChainCompatModel(
+        chains=c.chains,
+        centred=[
+            [(v if isinstance(v, float) and np.isfinite(v) else None) for v in row]
+            for row in c.centred
+        ],
+        order=c.order,
+        terms=c.terms,
+        draw=c.draw,
+        diagonal_dominance=c.diagonal_dominance,
+        asymmetry=c.asymmetry,
+        has_positive_offdiagonal=c.has_positive_offdiagonal,
+        n_nonfinite=c.n_nonfinite,
+    )
+
+
+def _decomposition(rs: RunState, cutoff: int) -> TargetDecompositionModel:
+    """Project the target decomposition, with the per-stream drill-down that
+    answers the follow-up when the observation term is the one separating the
+    chains."""
+    d = decomp_mod.decompose_target(rs, cutoff)
+    return TargetDecompositionModel(
+        available=d.available,
+        reason=d.reason,
+        chain_ids=d.chain_ids,
+        terms=[
+            TargetTermRow(
+                key=t.key, label=t.label, note=t.note, share=t.share,
+                range_nats=t.range_nats, sd_nats=t.sd_nats,
+                chain_means=t.chain_means,
+            )
+            for t in d.terms
+        ],
+        total_range=d.total_range,
+        total_sd=d.total_sd,
+        residual_max=d.residual_max,
+        residual_tol=decomp_mod.RESIDUAL_TOL,
+        initial_state_derived=d.initial_state_derived,
+        streams=[
+            StreamSpreadRow(
+                stream=s.stream, share=s.share, range_nats=s.range_nats,
+                chain_means=s.chain_means,
+            )
+            for s in (decomp_mod.decompose_streams(rs, cutoff) if d.available else [])
+        ],
+    )
 
 
 def _dead_chain_ids(rs: RunState) -> list[int]:
@@ -415,6 +511,7 @@ def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
                     params=list(g.params),
                 )
             )
+    dead = _dead_chain_ids(rs)
     pg = group_params(list(meta.estimated))
     groups = ParamGroups(
         scalars=pg.scalars,
@@ -432,6 +529,7 @@ def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
         status=rs.status.value,
         fit_kind=meta.fit_kind,
         n_chains=len(rs.chains),
+        dead_chain_ids=dead,
         max_iter=rs.max_iter(),
         target_sweeps=meta.target_sweeps,
         estimated=list(meta.estimated),
@@ -1534,6 +1632,9 @@ def get_diagnostics(
         run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
         n_chains=len(rs.chains), n_chains_warming=warming,
         n_chains_dead=len(dead), dead_chain_ids=dead,
+        decomposition=_decomposition(rs, cutoff),
+        cross_chain=_cross_chain(meta),
+        particle_health=_particle_health(rs, cutoff),
         ess_unreportable=ess_missing,
         stage=(
             summ.stage if summ is not None and summ.stage
@@ -1605,7 +1706,10 @@ def get_diagnostics(
         SamplerPanel(
             id=p.id, title=p.title, note=p.note, rows=p.rows,
             columns=[
-                PanelColumn(key=c.key, label=c.label, note=c.note, band=c.band)
+                PanelColumn(
+                    key=c.key, label=c.label, note=c.note, band=c.band,
+                    is_fraction=c.is_fraction,
+                )
                 for c in p.columns
             ],
             values=[[_finite_or_none(v) for v in row] for row in p.values],
@@ -1885,4 +1989,134 @@ def get_sim_series(
         sim_id=sim_id, model=meta.model, state=chosen, states=states,
         mode="band", n_members=n_members, members=samples, band=band, calendar=cal,
         t_min=t_min, t_max=t_max,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Store workspace
+# ---------------------------------------------------------------------------
+
+# One scanner per store path, kept for the process's life. A full ``results/``
+# walk is minutes, so the snapshot has to outlive the request that built it;
+# keying by path means re-pointing the CLI at another store starts a fresh one
+# rather than serving the previous store's numbers under a new name.
+_scanners: dict[str, storeinfo.StoreScanner] = {}
+
+
+def _scanner() -> storeinfo.StoreScanner:
+    store = _store()
+    key = str(store.resolve())
+    sc = _scanners.get(key)
+    if sc is None:
+        sc = storeinfo.StoreScanner(store)
+        _scanners[key] = sc
+    return sc
+
+
+def _project_snapshot(
+    snap: storeinfo.StoreSnapshot, store: Path
+) -> StoreSnapshotModel:
+    """Join the walk against run discovery, so a directory the watcher cannot
+    open is visible AS such rather than as a run with a blank status."""
+    known: dict[str, RunOverview] = {}
+    labels: dict[str, str] = {}
+    for meta in ingest.discover_runs(store, include_warming=True):
+        known[meta.run_dir.name] = build_run_overview(meta)
+        labels[meta.run_dir.name] = meta.display_label
+
+    rows: list[StoreRunRow] = []
+    counts: dict[str, int] = {}
+    orphans = 0
+    for r in snap.runs:
+        ov = known.get(r.run_id)
+        status = ov.status.value if ov is not None else None
+        if status is None:
+            orphans += 1
+        else:
+            counts[status] = counts.get(status, 0) + 1
+        rows.append(
+            StoreRunRow(
+                run_id=r.run_id, bytes=r.bytes, alloc_bytes=r.alloc_bytes,
+                files=r.files, mtime=r.mtime,
+                status=status, label=labels.get(r.run_id),
+            )
+        )
+
+    store_name = store.resolve().name
+    return StoreSnapshotModel(
+        root=snap.root,
+        store=snap.store,
+        scanned_at=snap.scanned_at,
+        duration_s=snap.duration_s,
+        total_bytes=snap.total_bytes,
+        total_alloc=snap.total_alloc,
+        total_files=snap.total_files,
+        total_dirs=snap.total_dirs,
+        children=[
+            StoreDirRow(
+                name=c.name, bytes=c.bytes, alloc_bytes=c.alloc_bytes,
+                files=c.files, dirs=c.dirs,
+                is_store=(c.name == store_name),
+            )
+            for c in snap.children
+        ],
+        kinds=[
+            StoreKindRow(
+                name=k.name, bytes=k.bytes, alloc_bytes=k.alloc_bytes,
+                files=k.files,
+            )
+            for k in snap.kinds
+        ],
+        runs=rows,
+        status_counts=counts,
+        orphan_dirs=orphans,
+        unreadable=snap.unreadable,
+    )
+
+
+def _scan_state(sc: storeinfo.StoreScanner) -> StoreScanState:
+    p = sc.progress
+    return StoreScanState(
+        state=p.state, files=p.files, dirs=p.dirs,
+        total_bytes=p.total_bytes, total_alloc=p.total_alloc,
+        started_at=p.started_at, error=p.error,
+    )
+
+
+@router.get("/store", response_model=StoreResponse)
+def get_store(scan: bool = Query(default=True)) -> StoreResponse:
+    """Disk usage and run inventory for the whole store family.
+
+    Returns the last completed walk immediately; the first call starts one in
+    the background and returns ``scan.state == "scanning"`` with live counters,
+    because a cold walk of a full ``results/`` tree is minutes and must never
+    hold a request open. ``scan=false`` reads what is cached without starting
+    anything."""
+    sc = _scanner()
+    if scan and sc.snapshot is None and not sc.scanning:
+        sc.start()
+    snap = sc.snapshot
+    store = _store()
+    return StoreResponse(
+        root=str(storeinfo.resolve_scan_root(store)),
+        store=str(store.resolve()),
+        scan=_scan_state(sc),
+        snapshot=_project_snapshot(snap, _store()) if snap is not None else None,
+    )
+
+
+@router.post("/store/rescan", response_model=StoreResponse)
+def rescan_store() -> StoreResponse:
+    """Start a fresh walk. A no-op while one is already running — two concurrent
+    walks of the same tree would only halve each other's throughput. The
+    previous snapshot stays served until the new one completes."""
+    sc = _scanner()
+    sc.start()
+    snap = sc.snapshot
+    store = _store()
+    return StoreResponse(
+        root=str(storeinfo.resolve_scan_root(store)),
+        store=str(store.resolve()),
+        scan=_scan_state(sc),
+        snapshot=_project_snapshot(snap, _store()) if snap is not None else None,
     )

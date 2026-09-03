@@ -245,6 +245,11 @@ class RunDetail(BaseModel):
     status: str
     fit_kind: str = "posterior"  # "posterior" | "mle" — see RunSummary.fit_kind
     n_chains: int
+    #: Chains that produced no draws and never will (camdl's ``bad_init`` skip).
+    #: Carried here as well as on the diagnostics response so any tab with a
+    #: chain selector can mark them without fetching diagnostics — a dead chain
+    #: is a fact about the run, not about a warm-up cutoff.
+    dead_chain_ids: list[int] = []
     max_iter: int | None = None
     target_sweeps: int | None = None
     estimated: list[str]
@@ -693,6 +698,118 @@ class CompareResponse(BaseModel):
 # --- Diagnostics tab ---------------------------------------------------------
 
 
+class TargetTermRow(BaseModel):
+    """One additive term of the sampled target. ``share`` is
+    ``Cov(term, total)/Var(total)`` over chain means and the shares sum to 1 —
+    exact, because the terms sum to the total. ``range_nats`` is the readable
+    magnitude and is deliberately NOT additive; the two disagree by design and
+    the share is the one the bars carry."""
+
+    key: str
+    label: str
+    note: str
+    share: float
+    range_nats: float
+    sd_nats: float
+    chain_means: list[float]
+
+
+class StreamSpreadRow(BaseModel):
+    """One observation stream's part of the data term's chain disagreement."""
+
+    stream: str
+    share: float
+    range_nats: float
+    chain_means: list[float]
+
+
+class TargetDecompositionModel(BaseModel):
+    """The sampled target split into obs / trajectory / initial-state / prior.
+
+    ``reason`` carries WHY when unavailable, so the panel states the cause
+    rather than rendering an empty chart. ``residual_max`` above
+    ``residual_tol`` means the terms no longer reconcile — camdl grew a term
+    this does not know about, which would otherwise be absorbed into the
+    implied prior without anyone noticing."""
+
+    available: bool
+    reason: str | None = None
+    chain_ids: list[int] = []
+    terms: list[TargetTermRow] = []
+    total_range: float = 0.0
+    total_sd: float = 0.0
+    residual_max: float = 0.0
+    residual_tol: float = 0.0
+    initial_state_derived: bool = False
+    streams: list[StreamSpreadRow] = []
+
+
+class CrossChainCompatModel(BaseModel):
+    """Cross-chain path compatibility: ``M[i][j] = log p(x_j | θ_i)``.
+
+    ``centred`` is ``M[i][j] − M[i][i]`` — raw log-densities are not comparable
+    across rows, so only the centred form reads as "how many nats worse is
+    chain j's path under chain i's parameters". Zero on the diagonal by
+    construction; ``null`` where a cell was non-finite, so the UI can leave it
+    blank instead of drawing a number nobody should trust.
+
+    ``order`` is a permutation over these indices from clustering the
+    symmetrised matrix — blocks of mutually compatible chains are the
+    multimodality signal, and chain-id order scatters them.
+
+    ``chains`` is authoritative for the chain count: chains refused at seeding
+    are omitted here, so a 10x10 matrix on a 16-chain launch means six never
+    started."""
+
+    chains: list[int]
+    centred: list[list[float | None]]
+    order: list[int]
+    terms: str
+    #: Which draw the scored (θ, x) pairs come from. One sweep, not a posterior
+    #: average, so the cells are a single realisation.
+    draw: str = ""
+    diagonal_dominance: float | None = None
+    asymmetry: float | None = None
+    #: Another chain's path scoring better than the row's own — that chain has
+    #: not found its own mode. Rare, and the reason the scale must be diverging.
+    has_positive_offdiagonal: bool = False
+    n_nonfinite: int = 0
+
+
+class HealthStatRow(BaseModel):
+    """One particle-filter scalar with the reading that makes it actionable.
+    ``band`` is absent where no conventional threshold is defensible — an
+    invented band is worse than none."""
+
+    key: str
+    label: str
+    value: float | None = None
+    unit: str = ""
+    note: str
+    band: tuple[float, float] | None = None
+    severity: str = "none"  # none | ok | warn
+
+
+class ParticleHealthModel(BaseModel):
+    """Filter health for whichever sampler ran.
+
+    PGAS and PMMH expose different evidence and fail differently, so this is
+    not a shared table: PGAS reports path renewal (including WHERE along the
+    trajectory it happens) and the ancestor-sampling counters; PMMH, which
+    stores no path, reports acceptance and the longest stall."""
+
+    method: str
+    available: bool
+    reason: str | None = None
+    particles: int | None = None
+    stats: list[HealthStatRow] = []
+    #: Mean renewal in each tenth of the trajectory. The update-rate-against-t
+    #: profile; empty for PMMH and for PGAS runs predating the columns.
+    renewal_profile: list[float] = []
+    renewal_by_chain: dict[str, float] = {}
+    longest_stall_by_chain: dict[str, int] = {}
+
+
 class ParamDiagnostic(BaseModel):
     """One parameter's convergence/precision diagnostics. R̂ and combined ESS are
     camdl-authoritative when a stage summary exists, else the live arviz estimate;
@@ -767,6 +884,10 @@ class PanelColumn(BaseModel):
     label: str
     note: str | None = None
     band: tuple[float, float] | None = None
+    #: True when the column is a proportion in [0, 1] and should be read as a
+    #: percentage. Values and band stay in their native units on the wire; only
+    #: the presentation changes, so nothing downstream has to know.
+    is_fraction: bool = False
 
 
 class SamplerPanel(BaseModel):
@@ -817,6 +938,15 @@ class DiagnosticsResponse(BaseModel):
     # Method-specific diagnostics (per-parameter block acceptance, sampler
     # telemetry). Empty for a sampler that exposes none.
     sampler_panels: list[SamplerPanel] = []
+    # Which additive term of the sampled target separates the chains. Always
+    # present; `available` false (with a reason) for a sampler that writes no
+    # complete-data split.
+    decomposition: TargetDecompositionModel | None = None
+    # Cross-chain path compatibility, when the stage wrote one (multi-chain
+    # PGAS only — PMMH stores no path to score).
+    cross_chain: CrossChainCompatModel | None = None
+    # Particle-filter health, shaped by the sampler that ran.
+    particle_health: ParticleHealthModel | None = None
     stage: str | None = None
     source: str
     logpost_label: str
@@ -925,3 +1055,97 @@ class ProfileResponse(BaseModel):
     ci_drop: float
     ci_lo: float | None = None
     ci_hi: float | None = None
+
+
+# --- Store workspace ---------------------------------------------------------
+
+
+class StoreDirRow(BaseModel):
+    """One top-level child of the scan root — a run kind (``sims``, ``fits``)
+    or whatever else is sitting there."""
+
+    name: str
+    bytes: int
+    alloc_bytes: int
+    files: int
+    dirs: int
+    #: Whether this is the run kind the watcher itself indexes, i.e. the only
+    #: child whose contents also appear in ``runs``.
+    is_store: bool = False
+
+
+class StoreKindRow(BaseModel):
+    """One filename rolled up across the whole scan root. By NAME, not
+    extension: a fits tree is 98% ``.tsv``, which locates nothing, while
+    ``trace.tsv`` alone is ~64% of it."""
+
+    name: str
+    bytes: int
+    alloc_bytes: int
+    files: int
+
+
+class StoreRunRow(BaseModel):
+    """One directory under the watcher's own store. ``status`` is ``None`` when
+    the directory is not a run the watcher can open — debris, and the reason
+    this is a nullable field rather than an "unknown" string."""
+
+    run_id: str
+    bytes: int
+    alloc_bytes: int
+    files: int
+    mtime: float
+    status: str | None = None
+    label: str | None = None
+
+
+class StoreSnapshotModel(BaseModel):
+    """A completed store walk. ``duration_s`` is how long it took, reported
+    beside ``scanned_at`` because on a large tree it is minutes and the reader
+    needs to know how expensive a refresh is before asking for one."""
+
+    root: str
+    store: str
+    scanned_at: float
+    duration_s: float
+    #: Apparent size (st_size) — what the data costs to copy or ship.
+    total_bytes: int
+    #: Allocated size (st_blocks x 512) — what it occupies on this disk. On a
+    #: tree of many small files the two diverge sharply, and the gap is the
+    #: point: 5.1M sims files averaging 1.9 kB occupy ~5.3 kB each.
+    total_alloc: int
+    total_files: int
+    total_dirs: int
+    children: list[StoreDirRow] = []
+    kinds: list[StoreKindRow] = []
+    runs: list[StoreRunRow] = []
+    status_counts: dict[str, int] = {}
+    #: Directories under the store that are not openable runs.
+    orphan_dirs: int = 0
+    unreadable: int = 0
+
+
+class StoreScanState(BaseModel):
+    """Where the current walk has got to. ``state`` is idle / scanning / done /
+    failed; the counters advance while ``scanning``."""
+
+    state: str
+    files: int = 0
+    dirs: int = 0
+    total_bytes: int = 0
+    total_alloc: int = 0
+    started_at: float | None = None
+    error: str | None = None
+
+
+class StoreResponse(BaseModel):
+    """The store view. ``snapshot`` is ``None`` until the first walk finishes —
+    a full ``results/`` tree takes minutes, so the UI shows ``scan`` progress
+    rather than blocking a request on it."""
+
+    #: The tree being measured. Known before any walk finishes, so the UI can
+    #: say WHICH store it is scanning during the minutes it takes.
+    root: str
+    store: str
+    scan: StoreScanState
+    snapshot: StoreSnapshotModel | None = None

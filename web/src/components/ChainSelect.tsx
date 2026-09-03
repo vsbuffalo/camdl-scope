@@ -12,6 +12,13 @@ interface ChainSelectProps {
   onToggle: (id: number) => void
   /** Restore all chains. */
   onReset: () => void
+  /** Replace the exclusion set outright (the all / none shortcuts). */
+  onSetExcluded?: (next: Set<number>) => void
+  /** Chains that produced no draws and never will — camdl skips a chain whose
+   *  initial log-posterior is non-finite and finishes the run anyway. Shown
+   *  greyed and struck through: they are not a choice the reader has, and a
+   *  finished fit can be missing half its chains while reporting `done`. */
+  deadIds?: number[]
 }
 
 /**
@@ -33,6 +40,8 @@ export function ChainSelect({
   excluded,
   onToggle,
   onReset,
+  onSetExcluded,
+  deadIds,
 }: ChainSelectProps) {
   const [open, setOpen] = useState(false)
   // Static demo: chain filtering refetches with a `chains=` param a static host
@@ -40,6 +49,21 @@ export function ChainSelect({
   if (DEMO) return null
   const includedCount = chainIds.length - excluded.size
   const anyExcluded = excluded.size > 0
+  const dead = new Set(deadIds ?? [])
+  // The chains a reader can actually choose between. A dead chain contributes
+  // nothing whether it is "included" or not, so `all` simply clears the
+  // exclusions rather than excluding the dead ones — doing the latter made the
+  // count fall from 24/24 to 13/24 on a click labelled "all", which reads as a
+  // bug even though both numbers were true.
+  const live = chainIds.filter((c) => !dead.has(c))
+  // "none" cannot mean zero: the backend treats an empty include-list as "all",
+  // so a literal none would silently show everything. It leaves the first live
+  // chain, which is the "solo one, then add" workflow this exists for.
+  const soloFirst = () => {
+    const keep = live[0] ?? chainIds[0]
+    if (keep == null || !onSetExcluded) return
+    onSetExcluded(new Set(chainIds.filter((c) => c !== keep)))
+  }
 
   return (
     <div className="border-b border-neutral-100 px-3 py-2.5">
@@ -57,20 +81,37 @@ export function ChainSelect({
           </span>
         </button>
 
+        {dead.size > 0 && (
+          <span className="font-mono text-[10px] text-neutral-400">
+            {dead.size} dead (no draws)
+          </span>
+        )}
+
         {anyExcluded && (
           <span className="font-mono text-[10px] text-amber-600">
             {excluded.size} excluded — recomputed on the rest
           </span>
         )}
 
-        {open && anyExcluded && (
-          <button
-            type="button"
-            onClick={onReset}
-            className="font-mono text-[10px] text-neutral-400 underline-offset-2 hover:text-neutral-700 hover:underline"
-          >
-            reset
-          </button>
+        {open && onSetExcluded && (
+          <div className="flex items-center gap-2 font-mono text-[10px] text-neutral-400">
+            <button
+              type="button"
+              onClick={onReset}
+              className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+            >
+              all
+            </button>
+            <span className="text-neutral-300">·</span>
+            <button
+              type="button"
+              onClick={soloFirst}
+              title="leaves one chain — an empty selection is read as 'all'"
+              className="underline-offset-2 transition-colors hover:text-neutral-700 hover:underline"
+            >
+              none
+            </button>
+          </div>
         )}
       </div>
 
@@ -78,6 +119,7 @@ export function ChainSelect({
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 rounded-sm border border-neutral-200 bg-[#fafafa] p-2.5">
           {chainIds.map((c) => {
             const included = !excluded.has(c)
+            const isDead = dead.has(c)
             // Never let the user uncheck the final included chain.
             const lockedOn = included && includedCount === 1
             return (
@@ -85,16 +127,24 @@ export function ChainSelect({
                 key={c}
                 className={cn(
                   'flex select-none items-center gap-1.5 font-mono text-[11px]',
-                  lockedOn
-                    ? 'cursor-not-allowed text-neutral-400'
-                    : 'cursor-pointer text-neutral-700',
+                  isDead
+                    ? 'cursor-not-allowed text-neutral-300'
+                    : lockedOn
+                      ? 'cursor-not-allowed text-neutral-400'
+                      : 'cursor-pointer text-neutral-700',
                 )}
-                title={lockedOn ? 'at least one chain must stay selected' : undefined}
+                title={
+                  isDead
+                    ? 'no draws — camdl skipped this chain at initialisation'
+                    : lockedOn
+                      ? 'at least one chain must stay selected'
+                      : undefined
+                }
               >
                 <input
                   type="checkbox"
-                  checked={included}
-                  disabled={lockedOn}
+                  checked={included && !isDead}
+                  disabled={lockedOn || isDead}
                   onChange={() => onToggle(c)}
                   className="h-3 w-3 accent-neutral-700"
                 />
@@ -102,10 +152,18 @@ export function ChainSelect({
                   className="inline-block h-2 w-3 rounded-[1px]"
                   style={{
                     background: chainColor(c),
-                    opacity: included ? 1 : 0.3,
+                    opacity: isDead ? 0.15 : included ? 1 : 0.3,
                   }}
                 />
-                <span className={included ? '' : 'line-through opacity-60'}>
+                <span
+                  className={
+                    isDead
+                      ? 'line-through opacity-70'
+                      : included
+                        ? ''
+                        : 'line-through opacity-60'
+                  }
+                >
                   c{c}
                 </span>
               </label>

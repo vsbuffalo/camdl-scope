@@ -144,8 +144,24 @@ SAMPLER_PANEL_EXCLUDE: frozenset[str] = frozenset(
         "log_posterior",
         "transition_ll",
         "obs_ll",
+        "initial_state_ll",
     }
 )
+
+#: Diagnostic columns that are PROPORTIONS in [0, 1]. Declared here so the
+#: percent rendering has one source of truth beside the label and the band,
+#: rather than a list of column names duplicated in the frontend. Counts
+#: (divergences, leapfrog steps), step sizes and energies are excluded: a
+#: percentage of a count is meaningless.
+FRACTION_COLUMNS: frozenset[str] = frozenset(
+    {"accept_stat", "accepted", "trajectory_renewal"}
+)
+
+#: Column-name prefixes excluded from the sampler panel for the same reason as
+#: :data:`SAMPLER_PANEL_EXCLUDE`, but open-ended: camdl writes one
+#: ``obs_ll_<stream>`` per declared stream, so an eight-stream fit put eight
+#: unlabelled columns of data-fit density into a table about the sampler.
+SAMPLER_PANEL_EXCLUDE_PREFIXES: tuple[str, ...] = ("obs_ll_",)
 
 # The iteration-index column, after normalization.
 ITER_COL = "draw"
@@ -215,6 +231,14 @@ class PriorSpec:
     "beta": 2.0}`` for Beta). ``bounds`` is the optional ``(lo, hi)`` box
     constraint, used both to render FLAT priors as a band and to truncate
     sampled prior draws to the feasible region.
+
+    ``unsupported`` names the distribution the model actually declared when
+    this reader could not model it and fell back to FLAT on the declared
+    bounds. That fallback keeps the box visible but replaces the declared
+    density with a uniform, which inflates every prior-relative number
+    downstream — contraction, z, the prior curve on the diagonal. The field
+    exists so the substitution is stated wherever those numbers are read
+    instead of passing as a deliberate flat prior.
     """
 
     param: str

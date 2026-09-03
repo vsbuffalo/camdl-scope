@@ -25,7 +25,9 @@ import re
 from . import ingest
 from .state import (
     DIAGNOSTIC_META,
+    FRACTION_COLUMNS,
     SAMPLER_PANEL_EXCLUDE,
+    SAMPLER_PANEL_EXCLUDE_PREFIXES,
     ChainBuffer,
     ChainSummary,
     Diagnostics,
@@ -628,6 +630,10 @@ class PanelColumn:
     label: str
     note: str | None = None
     band: tuple[float, float] | None = None
+    #: The column is a proportion in [0, 1] and reads as a percentage. Declared
+    #: on the column so the presentation follows the metadata rather than a
+    #: separate list of names in the frontend.
+    is_fraction: bool = False
 
 
 @dataclass(frozen=True)
@@ -707,7 +713,11 @@ def _sampler_telemetry_panel(run: RunState, warmup: int) -> SamplerPanel | None:
     cols: list[str] = []
     for buf in run.chains.values():
         for c in buf.aux:
-            if c not in cols and c not in SAMPLER_PANEL_EXCLUDE:
+            if (
+                c not in cols
+                and c not in SAMPLER_PANEL_EXCLUDE
+                and not c.startswith(SAMPLER_PANEL_EXCLUDE_PREFIXES)
+            ):
                 cols.append(c)
     if not cols:
         return None
@@ -722,6 +732,7 @@ def _sampler_telemetry_panel(run: RunState, warmup: int) -> SamplerPanel | None:
                 label=meta[0] if meta else c,
                 note=meta[2] if meta else None,
                 band=meta[3] if meta else None,
+                is_fraction=c in FRACTION_COLUMNS,
             )
         )
 

@@ -28,6 +28,12 @@ export type SimSummary = components['schemas']['SimSummary']
 export type SimSeriesResponse = components['schemas']['SimSeriesResponse']
 export type SimMemberSeries = components['schemas']['SimMemberSeries']
 export type SimBandPoint = components['schemas']['SimBandPoint']
+export type StoreResponse = components['schemas']['StoreResponse']
+export type StoreSnapshot = components['schemas']['StoreSnapshotModel']
+export type StoreDirRow = components['schemas']['StoreDirRow']
+export type StoreKindRow = components['schemas']['StoreKindRow']
+export type StoreRunRow = components['schemas']['StoreRunRow']
+export type StoreScanState = components['schemas']['StoreScanState']
 export type PredictiveResponse = components['schemas']['PredictiveResponse']
 export type PredictivePoint = components['schemas']['PredictivePoint']
 export type ObservedPoint = components['schemas']['ObservedPoint']
@@ -314,4 +320,28 @@ export function getProfiles(): Promise<ProfileSummary[]> {
 /** One profile-likelihood curve: loglik vs the profiled value, MLE, and 95% CI. */
 export function getProfile(baseId: string): Promise<ProfileResponse> {
   return getJson<ProfileResponse>(`/api/profiles/${encodeURIComponent(baseId)}`)
+}
+
+/** Disk usage and run inventory for the whole store family. Returns the last
+ *  completed walk immediately and starts one in the background if there is
+ *  none — a cold walk of a full `results/` tree is minutes. */
+export function getStore(): Promise<StoreResponse> {
+  return getJson<StoreResponse>('/api/store')
+}
+
+/** Start a fresh walk. A no-op while one is already running; the previous
+ *  snapshot keeps being served until the new one lands. */
+export async function rescanStore(): Promise<StoreResponse> {
+  let res: Response
+  try {
+    res = await fetch('/api/store/rescan', { method: 'POST' })
+  } catch (cause) {
+    throw new ApiError('backend not reachable', { cause })
+  }
+  // Typed like every other failure here, so a caller can tell a 404 (a server
+  // older than this route) from a real scan error.
+  if (!res.ok) {
+    throw new ApiError(`rescan failed (HTTP ${res.status})`, { status: res.status })
+  }
+  return (await res.json()) as StoreResponse
 }

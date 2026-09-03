@@ -95,6 +95,8 @@ export function PosteriorTab({
   excludedChains,
   onToggleChain,
   onResetChains,
+  onSetExcludedChains,
+  deadChainIds,
   warmupPct,
   onWarmupPct,
 }: { runId: string } & ChainControls) {
@@ -133,6 +135,8 @@ export function PosteriorTab({
           excluded={excludedChains}
           onToggle={onToggleChain}
           onReset={onResetChains}
+          onSetExcluded={onSetExcludedChains}
+          deadIds={deadChainIds}
         />
       )}
 

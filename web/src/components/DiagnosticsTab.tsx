@@ -13,6 +13,9 @@ import { includedChains, type ChainControls } from '@/lib/chains'
 import { WarmupControl } from '@/components/WarmupControl'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
+import { TargetDecomposition } from '@/components/TargetDecomposition'
+import { CrossChainMatrix } from '@/components/CrossChainMatrix'
+import { ParticleHealth, fmtFraction } from '@/components/ParticleHealth'
 import { fmtEss, fmtRhat, fmtTick, fmtValue } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -69,6 +72,36 @@ function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <div className="border-b border-neutral-100 px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
       {children}
+    </div>
+  )
+}
+
+/**
+ * A section that opens on demand. Closed by default: these answer a follow-up
+ * question ("what KIND of disagreement is this?") that only arises once the
+ * verdict above has raised one, and left open they push the per-parameter
+ * table off the first screen for every fit, including the healthy ones.
+ */
+function CollapsibleSection({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border-b border-neutral-100 last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-neutral-400 transition-colors hover:bg-neutral-50 hover:text-neutral-600"
+      >
+        <span className="text-neutral-300">{open ? '▾' : '▸'}</span>
+        {label}
+      </button>
+      {open && children}
     </div>
   )
 }
@@ -246,7 +279,14 @@ function SamplerPanelTable({ panel }: { panel: SamplerPanel }) {
                           : 'text-neutral-700',
                       )}
                     >
-                      {v == null ? '—' : fmtValue(v)}
+                      {/* Proportions (acceptance, renewal) read as percentages;
+                          counts and step sizes keep their native form. The
+                          backend declares which is which — see FRACTION_COLUMNS. */}
+                      {v == null
+                        ? '—'
+                        : c.is_fraction
+                          ? fmtFraction(v)
+                          : fmtValue(v)}
                     </td>
                   )
                 })}
@@ -508,6 +548,8 @@ export function DiagnosticsTab({
   excludedChains,
   onToggleChain,
   onResetChains,
+  onSetExcludedChains,
+  deadChainIds,
   warmupPct,
   onWarmupPct,
 }: { runId: string } & ChainControls) {
@@ -518,7 +560,12 @@ export function DiagnosticsTab({
     chains,
   )
 
+  // R̂/ESS need a post-warm-up tail in EVERY chain; a running job with chains
+  // that started staggered has none until the last one catches up.
   const hasContent = Boolean(data && data.params.length > 0 && data.n_tail > 0)
+  // What the sampler reports about itself, straight off the trace's diagnostic
+  // columns — available from the first sweep, so it is shown independently.
+  const hasLive = Boolean(data?.mixing || data?.sampler_panels?.length)
   // The per-chain ESS columns only appear when camdl shipped a per-chain
   // breakdown; the widest param's array sets the column count.
   const perChainN = data
@@ -553,6 +600,8 @@ export function DiagnosticsTab({
             excluded={excludedChains}
             onToggle={onToggleChain}
             onReset={onResetChains}
+            onSetExcluded={onSetExcludedChains}
+            deadIds={deadChainIds}
           />
         )}
 
@@ -566,40 +615,72 @@ export function DiagnosticsTab({
           />
         )}
 
-        {data && !hasContent && (
-          <MutedNotice
-            bordered={false}
-            title="No draws yet"
-            detail="This run hasn't produced post-warmup draws to diagnose. Check back once it has sampled past the cutoff."
-          />
-        )}
-
+        {/* The verdict leads when there is one to give. */}
         {data && hasContent && (
           <>
             <Verdict data={data} />
             <EfficiencyStrip data={data} />
+          </>
+        )}
 
-            {data.mixing && (
-              <>
-                <SectionLabel>
-                  per-chain mixing · {data.mixing.label}
-                </SectionLabel>
-                <div className="px-3 py-2">
-                  <MixingChart mixing={data.mixing} />
-                  {data.mixing.band && (
-                    <p className="mt-1 font-mono text-[10px] text-neutral-400">
-                      healthy band [{fmtValue(data.mixing.band[0])},{' '}
-                      {fmtValue(data.mixing.band[1])}]
-                    </p>
-                  )}
-                </div>
-              </>
-            )}
+        {data && !hasContent && (
+          <MutedNotice
+            bordered={false}
+            title={hasLive ? 'No convergence diagnostics yet' : 'No draws yet'}
+            detail={
+              hasLive
+                ? "R̂ and ESS need a post-warm-up tail in every chain, and this run doesn't have one yet — chains start staggered, so an early sweep leaves one short. What the sampler reports about itself is below, live from the first sweep."
+                : "This run hasn't produced post-warmup draws to diagnose. Check back once it has sampled past the cutoff."
+            }
+          />
+        )}
 
-            {data.sampler_panels?.map((panel) => (
-              <SamplerPanelTable key={panel.id} panel={panel} />
-            ))}
+        {/* Live sampler telemetry — renewal / acceptance and the per-chain
+            counters. Deliberately OUTSIDE the convergence gate: these are read
+            straight off the trace's diagnostic columns and exist from the
+            first sweep, whereas R̂/ESS need a post-warm-up tail in every chain.
+            Gating them together hid the renewal rate for exactly the window a
+            running job is being watched in. */}
+        {data?.mixing && (
+          <>
+            <SectionLabel>per-chain mixing · {data.mixing.label}</SectionLabel>
+            <div className="px-3 py-2">
+              <MixingChart mixing={data.mixing} />
+              {data.mixing.band && (
+                <p className="mt-1 font-mono text-[10px] text-neutral-400">
+                  healthy band [{fmtValue(data.mixing.band[0])},{' '}
+                  {fmtValue(data.mixing.band[1])}]
+                </p>
+              )}
+            </div>
+          </>
+        )}
 
+        {data?.sampler_panels?.map((panel) => (
+          <SamplerPanelTable key={panel.id} panel={panel} />
+        ))}
+
+        {data?.particle_health && (
+          <>
+            <SectionLabel>particle health</SectionLabel>
+            <ParticleHealth health={data.particle_health} />
+          </>
+        )}
+
+        {data?.decomposition && (
+          <CollapsibleSection label="what separates the chains">
+            <TargetDecomposition dec={data.decomposition} />
+          </CollapsibleSection>
+        )}
+
+        {data?.cross_chain && (
+          <CollapsibleSection label="cross-chain path compatibility">
+            <CrossChainMatrix compat={data.cross_chain} />
+          </CollapsibleSection>
+        )}
+
+        {data && hasContent && (
+          <>
             <SectionLabel>per-parameter convergence</SectionLabel>
             <ParamTable params={data.params} perChainCols={perChainCols} />
 

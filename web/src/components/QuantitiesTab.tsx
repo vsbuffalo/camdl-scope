@@ -14,6 +14,7 @@ import { Segmented } from '@/components/Segmented'
 import { ByIndexPlot, LevelLegend } from '@/components/ByIndexPlot'
 import { Card } from '@/components/ui/card'
 import { fmtTick, fmtValue } from '@/lib/format'
+import { bandTipMarks } from '@/lib/band-tip'
 import { buildByIndexProfile, type IndexRecord } from '@/lib/byindex'
 import { dayToDate, fmtModelDate, isTimePointUnit } from '@/lib/calendar'
 import { logYOptions } from '@/lib/plot-scale'
@@ -139,6 +140,21 @@ function BandPanel({
       }
     }
     marks.push(Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }))
+    // Last, so the crosshair and tip paint over the ribbons.
+    marks.push(
+      ...bandTipMarks({
+        series: series.map((s) => ({
+          label: s.scenario,
+          color: s.color,
+          points: s.points,
+        })),
+        xOf,
+        fmtX: (t) => (toDate ? fmtModelDate(toDate, t) : fmtTick(t)),
+        fmtY: (v) => fmtValue(v),
+        layers: { median: showMedian, p50: showP50, p90: showP90 },
+        fontFamily: MONO,
+      }),
+    )
 
     const node = Plot.plot({
       width,

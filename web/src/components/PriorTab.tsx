@@ -253,6 +253,8 @@ export function PriorTab({
   excludedChains,
   onToggleChain,
   onResetChains,
+  onSetExcludedChains,
+  deadChainIds,
   warmupPct,
   onWarmupPct,
 }: { runId: string } & ChainControls) {
@@ -278,6 +280,8 @@ export function PriorTab({
               excluded={excludedChains}
               onToggle={onToggleChain}
               onReset={onResetChains}
+              onSetExcluded={onSetExcludedChains}
+              deadIds={deadChainIds}
             />
           </div>
         )}

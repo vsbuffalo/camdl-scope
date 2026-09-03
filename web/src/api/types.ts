@@ -486,6 +486,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Store
+         * @description Disk usage and run inventory for the whole store family.
+         *
+         *     Returns the last completed walk immediately; the first call starts one in
+         *     the background and returns ``scan.state == "scanning"`` with live counters,
+         *     because a cold walk of a full ``results/`` tree is minutes and must never
+         *     hold a request open. ``scan=false`` reads what is cached without starting
+         *     anything.
+         */
+        get: operations["get_store_api_store_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/store/rescan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rescan Store
+         * @description Start a fresh walk. A no-op while one is already running — two concurrent
+         *     walks of the same tree would only halve each other's throughput. The
+         *     previous snapshot stays served until the new one completes.
+         */
+        post: operations["rescan_store_api_store_rescan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -619,6 +667,53 @@ export interface components {
             overconfident: boolean;
         };
         /**
+         * CrossChainCompatModel
+         * @description Cross-chain path compatibility: ``M[i][j] = log p(x_j | θ_i)``.
+         *
+         *     ``centred`` is ``M[i][j] − M[i][i]`` — raw log-densities are not comparable
+         *     across rows, so only the centred form reads as "how many nats worse is
+         *     chain j's path under chain i's parameters". Zero on the diagonal by
+         *     construction; ``null`` where a cell was non-finite, so the UI can leave it
+         *     blank instead of drawing a number nobody should trust.
+         *
+         *     ``order`` is a permutation over these indices from clustering the
+         *     symmetrised matrix — blocks of mutually compatible chains are the
+         *     multimodality signal, and chain-id order scatters them.
+         *
+         *     ``chains`` is authoritative for the chain count: chains refused at seeding
+         *     are omitted here, so a 10x10 matrix on a 16-chain launch means six never
+         *     started.
+         */
+        CrossChainCompatModel: {
+            /** Chains */
+            chains: number[];
+            /** Centred */
+            centred: (number | null)[][];
+            /** Order */
+            order: number[];
+            /** Terms */
+            terms: string;
+            /**
+             * Draw
+             * @default
+             */
+            draw: string;
+            /** Diagonal Dominance */
+            diagonal_dominance?: number | null;
+            /** Asymmetry */
+            asymmetry?: number | null;
+            /**
+             * Has Positive Offdiagonal
+             * @default false
+             */
+            has_positive_offdiagonal: boolean;
+            /**
+             * N Nonfinite
+             * @default 0
+             */
+            n_nonfinite: number;
+        };
+        /**
          * DiagnosticsResponse
          * @description The full convergence picture for a run: camdl's verdict (findings), a
          *     per-parameter R̂/ESS table, per-chain mixing, and the PMMH MAP if present.
@@ -666,6 +761,9 @@ export interface components {
              * @default []
              */
             sampler_panels: components["schemas"]["SamplerPanel"][];
+            decomposition?: components["schemas"]["TargetDecompositionModel"] | null;
+            cross_chain?: components["schemas"]["CrossChainCompatModel"] | null;
+            particle_health?: components["schemas"]["ParticleHealthModel"] | null;
             /** Stage */
             stage?: string | null;
             /** Source */
@@ -845,6 +943,37 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * HealthStatRow
+         * @description One particle-filter scalar with the reading that makes it actionable.
+         *     ``band`` is absent where no conventional threshold is defensible — an
+         *     invented band is worse than none.
+         */
+        HealthStatRow: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value?: number | null;
+            /**
+             * Unit
+             * @default
+             */
+            unit: string;
+            /** Note */
+            note: string;
+            /** Band */
+            band?: [
+                number,
+                number
+            ] | null;
+            /**
+             * Severity
+             * @default none
+             */
+            severity: string;
+        };
+        /**
          * MleParam
          * @description One coordinate of an MLE fit: the point estimate plus its spread across the
          *     converged restarts (``restart_lo``/``restart_hi`` null when only one restart —
@@ -1019,6 +1148,11 @@ export interface components {
                 number,
                 number
             ] | null;
+            /**
+             * Is Fraction
+             * @default false
+             */
+            is_fraction: boolean;
         };
         /**
          * ParamDiagnostic
@@ -1136,6 +1270,49 @@ export interface components {
             param: string;
             /** Series */
             series: components["schemas"]["TraceSeries"][];
+        };
+        /**
+         * ParticleHealthModel
+         * @description Filter health for whichever sampler ran.
+         *
+         *     PGAS and PMMH expose different evidence and fail differently, so this is
+         *     not a shared table: PGAS reports path renewal (including WHERE along the
+         *     trajectory it happens) and the ancestor-sampling counters; PMMH, which
+         *     stores no path, reports acceptance and the longest stall.
+         */
+        ParticleHealthModel: {
+            /** Method */
+            method: string;
+            /** Available */
+            available: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Particles */
+            particles?: number | null;
+            /**
+             * Stats
+             * @default []
+             */
+            stats: components["schemas"]["HealthStatRow"][];
+            /**
+             * Renewal Profile
+             * @default []
+             */
+            renewal_profile: number[];
+            /**
+             * Renewal By Chain
+             * @default {}
+             */
+            renewal_by_chain: {
+                [key: string]: number;
+            };
+            /**
+             * Longest Stall By Chain
+             * @default {}
+             */
+            longest_stall_by_chain: {
+                [key: string]: number;
+            };
         };
         /**
          * PosteriorResponse
@@ -1629,6 +1806,11 @@ export interface components {
             fit_kind: string;
             /** N Chains */
             n_chains: number;
+            /**
+             * Dead Chain Ids
+             * @default []
+             */
+            dead_chain_ids: number[];
             /** Max Iter */
             max_iter?: number | null;
             /** Target Sweeps */
@@ -1890,6 +2072,169 @@ export interface components {
             highlight_css: string;
         };
         /**
+         * StoreDirRow
+         * @description One top-level child of the scan root — a run kind (``sims``, ``fits``)
+         *     or whatever else is sitting there.
+         */
+        StoreDirRow: {
+            /** Name */
+            name: string;
+            /** Bytes */
+            bytes: number;
+            /** Alloc Bytes */
+            alloc_bytes: number;
+            /** Files */
+            files: number;
+            /** Dirs */
+            dirs: number;
+            /**
+             * Is Store
+             * @default false
+             */
+            is_store: boolean;
+        };
+        /**
+         * StoreKindRow
+         * @description One filename rolled up across the whole scan root. By NAME, not
+         *     extension: a fits tree is 98% ``.tsv``, which locates nothing, while
+         *     ``trace.tsv`` alone is ~64% of it.
+         */
+        StoreKindRow: {
+            /** Name */
+            name: string;
+            /** Bytes */
+            bytes: number;
+            /** Alloc Bytes */
+            alloc_bytes: number;
+            /** Files */
+            files: number;
+        };
+        /**
+         * StoreResponse
+         * @description The store view. ``snapshot`` is ``None`` until the first walk finishes —
+         *     a full ``results/`` tree takes minutes, so the UI shows ``scan`` progress
+         *     rather than blocking a request on it.
+         */
+        StoreResponse: {
+            /** Root */
+            root: string;
+            /** Store */
+            store: string;
+            scan: components["schemas"]["StoreScanState"];
+            snapshot?: components["schemas"]["StoreSnapshotModel"] | null;
+        };
+        /**
+         * StoreRunRow
+         * @description One directory under the watcher's own store. ``status`` is ``None`` when
+         *     the directory is not a run the watcher can open — debris, and the reason
+         *     this is a nullable field rather than an "unknown" string.
+         */
+        StoreRunRow: {
+            /** Run Id */
+            run_id: string;
+            /** Bytes */
+            bytes: number;
+            /** Alloc Bytes */
+            alloc_bytes: number;
+            /** Files */
+            files: number;
+            /** Mtime */
+            mtime: number;
+            /** Status */
+            status?: string | null;
+            /** Label */
+            label?: string | null;
+        };
+        /**
+         * StoreScanState
+         * @description Where the current walk has got to. ``state`` is idle / scanning / done /
+         *     failed; the counters advance while ``scanning``.
+         */
+        StoreScanState: {
+            /** State */
+            state: string;
+            /**
+             * Files
+             * @default 0
+             */
+            files: number;
+            /**
+             * Dirs
+             * @default 0
+             */
+            dirs: number;
+            /**
+             * Total Bytes
+             * @default 0
+             */
+            total_bytes: number;
+            /**
+             * Total Alloc
+             * @default 0
+             */
+            total_alloc: number;
+            /** Started At */
+            started_at?: number | null;
+            /** Error */
+            error?: string | null;
+        };
+        /**
+         * StoreSnapshotModel
+         * @description A completed store walk. ``duration_s`` is how long it took, reported
+         *     beside ``scanned_at`` because on a large tree it is minutes and the reader
+         *     needs to know how expensive a refresh is before asking for one.
+         */
+        StoreSnapshotModel: {
+            /** Root */
+            root: string;
+            /** Store */
+            store: string;
+            /** Scanned At */
+            scanned_at: number;
+            /** Duration S */
+            duration_s: number;
+            /** Total Bytes */
+            total_bytes: number;
+            /** Total Alloc */
+            total_alloc: number;
+            /** Total Files */
+            total_files: number;
+            /** Total Dirs */
+            total_dirs: number;
+            /**
+             * Children
+             * @default []
+             */
+            children: components["schemas"]["StoreDirRow"][];
+            /**
+             * Kinds
+             * @default []
+             */
+            kinds: components["schemas"]["StoreKindRow"][];
+            /**
+             * Runs
+             * @default []
+             */
+            runs: components["schemas"]["StoreRunRow"][];
+            /**
+             * Status Counts
+             * @default {}
+             */
+            status_counts: {
+                [key: string]: number;
+            };
+            /**
+             * Orphan Dirs
+             * @default 0
+             */
+            orphan_dirs: number;
+            /**
+             * Unreadable
+             * @default 0
+             */
+            unreadable: number;
+        };
+        /**
          * StreamInfo
          * @description One observation stream's structure (from the fit's ``schema``).
          */
@@ -1902,6 +2247,100 @@ export interface components {
             value_kind?: string | null;
             /** Likelihood */
             likelihood?: string | null;
+        };
+        /**
+         * StreamSpreadRow
+         * @description One observation stream's part of the data term's chain disagreement.
+         */
+        StreamSpreadRow: {
+            /** Stream */
+            stream: string;
+            /** Share */
+            share: number;
+            /** Range Nats */
+            range_nats: number;
+            /** Chain Means */
+            chain_means: number[];
+        };
+        /**
+         * TargetDecompositionModel
+         * @description The sampled target split into obs / trajectory / initial-state / prior.
+         *
+         *     ``reason`` carries WHY when unavailable, so the panel states the cause
+         *     rather than rendering an empty chart. ``residual_max`` above
+         *     ``residual_tol`` means the terms no longer reconcile — camdl grew a term
+         *     this does not know about, which would otherwise be absorbed into the
+         *     implied prior without anyone noticing.
+         */
+        TargetDecompositionModel: {
+            /** Available */
+            available: boolean;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Chain Ids
+             * @default []
+             */
+            chain_ids: number[];
+            /**
+             * Terms
+             * @default []
+             */
+            terms: components["schemas"]["TargetTermRow"][];
+            /**
+             * Total Range
+             * @default 0
+             */
+            total_range: number;
+            /**
+             * Total Sd
+             * @default 0
+             */
+            total_sd: number;
+            /**
+             * Residual Max
+             * @default 0
+             */
+            residual_max: number;
+            /**
+             * Residual Tol
+             * @default 0
+             */
+            residual_tol: number;
+            /**
+             * Initial State Derived
+             * @default false
+             */
+            initial_state_derived: boolean;
+            /**
+             * Streams
+             * @default []
+             */
+            streams: components["schemas"]["StreamSpreadRow"][];
+        };
+        /**
+         * TargetTermRow
+         * @description One additive term of the sampled target. ``share`` is
+         *     ``Cov(term, total)/Var(total)`` over chain means and the shares sum to 1 —
+         *     exact, because the terms sum to the total. ``range_nats`` is the readable
+         *     magnitude and is deliberately NOT additive; the two disagree by design and
+         *     the share is the one the bars carry.
+         */
+        TargetTermRow: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Note */
+            note: string;
+            /** Share */
+            share: number;
+            /** Range Nats */
+            range_nats: number;
+            /** Sd Nats */
+            sd_nats: number;
+            /** Chain Means */
+            chain_means: number[];
         };
         /**
          * TraceSeries
@@ -2584,6 +3023,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_store_api_store_get: {
+        parameters: {
+            query?: {
+                scan?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rescan_store_api_store_rescan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreResponse"];
                 };
             };
         };

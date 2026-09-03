@@ -10,6 +10,7 @@ import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { Segmented } from '@/components/Segmented'
 import { Card } from '@/components/ui/card'
 import { fmtTick, fmtValue } from '@/lib/format'
+import { bandTipMarks } from '@/lib/band-tip'
 import { dayToDate, fmtModelDate } from '@/lib/calendar'
 import { logYOptions } from '@/lib/plot-scale'
 import {
@@ -160,11 +161,15 @@ function PredictivePanel({
       if (Number.isFinite(v)) drawn.push(v)
     }
     const marks: Plot.Markish[] = []
+    // The arms as the hover readout sees them — clipped exactly as drawn, so
+    // the tip never quotes a prediction outside the plotted window.
+    const tipSeries: { label: string; color: string; points: PredictivePoint[] }[] = []
     let predEnd = -Infinity
     for (const s of series) {
       let pred = [...s.pred].sort((a, b) => a.time - b.time)
       if (pred.length) predEnd = Math.max(predEnd, pred[pred.length - 1]!.time)
       if (clip) pred = pred.filter((p) => p.time <= obsEnd!)
+      tipSeries.push({ label: s.key, color: s.color, points: pred })
       for (const p of pred) {
         if (showP90) {
           see(p.q05)
@@ -238,6 +243,18 @@ function PredictivePanel({
       Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }),
     )
     for (const o of obs) see(o.value!)
+    // Last, so the crosshair and tip paint over the ribbons and the points.
+    marks.push(
+      ...bandTipMarks({
+        series: tipSeries,
+        observed: obs,
+        xOf,
+        fmtX: (t) => (toDate ? fmtModelDate(toDate, t) : fmtTick(t)),
+        fmtY: (v) => fmtValue(v),
+        layers: { median: showMedian, p50: showP50, p90: showP90 },
+        fontFamily: MONO,
+      }),
+    )
 
     const node = Plot.plot({
       width,
@@ -1144,13 +1161,26 @@ export function PredictiveTab({ runId }: { runId: string }) {
       .map(([a]) => a)
   }, [data, reference, scenarioColors])
 
-  // Checked predictions. Default: the fitted arms only (the clean posterior
-  // predictive + tracking check — add overlays deliberately); when the
-  // artifact has no fitted arm, every arm, so a scenario-only sidecar
-  // doesn't open empty.
+  // Checked predictions. Default: the one-step tracking check alone.
+  //
+  // The free-run `fitted` arm integrates forward from the initial state without
+  // ever seeing the data again, so on a long horizon its 90% band is far wider
+  // than the observations — it sets the y-scale and flattens the very series
+  // the panel is for. The one-step arm re-conditions on the data at each step,
+  // so it opens on a plot you can read, and the free run is one click away when
+  // the question is genuinely "where could this have gone".
+  //
+  // Falls back to the other fitted arms when a fit has no one-step block, and
+  // to every arm when it has no fitted arm at all, so a scenario-only sidecar
+  // never opens empty.
   const activeArms = useMemo(() => {
     const fitted = arms.filter((a) => a.scenario === reference)
-    const def = fitted.length ? fitted.map((a) => a.key) : arms.map((a) => a.key)
+    const oneStep = fitted.filter((a) => a.horizon === 'one_step')
+    const def = oneStep.length
+      ? oneStep.map((a) => a.key)
+      : fitted.length
+        ? fitted.map((a) => a.key)
+        : arms.map((a) => a.key)
     const set = new Set(selectedArms ?? def)
     return arms.filter((a) => set.has(a.key))
   }, [selectedArms, arms, reference])

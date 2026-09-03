@@ -13,6 +13,12 @@ export interface ChainControls {
   excludedChains: Set<number>
   onToggleChain: (id: number) => void
   onResetChains: () => void
+  /** Replace the exclusion set outright — the all / none shortcuts. */
+  onSetExcludedChains: (next: Set<number>) => void
+  /** Chains that produced no draws and never will. A property of the run, so
+   *  it travels with the rest of the chain state rather than being refetched
+   *  per tab. */
+  deadChainIds: number[]
   /** The run's warm-up percentage, shared by every tab that summarises draws —
    *  a property of the fit, not of the view looking at it. */
   warmupPct: number

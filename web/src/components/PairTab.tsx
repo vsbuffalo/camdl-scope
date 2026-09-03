@@ -25,6 +25,8 @@ export function PairTab({
   excludedChains,
   onToggleChain,
   onResetChains,
+  onSetExcludedChains,
+  deadChainIds,
   warmupPct,
   onWarmupPct,
 }: { runId: string } & ChainControls) {
@@ -154,6 +156,8 @@ export function PairTab({
           excluded={excludedChains}
           onToggle={onToggleChain}
           onReset={onResetChains}
+          onSetExcluded={onSetExcludedChains}
+          deadIds={deadChainIds}
         />
       )}
 
