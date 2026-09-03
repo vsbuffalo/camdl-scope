@@ -18,8 +18,9 @@ import { dayToDate } from '@/lib/calendar'
 import { LEVEL_PALETTE } from '@/lib/byindex'
 import { loadJson, saveJson } from '@/lib/persist'
 import { cn } from '@/lib/utils'
+import { token } from '@/lib/theme'
 
-const AXIS = '#737373'
+const AXIS = token('muted')
 const MONO = 'var(--font-mono)'
 const ACCENT = '#2563eb' // band + single-member ink
 
@@ -314,7 +315,7 @@ function SimPlot({
             )
           })
         }
-        marks.push(Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }))
+        marks.push(Plot.ruleY([0], { stroke: token('line'), strokeWidth: 0.5 }))
 
         const node = Plot.plot({
           width,

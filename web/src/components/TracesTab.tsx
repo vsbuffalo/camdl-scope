@@ -12,11 +12,12 @@ import { fmtTick } from '@/lib/format'
 import { toggleInSet, usePersistedSet } from '@/lib/use-persisted'
 import { cn } from '@/lib/utils'
 import { chainColor } from '@/lib/colors'
+import { token } from '@/lib/theme'
 
 const PANEL_HEIGHT = 80
 const X_AXIS_PAD = 16 // extra bottom margin on the last panel for its shared axis
-const FRAME = '#e5e5e5' // neutral-200 — hairline panel border
-const AXIS = '#737373' // neutral-500 — tick labels
+const FRAME = token('line') // neutral-200 — hairline panel border
+const AXIS = token('muted') // neutral-500 — tick labels
 const MONO = 'var(--font-mono)'
 
 // Auxiliary objective traces (Stan's lp__ and friends) that ride at the end of

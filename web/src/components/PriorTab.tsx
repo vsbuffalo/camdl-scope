@@ -15,6 +15,7 @@ import { fmtValue } from '@/lib/format'
 import { loadJson, saveJson } from '@/lib/persist'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
+import { token } from '@/lib/theme'
 
 // Contraction below this means the data barely moved the parameter: the
 // posterior is close to the prior restated, so any "estimate" is mostly an
@@ -194,7 +195,7 @@ function PriorPredictivePanel({
             marginRight: 12,
             style: {
               background: 'transparent',
-              color: '#737373',
+              color: token('muted'),
               fontSize: '10px',
               fontFamily: 'var(--font-mono)',
             },
@@ -227,12 +228,12 @@ function PriorPredictivePanel({
               Plot.dot(obs, {
                 x: xOf,
                 y: 'value',
-                fill: '#171717',
+                fill: token('ink'),
                 r: 2.5,
                 stroke: 'white',
                 strokeWidth: 0.5,
               }),
-              Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }),
+              Plot.ruleY([0], { stroke: token('line'), strokeWidth: 0.5 }),
             ],
           })
           el.replaceChildren(node)

@@ -5,6 +5,7 @@ import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { fmtTick } from '@/lib/format'
 import { chainColor } from '@/lib/colors'
 import { cn } from '@/lib/utils'
+import { token } from '@/lib/theme'
 
 // Cell sizing: square cells clamp between these so few params fill the width
 // while many params shrink toward MIN and the grid scrolls.
@@ -14,16 +15,16 @@ const LABEL_W = 26 // px gutter for the left row labels (rotated vertical, so na
 const Y_AXIS_W = 42 // px strip down the left holding each row's value y-axis ticks
 const X_AXIS_H = 24 // px strip along the bottom holding each column's value x-axis ticks
 
-const FRAME = '#e5e5e5' // neutral-200 — hairline cell border
-const POST_BAR = '#525252' // neutral-600 — posterior marginal (primary, darker)
-const PRIOR_FILL = '#d4d4d4' // neutral-300 — prior marginal (secondary, light)
-const PRIOR_STROKE = '#a3a3a3' // neutral-400 — prior step outline
-const MEDIAN = '#171717' // neutral-900
-const SYMBOL = '#525252' // neutral-600 — in-cell symbol
+const FRAME = token('line') // neutral-200 — hairline cell border
+const POST_BAR = token('body-dim') // neutral-600 — posterior marginal (primary, darker)
+const PRIOR_FILL = token('line-strong') // neutral-300 — prior marginal (secondary, light)
+const PRIOR_STROKE = token('faint') // neutral-400 — prior step outline
+const MEDIAN = token('ink') // neutral-900
+const SYMBOL = token('body-dim') // neutral-600 — in-cell symbol
 // Divergence view: chain identity is dropped (one question at a time), so every
 // clean draw is one dark grey and the divergent ones carry the only hue in the
 // cell — nothing else in the corner plot competes with it.
-const CLEAN_DOT = '#525252' // neutral-600
+const CLEAN_DOT = token('body-dim') // neutral-600
 const DIVERGENT_DOT = '#ea580c' // orange-600
 
 type Domain = [number, number] | undefined
@@ -437,7 +438,7 @@ function AxisStrip({
 
     const style = {
       background: 'transparent' as const,
-      color: '#737373',
+      color: token('muted'),
       fontSize: '9px',
       fontFamily: 'var(--font-mono)',
     }

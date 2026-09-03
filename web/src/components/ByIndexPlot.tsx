@@ -2,8 +2,9 @@ import * as Plot from '@observablehq/plot'
 import { Figure } from '@/components/Figure'
 import { fmtTick } from '@/lib/format'
 import type { ByIndexProfile } from '@/lib/byindex'
+import { token } from '@/lib/theme'
 
-const AXIS = '#737373'
+const AXIS = token('muted')
 const MONO = 'var(--font-mono)'
 
 /**

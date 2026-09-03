@@ -10,6 +10,7 @@
  * per tab, which is the leak this stops short of.
  */
 import { cn } from '@/lib/utils'
+import { token } from '@/lib/theme'
 
 export type BandLayer = 'median' | 'p50' | 'p90'
 
@@ -22,7 +23,7 @@ export const BAND_LAYERS: { key: BandLayer; label: string }[] = [
 /** Swatch hinting a layer: a line for the median, a filled band for the
  *  intervals (opacity scaled so 90% reads lighter than 50%). */
 export function LayerSwatch({ layer, on }: { layer: BandLayer; on: boolean }) {
-  const base = on ? '#525252' : '#a3a3a3'
+  const base = on ? token('body-dim') : token('faint')
   if (layer === 'median') {
     return (
       <span

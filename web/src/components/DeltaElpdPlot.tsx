@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import * as Plot from '@observablehq/plot'
 import type { CompareRow } from '@/api/client'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
+import { token } from '@/lib/theme'
 
 const INK = {
-  zero: '#171717', // baseline rule at Δ=0
-  baseline: '#171717',
+  zero: token('ink'), // baseline rule at Δ=0
+  baseline: token('ink'),
   real: '#dc2626', // gap clears 2·se → red (decisively worse than baseline)
-  muted: '#737373', // inconclusive
-  axis: '#737373',
+  muted: token('muted'), // inconclusive
+  axis: token('muted'),
 } as const
 
 /**

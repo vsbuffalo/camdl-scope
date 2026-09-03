@@ -28,13 +28,14 @@ import {
 } from '@/lib/byindex'
 import { buildScenarioColors, referenceScenario, SCENARIO_REFERENCE } from '@/lib/scenario'
 import { cn } from '@/lib/utils'
+import { token } from '@/lib/theme'
 
 // The one-step tracking check's ink. The fitted free-run draws in the dark
 // SCENARIO_REFERENCE; scenario overlays use the shared scenario palette.
 const ONE_STEP = '#16a34a'
 
-const OBSERVED = '#171717' // neutral-900 — the data, distinct from every prediction
-const AXIS = '#737373'
+const OBSERVED = token('ink') // neutral-900 — the data, distinct from every prediction
+const AXIS = token('muted')
 const PANEL_HEIGHT = 220
 const MONO = 'var(--font-mono)'
 
@@ -219,7 +220,7 @@ function PredictivePanel({
     if (!clip && obsEnd != null && predEnd > obsEnd) {
       marks.push(
         Plot.ruleX([toDate ? toDate(obsEnd) : obsEnd], {
-          stroke: '#a3a3a3',
+          stroke: token('faint'),
           strokeWidth: 1,
           strokeDasharray: '3,3',
         }),
@@ -248,7 +249,7 @@ function PredictivePanel({
         }),
       )
     }
-    marks.push(Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }))
+    marks.push(Plot.ruleY([0], { stroke: token('line'), strokeWidth: 0.5 }))
     for (const o of shownObs) see(o.value!)
     // Last, so the crosshair and tip paint over the ribbons and the points.
     marks.push(
@@ -314,7 +315,7 @@ function PredictivePanel({
   )
 }
 
-const ONE_TO_ONE = '#d4d4d4' // neutral-300 — perfect prediction / zero residual
+const ONE_TO_ONE = token('line-strong') // neutral-300 — perfect prediction / zero residual
 // NEUTRAL + LEVEL_PALETTE (index-level colours) are shared with the Quantities
 // by-index view — imported from '@/lib/byindex'.
 
@@ -472,7 +473,7 @@ function PredObsScatter({ points, r2Lines }: { points: ScatterPoint[]; r2Lines: 
                   dx: 8,
                   dy: 10 + i * 15,
                   text: () => `${labelled ? `${a.label || '∅'}  ` : ''}R² = ${a.r2.toFixed(3)}`,
-                  fill: labelled ? a.color : '#171717',
+                  fill: labelled ? a.color : token('ink'),
                   fontSize: 12,
                   fontWeight: 600,
                   textAnchor: 'start',
@@ -973,7 +974,7 @@ function LayerChecks({
           />
           <span
             className="inline-block size-[7px] rounded-full"
-            style={{ background: obsPoints ? OBSERVED : '#a3a3a3' }}
+            style={{ background: obsPoints ? OBSERVED : token('faint') }}
           />
           <span className={obsPoints ? 'text-ink' : 'text-muted'}>
             obs points
@@ -988,7 +989,7 @@ function LayerChecks({
           />
           <span
             className="inline-block h-[1.5px] w-3 rounded-full"
-            style={{ background: obsLine ? OBSERVED : '#a3a3a3' }}
+            style={{ background: obsLine ? OBSERVED : token('faint') }}
           />
           <span className={obsLine ? 'text-ink' : 'text-muted'}>
             obs line

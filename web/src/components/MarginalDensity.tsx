@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as Plot from '@observablehq/plot'
 import { fmtTick } from '@/lib/format'
+import { token } from '@/lib/theme'
 
 /**
  * Ink for the marginal: faint nested credible bands behind a neutral
@@ -8,11 +9,11 @@ import { fmtTick } from '@/lib/format'
  * the bands are context, the median line is the point estimate.
  */
 const INK = {
-  ciBand: '#f5f5f5', // neutral-100 — 90% credible region
-  iqrBand: '#e5e5e5', // neutral-200 — interquartile region (nested)
-  bar: '#a3a3a3', // neutral-400 — histogram
-  median: '#171717', // neutral-900
-  axis: '#737373', // neutral-500 — tick labels
+  ciBand: token('raised'), // neutral-100 — 90% credible region
+  iqrBand: token('line'), // neutral-200 — interquartile region (nested)
+  bar: token('faint'), // neutral-400 — histogram
+  median: token('ink'), // neutral-900
+  axis: token('muted'), // neutral-500 — tick labels
 } as const
 
 const HEIGHT = 66

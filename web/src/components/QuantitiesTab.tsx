@@ -21,8 +21,9 @@ import { logYOptions } from '@/lib/plot-scale'
 import { loadJson, saveJson } from '@/lib/persist'
 import { buildScenarioColors, referenceScenario, SCENARIO_REFERENCE } from '@/lib/scenario'
 import { cn } from '@/lib/utils'
+import { token } from '@/lib/theme'
 
-const AXIS = '#737373'
+const AXIS = token('muted')
 const PANEL_HEIGHT = 190
 const MONO = 'var(--font-mono)'
 
@@ -139,7 +140,7 @@ function BandPanel({
         marks.push(Plot.line(pts, { x: xOf, y: 'q50', stroke: s.color, strokeWidth: 1.3 }))
       }
     }
-    marks.push(Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }))
+    marks.push(Plot.ruleY([0], { stroke: token('line'), strokeWidth: 0.5 }))
     // Last, so the crosshair and tip paint over the ribbons.
     marks.push(
       ...bandTipMarks({

@@ -22,6 +22,7 @@
  * anything measurable — which is why this is always on rather than a toggle.
  */
 import * as Plot from '@observablehq/plot'
+import { token } from '@/lib/theme'
 
 /** One time step of a banded series. Quantiles are optional so a partially
  *  written artifact (or a censored scalar) degrades to the layers it has. */
@@ -174,7 +175,7 @@ export function bandTipMarks(o: BandTipOptions): Plot.Markish[] {
   if (data.length === 0) return []
   const x = (d: { time: number }) => o.xOf(d)
   return [
-    Plot.ruleX(data, Plot.pointerX({ x, stroke: o.rule ?? '#a3a3a3', strokeWidth: 0.75 })),
+    Plot.ruleX(data, Plot.pointerX({ x, stroke: o.rule ?? token('faint'), strokeWidth: 0.75 })),
     Plot.tip(
       data,
       Plot.pointerX({

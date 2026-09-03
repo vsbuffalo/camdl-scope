@@ -3,11 +3,12 @@ import * as Plot from '@observablehq/plot'
 import type { ProfileResponse } from '@/api/client'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { cn } from '@/lib/utils'
+import { token } from '@/lib/theme'
 
-const AXIS = '#737373' // neutral-500 — tick labels
+const AXIS = token('muted') // neutral-500 — tick labels
 const MLE = '#dc2626' // red-600 — the MLE cell outline
 const SELECTED = '#2563eb' // blue-600 — the clicked cell outline
-const FAILED = '#e5e5e5' // neutral-200 — a failed/infeasible cell (sentinel loglik)
+const FAILED = token('line') // neutral-200 — a failed/infeasible cell (sentinel loglik)
 const MONO = 'var(--font-mono)'
 
 /** The bits of an Observable Plot band scale we hit-test clicks against. */
@@ -163,7 +164,7 @@ export function ProfileSurface({ data }: { data: ProfileResponse }) {
           x: 'gx',
           y: 'gy',
           fill: 'none',
-          stroke: '#ffffff',
+          stroke: token('surface'),
           strokeOpacity: 0.7,
           strokeWidth: 1,
           inset: 0.5,

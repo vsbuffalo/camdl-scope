@@ -6,6 +6,7 @@ import { Description } from '@/components/Description'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { estimateTexWidth, normalizeTex } from '@/lib/tex'
+import { token } from '@/lib/theme'
 
 /**
  * The compartmental flow diagram (`model.graph.json`): a hand-rolled SVG
@@ -449,7 +450,7 @@ export function FlowDiagram({
               markerHeight="6"
               orient="auto-start-reverse"
             >
-              <path d="M 0 1 L 9 5 L 0 9 z" fill="#6b7280" />
+              <path d="M 0 1 L 9 5 L 0 9 z" fill={token('muted')} />
             </marker>
             <marker
               id="arrow-back"
@@ -473,7 +474,7 @@ export function FlowDiagram({
               height={by1 - by0 + 28}
               rx={10}
               fill="none"
-              stroke="#e5e7eb"
+              stroke={token('line')}
               strokeDasharray="4 4"
             />
           )}
@@ -491,7 +492,7 @@ export function FlowDiagram({
                 y1={g.y1}
                 x2={g.x2 - 7}
                 y2={g.y2}
-                stroke={lit(e) ? '#9ca3af' : '#e5e7eb'}
+                stroke={lit(e) ? token('faint') : token('line')}
                 strokeWidth={lit(e) && focus ? 2 : 1.25}
                 markerEnd="url(#arrow)"
               />
@@ -528,8 +529,8 @@ export function FlowDiagram({
                   width={CHIP_W}
                   height={22}
                   rx={11}
-                  fill="#f8fafc"
-                  stroke="#d1d5db"
+                  fill={token('sunken')}
+                  stroke={token('line-strong')}
                 />
                 <text
                   x={cx + CHIP_W / 2}
@@ -544,7 +545,7 @@ export function FlowDiagram({
                   y1={cy}
                   x2={to.x - 7}
                   y2={cy}
-                  stroke="#9ca3af"
+                  stroke={token('faint')}
                   strokeWidth={1.25}
                   markerEnd="url(#arrow)"
                 />
@@ -565,7 +566,7 @@ export function FlowDiagram({
                   y1={cy}
                   x2={cx - 7}
                   y2={cy}
-                  stroke="#9ca3af"
+                  stroke={token('faint')}
                   strokeWidth={1.25}
                   markerEnd="url(#arrow)"
                 />
@@ -575,8 +576,8 @@ export function FlowDiagram({
                   width={CHIP_W}
                   height={22}
                   rx={11}
-                  fill="#f8fafc"
-                  stroke="#d1d5db"
+                  fill={token('sunken')}
+                  stroke={token('line-strong')}
                 />
                 <text
                   x={cx + CHIP_W / 2}
@@ -602,7 +603,7 @@ export function FlowDiagram({
                 width={NODE_W}
                 height={NODE_H}
                 rx={7}
-                fill={on ? '#eff6ff' : '#ffffff'}
+                fill={on ? '#eff6ff' : token('surface')}
                 stroke={dim ? '#c7d2e4' : '#1e3a8a'}
                 strokeWidth={on ? 2.25 : 1.25}
                 className="cursor-pointer"

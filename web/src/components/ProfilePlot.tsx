@@ -3,9 +3,10 @@ import * as Plot from '@observablehq/plot'
 import type { ProfileResponse } from '@/api/client'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { fmtTick } from '@/lib/format'
+import { token } from '@/lib/theme'
 
-const FRAME = '#e5e5e5' // neutral-200 — hairline frame
-const AXIS = '#737373' // neutral-500 — tick labels
+const FRAME = token('line') // neutral-200 — hairline frame
+const AXIS = token('muted') // neutral-500 — tick labels
 const LINE = '#1d4ed8' // blue-700 — the profile curve
 const MLE = '#dc2626' // red-600 — the MLE marker
 const THRESH = '#a16207' // yellow-700 — the CI loglik threshold
