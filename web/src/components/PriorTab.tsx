@@ -65,6 +65,11 @@ function boundPhrase(r: PriorPosteriorRow): string {
 /** How to read a row, in one phrase — the interpretation the numbers support,
  *  so a reader does not have to hold the thresholds in their head. */
 function reading(r: PriorPosteriorRow): { text: string; tone: string } {
+  // Before any threshold: a substituted prior makes contraction and z measure
+  // the distance from a uniform on the box, so every phrase below would be a
+  // statement about a prior the model does not declare.
+  if (r.prior_unsupported)
+    return { text: 'prior not modelled here', tone: 'text-amber-600' }
   if (r.contraction == null) return { text: 'no prior scale', tone: 'text-neutral-400' }
   if (r.contraction < 0)
     return { text: 'posterior wider than prior', tone: 'text-red-600' }
@@ -263,6 +268,7 @@ export function PriorTab({
   const run = useRun(runId)
   const priorStreams = run.data?.available_prior_streams ?? []
   const toDate = dayToDate(run.data?.calendar)
+  const unsupported = (data?.rows ?? []).filter((r) => r.prior_unsupported)
 
   return (
     <div className="max-w-4xl">
@@ -311,6 +317,21 @@ export function PriorTab({
           />
         )}
 
+        {data && data.rows.length > 0 && unsupported.length > 0 && (
+          <MutedNotice
+            bordered={false}
+            title={`${unsupported.length === 1 ? 'One prior is' : `${unsupported.length} priors are`} not modelled by this build`}
+            detail={
+              `${unsupported.map((r) => `${r.param} (${r.prior_unsupported})`).join(', ')} — ` +
+              'read as a uniform on the declared bounds, because this viewer has no ' +
+              'sampler for that family. A uniform on a box is almost always wider than ' +
+              'the density the model declares inside it, so contraction is overstated ' +
+              'and z is measured from the wrong centre on those rows. The bounds, the ' +
+              'posterior columns and bound pressure are unaffected.'
+            }
+          />
+        )}
+
         {data && data.rows.length > 0 && (
           <>
             <div className="scroll-x-visible overflow-x-auto">
@@ -343,7 +364,12 @@ export function PriorTab({
                             </span>
                           )}
                         </td>
-                        <td className="px-2 py-1.5 text-left text-[10px] text-neutral-500">
+                        <td
+                          className={cn(
+                            'px-2 py-1.5 text-left text-[10px]',
+                            r.prior_unsupported ? 'text-amber-600' : 'text-neutral-500',
+                          )}
+                        >
                           {r.prior_label ?? '—'}
                         </td>
                         <td className="whitespace-nowrap px-2 py-1.5 text-right text-[10px]">

@@ -403,14 +403,14 @@ def test_log_uniform_prior_resolves_and_samples(tmp_path: Path):
         "}\n"
     )
     ir = ingest._parse_ir_params(model)
-    family, args, bounds = ir["kappa"]
-    assert family is PriorFamily.LOGUNIFORM
-    assert args["lo"] == pytest.approx(1e-9)
-    assert args["hi"] == pytest.approx(1e-2)
+    parsed = ir["kappa"]
+    assert parsed.family is PriorFamily.LOGUNIFORM
+    assert parsed.args["lo"] == pytest.approx(1e-9)
+    assert parsed.args["hi"] == pytest.approx(1e-2)
 
     from camdl_watch.state import PriorSpec
 
-    spec = PriorSpec("kappa", family, args, bounds=bounds)
+    spec = PriorSpec("kappa", parsed.family, parsed.args, bounds=parsed.bounds)
     x = ingest.sample_prior(spec, 5000)
     assert x.size > 0
     assert x.min() >= 1e-9 and x.max() <= 1e-2
@@ -432,9 +432,107 @@ def test_uniform_prior_accepts_lower_upper_spelling(tmp_path: Path):
         "  w : rate in [2.0, 9.0] ~ uniform(lower = 2.0, upper = 9.0)\n"
         "}\n"
     )
-    family, args, _bounds = ingest._parse_ir_params(model)["w"]
-    assert family is PriorFamily.UNIFORM
-    assert args == {"lo": pytest.approx(2.0), "hi": pytest.approx(9.0)}
+    parsed = ingest._parse_ir_params(model)["w"]
+    assert parsed.family is PriorFamily.UNIFORM
+    assert parsed.args == {"lo": pytest.approx(2.0), "hi": pytest.approx(9.0)}
+
+
+def test_exponential_prior_reads_rate_not_scale(tmp_path: Path):
+    # `~ exponential(rate = R)` is camdl's process-noise prior (sigma_se in the
+    # pcnoise models). Missing from the family table it fell to Flat on its box,
+    # replacing a prior with mean 1/R by a uniform with mean (lo+hi)/2 — for
+    # rate 5.99 on [0, 2], 0.167 became 1.0, and every contraction measured
+    # against it overstated what the data had done.
+    model = tmp_path / "m.camdl"
+    model.write_text(
+        "parameters {\n"
+        "  sigma_se : positive in [0.0, 2.0] ~ exponential(rate = 5.99)\n"
+        "}\n"
+    )
+    parsed = ingest._parse_ir_params(model)["sigma_se"]
+    assert parsed.family is PriorFamily.EXPONENTIAL
+    assert parsed.args == {"rate": pytest.approx(5.99)}
+    assert parsed.unsupported is None
+
+    from camdl_watch.state import PriorSpec
+
+    spec = PriorSpec("sigma_se", parsed.family, parsed.args, bounds=parsed.bounds)
+    x = ingest.sample_prior(spec, 40_000)
+    # Mean 1/rate, not rate: the scale reading would put this at ~6, outside
+    # the box entirely. Truncation at 2.0 removes exp(-11.98) of the mass, so
+    # the truncated mean is the untruncated one to well within tolerance.
+    assert x.mean() == pytest.approx(1.0 / 5.99, rel=0.02)
+    # The design the model's doc comment states: P(sigma_se > 0.5) = 0.05.
+    assert np.mean(x > 0.5) == pytest.approx(0.05, abs=0.005)
+
+    lp = ingest.log_prior_density(spec, np.array([0.1, 3.0]))
+    assert lp[0] == pytest.approx(np.log(5.99) - 5.99 * 0.1)
+    assert lp[1] == -np.inf  # outside the declared box
+
+
+def test_truncated_normal_normalises_over_the_declared_box(tmp_path: Path):
+    # A .camdl writes `truncated_normal(mean =, sd =)` and takes the interval
+    # from `in [lo, hi]`, so the density has to normalise over the box rather
+    # than over the line.
+    model = tmp_path / "m.camdl"
+    model.write_text(
+        "parameters {\n"
+        "  take : probability in [0.3, 1.0] ~ truncated_normal(mean = 0.7, sd = 0.2)\n"
+        "}\n"
+    )
+    parsed = ingest._parse_ir_params(model)["take"]
+    assert parsed.family is PriorFamily.TRUNCNORMAL
+    assert parsed.args == {"mu": pytest.approx(0.7), "sigma": pytest.approx(0.2)}
+
+    from camdl_watch.state import PriorSpec
+
+    spec = PriorSpec("take", parsed.family, parsed.args, bounds=parsed.bounds)
+    x = ingest.sample_prior(spec, 20_000)
+    assert x.size > 19_000  # sampled from the truncation, not rejected into it
+    assert x.min() >= 0.3 and x.max() <= 1.0
+
+    grid = np.linspace(0.3, 1.0, 20_001)
+    dens = np.exp(ingest.log_prior_density(spec, grid))
+    assert np.trapezoid(dens, grid) == pytest.approx(1.0, abs=1e-3)
+
+
+def test_unknown_prior_family_is_recorded_not_silently_flattened(tmp_path: Path):
+    # The failure this whole family table has: a distribution camdl grows and
+    # this reader lacks still parses, as Flat on the declared box. That is the
+    # right thing to draw and the wrong thing to draw *silently* — the bounds
+    # survive, the density does not, and nothing downstream could tell the
+    # substitution from a prior the modeller wrote as flat.
+    model = tmp_path / "m.camdl"
+    model.write_text(
+        "parameters {\n"
+        "  q : real in [-1.0, 1.0] ~ von_mises(mu = 0.0, kappa = 2.0)\n"
+        "}\n"
+    )
+    parsed = ingest._parse_ir_params(model)["q"]
+    assert parsed.family is PriorFamily.FLAT
+    assert parsed.bounds == (-1.0, 1.0)
+    assert parsed.unsupported == "von_mises"
+
+    # A box with no `~` at all is a flat prior the model declared, not a gap.
+    model.write_text("parameters {\n  q : real in [-1.0, 1.0]\n}\n")
+    assert ingest._parse_ir_params(model)["q"].unsupported is None
+
+
+def test_unknown_toml_prior_family_is_recorded(tmp_path: Path):
+    # Same gap on the fit.toml side, where an override can name a family the
+    # model file never did.
+    entry = {"bounds": [0.0, 2.0], "prior": {"von_mises": {"kappa": 2.0}}}
+    parsed = ingest._prior_from_toml_entry(entry)
+    assert parsed.family is PriorFamily.FLAT
+    assert parsed.bounds == (0.0, 2.0)
+    assert parsed.unsupported == "von_mises"
+
+    ok = ingest._prior_from_toml_entry(
+        {"bounds": [0.0, 2.0], "prior": {"exponential": {"rate": 5.99}}}
+    )
+    assert ok.family is PriorFamily.EXPONENTIAL
+    assert ok.args == {"rate": pytest.approx(5.99)}
+    assert ok.unsupported is None
 
 
 def test_sampler_telemetry_is_diagnostic_without_a_declared_schema():

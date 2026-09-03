@@ -1231,6 +1231,8 @@ export interface components {
             source: string;
             /** Prior */
             prior?: string | null;
+            /** Prior Unsupported */
+            prior_unsupported?: string | null;
             /** Bounds */
             bounds?: [
                 number,
@@ -1478,6 +1480,8 @@ export interface components {
             bound_pressure_lo?: number | null;
             /** Bound Pressure Hi */
             bound_pressure_hi?: number | null;
+            /** Prior Unsupported */
+            prior_unsupported?: string | null;
         };
         /**
          * ProfilePoint

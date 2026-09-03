@@ -411,11 +411,24 @@ def _format_prior(spec: PriorSpec | None) -> str | None:
         return f"Beta(α={_g(a.get('alpha', 1.0))}, β={_g(a.get('beta', 1.0))})"
     if f is PriorFamily.GAMMA:
         return f"Gamma(α={_g(a.get('alpha', 1.0))}, β={_g(a.get('beta', 1.0))})"
+    if f is PriorFamily.EXPONENTIAL:
+        return f"Exponential(rate={_g(a.get('rate', 1.0))})"
     if f is PriorFamily.UNIFORM:
         return f"Uniform({_g(a.get('lo', 0.0))}, {_g(a.get('hi', 1.0))})"
     if f is PriorFamily.LOGUNIFORM:
         return f"LogUniform({_g(a.get('lo', 1e-9))}, {_g(a.get('hi', 1.0))})"
-    # FLAT: a bounds-only / improper prior.
+    if f is PriorFamily.TRUNCNORMAL:
+        lo, hi = ingest.trunc_support(spec)
+        return (
+            f"TruncNormal(μ={_g(a.get('mu', 0.0))}, σ={_g(a.get('sigma', 1.0))})"
+            f"[{_g(lo)}, {_g(hi)}]"
+        )
+    # FLAT: a bounds-only / improper prior. When it stands in for a family this
+    # build cannot draw, the label says so — the number beside it is a uniform's,
+    # not the declared prior's, and that is the reader's to know.
+    if spec.unsupported:
+        box = f"[{_g(spec.bounds[0])}, {_g(spec.bounds[1])}]" if spec.bounds else ""
+        return f"{spec.unsupported} (unsupported — read as Flat{box})"
     if spec.bounds is not None:
         lo, hi = spec.bounds
         return f"Flat[{_g(lo)}, {_g(hi)}]"
@@ -601,6 +614,7 @@ def _param_posterior(
         reference=block.reference if block else None,
         source="derived" if is_objective else (spec.source if spec else "unknown"),
         prior=_format_prior(spec),
+        prior_unsupported=(spec.unsupported if spec else None),
         bounds=spec.bounds if spec else None,
         mean=mean,
         sd=sd,
@@ -1575,6 +1589,7 @@ def get_prior_posterior(
             bound_pressure=_finite_or_none(r.bound_pressure),
             bound_pressure_lo=_finite_or_none(r.bound_pressure_lo),
             bound_pressure_hi=_finite_or_none(r.bound_pressure_hi),
+            prior_unsupported=r.prior_unsupported,
         )
         for r in diag_mod.prior_posterior(rs, cutoff)
     ]

@@ -518,6 +518,12 @@ class PriorPosterior:
     bound_pressure: float | None
     bound_pressure_lo: float | None
     bound_pressure_hi: float | None
+    #: The declared family, when this build could not draw it and substituted a
+    #: uniform on the box. Non-null means ``contraction`` and ``z`` are measured
+    #: against that uniform, not against the model's prior — usually far too
+    #: generous, since a box wide enough to sample in is wider than the density
+    #: a modeller would write inside it.
+    prior_unsupported: str | None = None
 
 
 #: Draws used to estimate a prior's moments. Large enough that the reported
@@ -598,6 +604,7 @@ def prior_posterior(
                 bound_pressure=bound_pressure,
                 bound_pressure_lo=p_lo,
                 bound_pressure_hi=p_hi,
+                prior_unsupported=(spec.unsupported if spec is not None else None),
             )
         )
     return out
@@ -605,9 +612,19 @@ def prior_posterior(
 
 def _prior_label(spec: PriorSpec | None) -> str | None:
     """``LogNormal(mu=-0.6, sigma=0.4)`` — the prior as written, so the reader
-    can see what the contraction is relative to."""
+    can see what the contraction is relative to.
+
+    When the declared family is one this build cannot draw, the contraction is
+    relative to a uniform on the box instead, and the label names the
+    substitution rather than the family, so the number is never read as being
+    relative to what the model actually says."""
     if spec is None:
         return None
+    if spec.unsupported:
+        if spec.bounds is not None:
+            lo, hi = spec.bounds
+            return f"{spec.unsupported} (unsupported — read as Flat[{_fmt_num(lo)}, {_fmt_num(hi)}])"
+        return f"{spec.unsupported} (unsupported)"
     if spec.args:
         args = ", ".join(f"{k}={_fmt_num(v)}" for k, v in spec.args.items())
         return f"{spec.family.value}({args})"

@@ -212,13 +212,26 @@ class Backend(str, Enum):
 
 
 class PriorFamily(str, Enum):
+    """The prior families this reader can draw from and evaluate.
+
+    One member per family camdl can declare, so a model's prior survives the
+    trip to a plot. The camdl side is ``Density::kind_str`` in
+    ``rust/crates/sim/src/inference/prior.rs``: flat, uniform, normal,
+    log_normal, half_normal, beta, gamma, exponential, log_uniform,
+    truncated_normal. A family camdl gains and this enum lacks does not fail —
+    it degrades to :attr:`FLAT`, which is why the degradation has to be
+    recorded (see :attr:`PriorSpec.unsupported`) rather than left silent.
+    """
+
     NORMAL = "Normal"
     LOGNORMAL = "LogNormal"
     HALFNORMAL = "HalfNormal"
     BETA = "Beta"
     GAMMA = "Gamma"
+    EXPONENTIAL = "Exponential"
     UNIFORM = "Uniform"
     LOGUNIFORM = "LogUniform"
+    TRUNCNORMAL = "TruncatedNormal"
     FLAT = "Flat"  # bounds-only / improper -> rendered as a uniform band on bounds
 
 
@@ -246,6 +259,7 @@ class PriorSpec:
     args: dict[str, float] = field(default_factory=dict)
     source: str = "unknown"  # fit_toml | model_ir | default
     bounds: tuple[float, float] | None = None
+    unsupported: str | None = None  # declared family this reader cannot model
 
 
 @dataclass

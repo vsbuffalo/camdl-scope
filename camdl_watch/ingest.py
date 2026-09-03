@@ -43,6 +43,7 @@ import shutil
 import subprocess
 import tomllib
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import polars as pl
@@ -869,15 +870,25 @@ def _append_df(buf: ChainBuffer, df: pl.DataFrame) -> None:
 # Prior extraction
 # ----------------------------------------------------------------------------
 
-# Map TOML prior keys -> (family, arg-rename map). camdl TOML uses snake_case
-# distribution keys: log_normal, half_normal, normal, beta, gamma, uniform.
+# Map camdl distribution keys -> (family, arg-rename map). One entry per family
+# camdl can declare; the authority is `Density::kind_str` in camdl's
+# rust/crates/sim/src/inference/prior.rs. A family missing from this table does
+# not raise — it degrades to FLAT on the declared bounds — so the table falling
+# behind camdl is a silent substitution of a uniform for whatever was written.
+# That is what `_ParsedPrior.unsupported` records.
 _TOML_FAMILY = {
-    "normal": (PriorFamily.NORMAL, {"mu": "mu", "sigma": "sigma"}),
+    "normal": (PriorFamily.NORMAL, {"mu": "mu", "sigma": "sigma",
+                                    "mean": "mu", "sd": "sigma"}),
     "log_normal": (PriorFamily.LOGNORMAL, {"mu": "mu", "sigma": "sigma"}),
     "half_normal": (PriorFamily.HALFNORMAL, {"sigma": "sigma"}),
     "beta": (PriorFamily.BETA, {"alpha": "alpha", "beta": "beta"}),
     "gamma": (PriorFamily.GAMMA, {"alpha": "alpha", "beta": "beta",
                                   "shape": "alpha", "rate": "beta"}),
+    # rate, not scale: camdl writes `exponential(rate = R)` with rate = 1/mean
+    # (language spec §prior families). Reading it as a scale would put the mass
+    # at R instead of 1/R — for `rate = 5.99`, a mean of 6 rather than 0.17.
+    "exponential": (PriorFamily.EXPONENTIAL, {"rate": "rate",
+                                              "lambda": "rate"}),
     # camdl's canonical spelling is `lower = L, upper = U` (language spec
     # §prior families); the other aliases are kept for older TOML variants.
     "uniform": (PriorFamily.UNIFORM, {"lower": "lo", "upper": "hi",
@@ -886,6 +897,12 @@ _TOML_FAMILY = {
                                       "min": "lo", "max": "hi"}),
     "log_uniform": (PriorFamily.LOGUNIFORM, {"lower": "lo", "upper": "hi",
                                              "lo": "lo", "hi": "hi"}),
+    # In a .camdl the truncation points come from the parameter's `in [lo, hi]`
+    # box, so the model spelling carries mean/sd only; the fit TOML may repeat
+    # them as lower/upper, which camdl requires to equal the resolved bounds.
+    "truncated_normal": (PriorFamily.TRUNCNORMAL, {"mean": "mu", "mu": "mu",
+                                                   "sd": "sigma", "sigma": "sigma",
+                                                   "lower": "lo", "upper": "hi"}),
 }
 
 # Same families, model-IR (.camdl) spelling: `~ log_normal(mu=, sigma=)` etc.
@@ -893,20 +910,41 @@ _TOML_FAMILY = {
 _IR_FAMILY = _TOML_FAMILY
 
 
-def _prior_from_toml_entry(entry: dict) -> tuple[PriorFamily, dict, tuple | None] | None:
-    """Parse one ``[estimate]`` TOML entry -> (family, args, bounds)."""
+class _ParsedPrior(NamedTuple):
+    """One parsed prior declaration, before it is bound to a parameter name.
+
+    ``unsupported`` is the distribution name as written when it is not in
+    :data:`_TOML_FAMILY`. The parse still succeeds — ``family`` is FLAT and the
+    bounds are kept, because the box is real information even when the density
+    is lost — but the name travels with it so the loss can be reported."""
+
+    family: PriorFamily
+    args: dict[str, float]
+    bounds: tuple[float, float] | None
+    unsupported: str | None = None
+
+
+def _prior_from_toml_entry(entry: dict) -> _ParsedPrior:
+    """Parse one ``[estimate]`` TOML entry.
+
+    The TOML shape is ``prior = { <family> = { <args> } }`` (camdl run spec
+    §estimate). A single unrecognised key there is a declared prior this reader
+    cannot draw, not an absent one, and is reported as such."""
     bounds = None
     if isinstance(entry.get("bounds"), list) and len(entry["bounds"]) == 2:
         bounds = (float(entry["bounds"][0]), float(entry["bounds"][1]))
     prior = entry.get("prior")
     if not isinstance(prior, dict):
-        return PriorFamily.FLAT, {}, bounds
+        return _ParsedPrior(PriorFamily.FLAT, {}, bounds)
     for key, (family, rename) in _TOML_FAMILY.items():
         if key in prior and isinstance(prior[key], dict):
             raw = prior[key]
             args = {rename[k]: float(v) for k, v in raw.items() if k in rename}
-            return family, args, bounds
-    return PriorFamily.FLAT, {}, bounds
+            return _ParsedPrior(family, args, bounds)
+    # `flat` is a family camdl writes deliberately, so it is not a gap; any
+    # other name is one this table does not carry.
+    declared = next((k for k in prior if k != "flat"), None)
+    return _ParsedPrior(PriorFamily.FLAT, {}, bounds, declared)
 
 
 # Model-IR (.camdl) parameter block:
@@ -926,14 +964,14 @@ _IR_PARAM_RE = re.compile(
 )
 
 
-def _parse_ir_params(model_path: Path) -> dict[str, tuple[PriorFamily, dict, tuple | None]]:
+def _parse_ir_params(model_path: Path) -> dict[str, _ParsedPrior]:
     """Parse the ``parameters { ... }`` block of a .camdl model file.
 
-    Returns ``{base_name: (family, args, bounds)}``. Indexed params (``k_raw``)
-    are keyed by their base name; per-patch coordinates (``k_raw_Bo``) inherit
-    that prior via :func:`_resolve_ir_for_param`.
+    Returns ``{base_name: _ParsedPrior}``. Indexed params (``k_raw``) are keyed
+    by their base name; per-patch coordinates (``k_raw_Bo``) inherit that prior
+    via :func:`_resolve_ir_for_param`.
     """
-    out: dict[str, tuple[PriorFamily, dict, tuple | None]] = {}
+    out: dict[str, _ParsedPrior] = {}
     # is_file (not exists): an empty/blank model_path resolves to Path('.'),
     # which *exists* (it's the cwd) — read_text on a directory would crash.
     if not model_path.is_file():
@@ -955,11 +993,13 @@ def _parse_ir_params(model_path: Path) -> dict[str, tuple[PriorFamily, dict, tup
             bounds = (float(mm.group("lo")), float(mm.group("hi")))
         dist = mm.group("dist")
         if dist is None:
-            out[name] = (PriorFamily.FLAT, {}, bounds)
+            # No `~` at all: the parameter declares a box and nothing more,
+            # which is a flat prior on that box and not a gap in this table.
+            out[name] = _ParsedPrior(PriorFamily.FLAT, {}, bounds)
             continue
         fam_entry = _IR_FAMILY.get(dist.lower())
         if fam_entry is None:
-            out[name] = (PriorFamily.FLAT, {}, bounds)
+            out[name] = _ParsedPrior(PriorFamily.FLAT, {}, bounds, dist.lower())
             continue
         family, rename = fam_entry
         args: dict[str, float] = {}
@@ -974,13 +1014,13 @@ def _parse_ir_params(model_path: Path) -> dict[str, tuple[PriorFamily, dict, tup
                 continue
             if k in rename:
                 args[rename[k]] = fv
-        out[name] = (family, args, bounds)
+        out[name] = _ParsedPrior(family, args, bounds)
     return out
 
 
 def _resolve_ir_for_param(
-    param: str, ir: dict[str, tuple[PriorFamily, dict, tuple | None]]
-) -> tuple[PriorFamily, dict, tuple | None] | None:
+    param: str, ir: dict[str, _ParsedPrior]
+) -> _ParsedPrior | None:
     """Match an estimated coordinate to an IR entry, allowing for the
     ``<base>_<Patch>`` expansion of indexed model params (``k_raw[patch]``
     -> ``k_raw_Bo``)."""
@@ -1041,41 +1081,45 @@ def extract_priors(meta: RunMeta) -> dict[str, PriorSpec]:
     out: dict[str, PriorSpec] = {}
     for param in meta.estimated:
         source = sources.get(param, "")
-        family = args = bounds = None
+        parsed: _ParsedPrior | None = None
+        src_label = "default"
 
         # Preferred source per meta.json.
         if source == "fit_toml" and param in estimate:
-            family, args, bounds = _prior_from_toml_entry(estimate[param])
-            src_label = "fit_toml"
+            parsed, src_label = _prior_from_toml_entry(estimate[param]), "fit_toml"
         elif source == "model_ir":
             res = _resolve_ir_for_param(param, ir)
             if res is not None:
-                family, args, bounds = res
-                src_label = "model_ir"
+                parsed, src_label = res, "model_ir"
 
         # Fallbacks regardless of declared source.
-        if family is None and param in estimate:
-            family, args, bounds = _prior_from_toml_entry(estimate[param])
-            src_label = "fit_toml"
-        if family is None:
+        if parsed is None and param in estimate:
+            parsed, src_label = _prior_from_toml_entry(estimate[param]), "fit_toml"
+        if parsed is None:
             res = _resolve_ir_for_param(param, ir)
             if res is not None:
-                family, args, bounds = res
-                src_label = "model_ir"
-        if family is None:
+                parsed, src_label = res, "model_ir"
+        if parsed is None:
             # Last resort: a bounds-only flat, else unit normal.
             b = None
             if param in estimate and isinstance(estimate[param].get("bounds"), list):
                 bb = estimate[param]["bounds"]
                 if len(bb) == 2:
                     b = (float(bb[0]), float(bb[1]))
-            family, args, bounds = (
-                (PriorFamily.FLAT, {}, b) if b else (PriorFamily.NORMAL, {"mu": 0.0, "sigma": 1.0}, None)
+            parsed = (
+                _ParsedPrior(PriorFamily.FLAT, {}, b)
+                if b
+                else _ParsedPrior(PriorFamily.NORMAL, {"mu": 0.0, "sigma": 1.0}, None)
             )
             src_label = "default"
 
         out[param] = PriorSpec(
-            param=param, family=family, args=args or {}, source=src_label, bounds=bounds
+            param=param,
+            family=parsed.family,
+            args=parsed.args,
+            source=src_label,
+            bounds=parsed.bounds,
+            unsupported=parsed.unsupported,
         )
     return out
 
@@ -1083,6 +1127,19 @@ def extract_priors(meta: RunMeta) -> dict[str, PriorSpec]:
 # ----------------------------------------------------------------------------
 # Prior sampling / density (used by plots; pure given a PriorSpec)
 # ----------------------------------------------------------------------------
+
+
+def trunc_support(spec: PriorSpec) -> tuple[float, float]:
+    """The truncation points of a TruncatedNormal, in the order camdl resolves
+    them: the prior's own ``lower``/``upper`` when the fit TOML spells them,
+    otherwise the parameter's declared box. A ``.camdl`` writes
+    ``truncated_normal(mean =, sd =)`` and takes the interval from ``in [lo,
+    hi]``, so without the box fallback the density would normalise over the
+    whole line and understate itself everywhere."""
+    lo = spec.args.get("lo")
+    hi = spec.args.get("hi")
+    box = spec.bounds or (-math.inf, math.inf)
+    return (box[0] if lo is None else lo, box[1] if hi is None else hi)
 
 
 def sample_prior(spec: PriorSpec, n: int = 10_000, rng: np.random.Generator | None = None) -> np.ndarray:
@@ -1109,12 +1166,32 @@ def sample_prior(spec: PriorSpec, n: int = 10_000, rng: np.random.Generator | No
         # args are (alpha=shape, beta=rate); numpy uses scale = 1/rate.
         rate = a.get("beta", 1.0)
         x = rng.gamma(a.get("alpha", 1.0), 1.0 / rate if rate else 1.0, n)
+    elif f is PriorFamily.EXPONENTIAL:
+        # numpy parameterises by scale = 1/rate; camdl declares the rate.
+        rate = a.get("rate", 1.0)
+        x = rng.exponential(1.0 / rate if rate > 0 else 1.0, n)
     elif f is PriorFamily.UNIFORM:
         lo, hi = a.get("lo", 0.0), a.get("hi", 1.0)
         x = rng.uniform(lo, hi, n)
     elif f is PriorFamily.LOGUNIFORM:
         lo, hi = a.get("lo", 1e-9), a.get("hi", 1.0)
         x = np.exp(rng.uniform(np.log(lo), np.log(hi), n))
+    elif f is PriorFamily.TRUNCNORMAL:
+        from scipy import stats  # local import keeps ingest import-light
+
+        mu, sigma = a.get("mu", 0.0), a.get("sigma", 1.0)
+        lo, hi = trunc_support(spec)
+        if sigma <= 0 or not (hi > lo):
+            return np.empty(0)
+        # Sampling from the truncation directly, rather than drawing a normal
+        # and letting the bounds filter below do it: for a box in the tail
+        # (camdl requires lower/upper to equal the declared bounds) rejection
+        # would keep almost nothing and the moments would be built from a
+        # handful of draws.
+        x = stats.truncnorm.rvs(
+            (lo - mu) / sigma, (hi - mu) / sigma,
+            loc=mu, scale=sigma, size=n, random_state=rng,
+        )
     else:  # FLAT
         if spec.bounds is None or not all(np.isfinite(b) for b in spec.bounds):
             return np.empty(0)
@@ -1147,6 +1224,15 @@ def log_prior_density(spec: PriorSpec, x: np.ndarray) -> np.ndarray:
         elif f is PriorFamily.GAMMA:
             rate = a.get("beta", 1.0)
             lp = stats.gamma.logpdf(x, a.get("alpha", 1.0), scale=1.0 / rate if rate else 1.0)
+        elif f is PriorFamily.EXPONENTIAL:
+            rate = a.get("rate", 1.0)
+            lp = stats.expon.logpdf(x, scale=1.0 / rate if rate > 0 else 1.0)
+        elif f is PriorFamily.TRUNCNORMAL:
+            mu, sigma = a.get("mu", 0.0), a.get("sigma", 1.0)
+            lo, hi = trunc_support(spec)
+            lp = stats.truncnorm.logpdf(
+                x, (lo - mu) / sigma, (hi - mu) / sigma, loc=mu, scale=sigma
+            )
         elif f is PriorFamily.UNIFORM:
             lo, hi = a.get("lo", 0.0), a.get("hi", 1.0)
             lp = np.where((x >= lo) & (x <= hi), -math.log(hi - lo), -np.inf)

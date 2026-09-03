@@ -30,6 +30,9 @@ class ParamPosterior(BaseModel):
     reference: str | None = None
     source: str  # prior provenance: fit_toml | model_ir | default
     prior: str | None = None  # human-formatted prior, e.g. "LogNormal(μ=-0.6, σ=0.4)"
+    # The family the model declared, when this build cannot draw it and read a
+    # uniform on the bounds instead. Null on every prior that was honoured.
+    prior_unsupported: str | None = None
     bounds: tuple[float, float] | None = None
     mean: float
     sd: float
@@ -862,6 +865,9 @@ class PriorPosteriorRow(BaseModel):
     bound_pressure: float | None = None
     bound_pressure_lo: float | None = None
     bound_pressure_hi: float | None = None
+    # Non-null when the declared family was not drawable here: contraction and
+    # z on this row are relative to a uniform on the bounds, not to the prior.
+    prior_unsupported: str | None = None
 
 
 class PriorPosteriorResponse(BaseModel):
