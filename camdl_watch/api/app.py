@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -78,6 +79,18 @@ def current_store() -> Path:
 
 
 app = FastAPI(title="camdl-watch", version="2.0.0-dev")
+
+# Compress everything worth compressing. This app is read over Tailscale from a
+# phone as often as from a laptop, and it was shipping uncompressed: a 1.09 MB
+# JS bundle on a cold load, and a 113 KB run list re-fetched every 10 s, none of
+# it encoded even when the client asked. Both are JSON or text and compress by
+# roughly 3.5x and 12x respectively, so this is the difference between the app
+# being usable on a phone and not.
+#
+# 500 bytes is below one MTU's worth of payload: under that the encode costs
+# more than the transfer saves. Static files go through the same middleware, so
+# the bundle is covered without teaching StaticFiles anything.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 @app.middleware("http")
