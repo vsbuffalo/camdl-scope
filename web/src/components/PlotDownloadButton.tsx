@@ -11,22 +11,18 @@ import { cn } from '@/lib/utils'
  * visible). The button is a *sibling* of the target, never inside it, so it
  * never appears in the exported image.
  *
- * Two things about where it sits, both learned from it being unreachable on a
- * phone:
- *
  * **It is only hover-revealed where hovering exists.** Fading in on
  * `group-hover` means a touch device, which never hovers, renders it at
  * `opacity: 0` forever — present and tappable but invisible, which is worse
  * than absent. The fade is therefore gated behind `(hover: hover)` and the
  * button is plainly visible everywhere else.
  *
- * **It tracks the viewport rather than the top of the figure.** Pinned with
- * `absolute top-1`, the button on a 12x12 pair grid sits thousands of pixels
- * above the part of the plot being read, so exporting meant scrolling back to
- * the top to find it. A `sticky` row inside a full-height overlay keeps it in
- * reach for as long as any of the figure is on screen. The overlay takes no
- * layout space and passes pointer events through, so the plot underneath still
- * receives its own hover and clicks.
+ * Positioning is deliberately plain: `absolute` top-right, no overlay and no
+ * `pointer-events` juggling above it. A sticky variant that followed the
+ * viewport down a tall pair grid worked in every browser it could be tested in
+ * and failed on the one device it was written for, so the tall-figure problem
+ * stays open rather than being solved with a construct that cannot be verified
+ * here. Reaching this on a long plot still means scrolling to the top of it.
  *
  * `name` is the file's base name (`<name>.png`).
  */
@@ -40,42 +36,51 @@ export function PlotDownloadButton({
   className?: string
 }) {
   const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState(false)
 
   const onClick = async () => {
     const el = targetRef.current
     if (!el || busy) return
     setBusy(true)
+    setFailed(false)
     try {
-      await downloadNodePng(el, name)
+      // A rasterization that produces nothing used to return silently, so a tap
+      // that failed and a tap that never registered looked identical — with no
+      // way to tell which from a phone. Say which.
+      const result = await downloadNodePng(el, name)
+      if (result === 'failed') setFailed(true)
+    } catch {
+      setFailed(true)
     } finally {
       setBusy(false)
     }
   }
 
+  const label = busy ? 'saving…' : failed ? 'failed' : 'PNG'
+
   return (
-    <div className="pointer-events-none absolute inset-0 z-10">
-      <div className="sticky top-1 flex justify-end pr-1">
-        <button
-          type="button"
-          onClick={onClick}
-          disabled={busy}
-          title="Download PNG"
-          aria-label={`Download ${name} as PNG`}
-          className={cn(
-            'pointer-events-auto inline-flex items-center gap-1 rounded-sm border border-neutral-200',
-            'bg-white/85 px-1.5 py-0.5 font-mono text-[10px] text-neutral-500 backdrop-blur',
-            'transition-opacity hover:bg-neutral-50 hover:text-neutral-800',
-            // Visible by default; only a device that can hover gets the fade.
-            'opacity-100 [@media(hover:hover)]:opacity-0',
-            'focus-visible:opacity-100 group-hover/fig:opacity-100',
-            busy && 'opacity-100',
-            className,
-          )}
-        >
-          <Download className="size-3" />
-          {busy ? 'saving…' : 'PNG'}
-        </button>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      title="Download PNG"
+      aria-label={`Download ${name} as PNG`}
+      className={cn(
+        'absolute right-1 top-1 z-10 inline-flex items-center gap-1 rounded-sm border',
+        'px-1.5 py-0.5 font-mono text-[10px] backdrop-blur',
+        'transition-opacity',
+        // Visible by default; only a device that can hover gets the fade.
+        'opacity-100 [@media(hover:hover)]:opacity-0',
+        'focus-visible:opacity-100 group-hover/fig:opacity-100',
+        busy && 'opacity-100',
+        failed
+          ? 'border-red-300 bg-red-50/90 text-red-700'
+          : 'border-neutral-200 bg-white/85 text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800',
+        className,
+      )}
+    >
+      <Download className="size-3" />
+      {label}
+    </button>
   )
 }
