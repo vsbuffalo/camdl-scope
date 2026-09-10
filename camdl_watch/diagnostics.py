@@ -358,13 +358,14 @@ def _headline_bad_init(fs: list[Finding]) -> tuple[str, list[str]]:
     would show the first message and hide the count, which is the number that
     matters — half a fit's chains can be missing while the run reports done.
     Lead with how many and which."""
-    # camdl's `bad_init` payload numbers chains from 0 while its own message
-    # for the same finding says "Chain 7" and the trace directory is chain_7.
-    # Report the 1-based name so this line agrees with the dead-chain banner,
-    # the chain selector, and the directory on disk.
+    # `Finding.detail["chain_id"]` is 1-based by the time it gets here — ingest
+    # normalizes it, because camdl numbered this one field from 0 until the
+    # release that also began tagging its summaries. Report it as read, so this
+    # line agrees with the dead-chain banner, the chain selector and the
+    # directory on disk whichever camdl wrote the store.
     ids = sorted(
         {
-            int(c) + 1
+            int(c)
             for f in fs
             if (c := f.detail.get("chain_id")) is not None
         }

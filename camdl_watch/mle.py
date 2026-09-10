@@ -1,11 +1,16 @@
-"""MLE fits — point estimates from an optimization ('scout') stage, not posterior
-draws. Read-only, parallel to :mod:`camdl_watch.profiles`.
+"""MLE fits — point estimates from an optimizer, not posterior draws. Read-only,
+parallel to :mod:`camdl_watch.profiles`.
 
-A scout stage runs an optimizer (``nl-sbplx``, ``if2``, …) from N restarts and
-writes, per seed leaf::
+An optimizer (``nl-sbplx``, ``if2``, …) runs from N restarts and writes, per
+seed leaf::
 
-    <run>/NN-scout-<hash>/seed_*/mle_params.toml    # θ̂ + [provenance] (log_likelihood)
-                                /chain_results.tsv    # one row per restart's optimum
+    <segment>/<method dir>/seed_*/
+        mle_params.toml           # θ̂ + [provenance] (log_likelihood)
+        chain_evaluations.tsv     # one row per restart's optimum
+
+``mle_params.toml`` is what marks the leaf as a point estimate;
+:func:`camdl_watch.ingest._mle_seed_dir` finds it, since the method directory's
+name says nothing reliable about what it holds.
 
 There are no chains/marginals here — the fit is a single θ̂ plus the multi-start
 results, which are the MLE analogue of R̂/ESS: did the optimizer reliably find
@@ -52,25 +57,31 @@ class MleFit:
     restarts: list[MleRestart]  # every restart, best-first
 
 
-def find_mle_seed(run_dir: Path) -> Path | None:
-    """The lowest-numbered non-posterior stage seed carrying an ``mle_params.toml``
-    (a scout/optimization stage), or ``None``. Posterior stages are surfaced by
-    the trace path instead, so we skip them here."""
-    for stage in sorted(run_dir.glob("[0-9]*-*-*")):
-        if not stage.is_dir() or "-posterior-" in stage.name:
-            continue
-        for seed in sorted(stage.glob("seed_*")):
-            if (seed / "mle_params.toml").is_file():
-                return seed
-    return None
-
-
 def _finite(x: object) -> float | None:
     try:
         f = float(x)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
     return f if math.isfinite(f) else None
+
+
+#: The per-restart table, newest name first. camdl renamed
+#: ``chain_results.tsv`` to ``chain_evaluations.tsv`` and changed its columns:
+#: the NLopt-era ``status``/``n_evals`` gave way to IF2's ``se``/``ess_mean``/
+#: ``ess_min``. Both names are in stores on disk, and reading only the old one
+#: left a current MLE fit reporting zero restarts and no spread — a point
+#: estimate with nothing to say about whether the optimizer found the mode.
+_RESTART_TABLES = ("chain_evaluations.tsv", "chain_results.tsv")
+
+
+def _restart_table(seed_dir: Path) -> Path | None:
+    """The leaf's per-restart results table, whichever name it was written
+    under, or ``None`` when the optimizer wrote none."""
+    for name in _RESTART_TABLES:
+        p = seed_dir / name
+        if p.is_file():
+            return p
+    return None
 
 
 def read_mle(seed_dir: Path, estimated: list[str]) -> MleFit | None:
@@ -90,10 +101,14 @@ def read_mle(seed_dir: Path, estimated: list[str]) -> MleFit | None:
 
     restarts: list[MleRestart] = []
     spread: dict[str, tuple[float, float]] = {}
-    csv = seed_dir / "chain_results.tsv"
-    if csv.is_file():
+    csv = _restart_table(seed_dir)
+    if csv is not None:
         try:
-            df = pl.read_csv(csv, separator="\t", infer_schema_length=10000)
+            # The current table opens with a `# <version> (<date>)` stamp, which
+            # would otherwise be parsed as the header row.
+            df = pl.read_csv(
+                csv, separator="\t", comment_prefix="#", infer_schema_length=10000
+            )
         except Exception:
             df = None
         if df is not None and "loglik" in df.columns:
@@ -102,6 +117,8 @@ def read_mle(seed_dir: Path, estimated: list[str]) -> MleFit | None:
                     MleRestart(
                         chain=int(row.get("chain", 0) or 0),
                         loglik=_finite(row.get("loglik")) or FAILED_LOGLIK,
+                        # NLopt reported an exit status and an evaluation
+                        # count; IF2 reports neither, so both are optional.
                         status=str(row.get("status", "") or ""),
                         n_evals=int(row.get("n_evals", 0) or 0),
                     )

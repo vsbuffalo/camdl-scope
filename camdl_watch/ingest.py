@@ -7,22 +7,36 @@ Three jobs:
 
 Store layout (content-addressed, nested)::
 
-    <store>/<run>-<hash>/
+    <store>/<stem>-<fit hash>/         # a "segment": one problem, one config
         fit.meta.json
         fit.toml.original
-        <NN>-posterior-<hash>/
+        predictive/  observed/  quantities/     # no seed_* children
+        <method dir>/                  # pgas-<hash>, if2-<hash>, nl-sbplx-<hash>
             seed_<n>-<hash>/
+                draws.tsv              # the pooled posterior, written at the end
+                mle_params.toml        # …or a point estimate, for an optimizer
                 chain_<k>/
                     trace.tsv          # appended live by the sampler
                     trajectories/
 
+Two layouts coexist. A fit.toml used to declare a ``[stages]`` map of named
+stages run in order, and the directory was ``<NN>-<stage name>-<hash>``
+(``01-posterior-89a2e6fc``). It now declares one ``[method]`` table, and the
+directory is ``<algorithm>-<hash>`` (``pgas-79d6825a``) — no ordinal, no
+user-chosen name. camdl does not rewrite segments written before the split, so
+a store carries both and this module reads a leaf by what it contains rather
+than by what its directory is called.
+
 Edge cases handled:
-  * Multiple ``NN-posterior-*`` dirs (a resume leaves an empty stub) — pick
-    the one whose chains have non-empty trace.tsv.
-  * A re-run under new sampler settings reuses the run dir and adds a *new*
-    stage beside the finished one. Which stage we read (the one holding a
-    posterior) and which stage answers "is this run sampling right now" are
-    then different questions, so discovery resolves both.
+  * Several method dirs in one segment (a resume leaves an empty stub; a re-run
+    under changed sampler settings adds a sibling with the same algorithm
+    label) — pick the one whose chains have non-empty trace.tsv.
+  * A re-run reuses the segment and adds a *new* method dir beside the finished
+    one. Which leaf we read (the one holding a posterior) and which leaf answers
+    "is this run sampling right now" are then different questions, so discovery
+    resolves both.
+  * A point-estimate leaf beside a posterior leaf in one segment — classified by
+    artifact (``draws.tsv``/``chain_*/trace.tsv`` vs ``mle_params.toml``).
   * Torn final line — the sampler appends, so the last line may be partial.
     We read only up to the last newline and remember that byte offset.
   * MH vs PGAS column schema — normalized to a ``draw`` iteration column
@@ -50,7 +64,6 @@ import polars as pl
 
 import time
 
-from . import mle
 from .docs import ModelDocs
 from .schema import ObsSchema
 from .state import (
@@ -196,10 +209,19 @@ _SEVERITY_MAP = {
 }
 
 
-def _read_findings(seed_dir: Path) -> list[Finding]:
+def _read_findings(
+    seed_dir: Path, *, chain_ids_are_one_based: bool = False
+) -> list[Finding]:
     """Parse ``diagnostics.json`` — a list of typed, severity-tagged findings —
     or ``[]`` if absent/unreadable. Each entry's ``kind`` is an internally-tagged
-    object ``{"type": ..., <payload>}``; we split the tag from the payload."""
+    object ``{"type": ..., <payload>}``; we split the tag from the payload.
+
+    A payload ``chain_id`` is normalized to 1-based, so downstream code can
+    compare it with the ``chain_N/`` directory, the chain selector and camdl's
+    own finding message without knowing which camdl wrote the store. Older camdl
+    numbered this field from 0 while numbering everything else from 1; the
+    caller passes ``chain_ids_are_one_based=True`` once the store declares the
+    vintage that fixed it."""
     try:
         raw = json.loads((seed_dir / "diagnostics.json").read_text())
     except (OSError, json.JSONDecodeError):
@@ -217,6 +239,9 @@ def _read_findings(seed_dir: Path) -> list[Finding]:
             detail = {k: v for k, v in kind.items() if k != "type"}
         else:
             ktype, param, detail = str(kind or "unknown"), None, {}
+        cid = detail.get("chain_id")
+        if not chain_ids_are_one_based and type(cid) is int:
+            detail["chain_id"] = cid + 1
         out.append(
             Finding(
                 kind=ktype,
@@ -229,20 +254,22 @@ def _read_findings(seed_dir: Path) -> list[Finding]:
     return out
 
 
-def _read_summary_json(seed_dir: Path) -> tuple[str, dict] | None:
-    """The stage's authoritative summary (``pgas_summary.json`` /
-    ``pmmh_summary.json`` / ``nuts_summary.json``), as ``(name, payload)``, or
-    ``None``. All three share the ``rhat`` / ``ess`` / ``thin`` keys."""
-    for name in ("pgas_summary.json", "pmmh_summary.json", "nuts_summary.json"):
-        p = seed_dir / name
-        if not p.exists():
-            continue
+def _read_summary_json(seed_dir: Path) -> dict | None:
+    """The leaf's authoritative summary — ``<algorithm>_summary.json`` — or
+    ``None``. Every sampler writes the same ``rhat`` / ``ess`` / ``thin`` keys.
+
+    Matched by suffix rather than against a list of algorithm names. camdl names
+    the file after whichever sampler wrote it, and a list only covers the ones it
+    was written with: an ``mh_summary.json`` present in a store today reaches the
+    viewer with no R̂, no ESS and no findings, because ``mh`` was not on the
+    list."""
+    for p in sorted(seed_dir.glob("*_summary.json")):
         try:
             payload = json.loads(p.read_text())
         except (OSError, json.JSONDecodeError):
             continue
         if isinstance(payload, dict):
-            return name, payload
+            return payload
     return None
 
 
@@ -276,7 +303,15 @@ def read_chain_summary(seed_dir: Path) -> ChainSummary | None:
     MAP) with the typed findings list — camdl's own verdict, computed with its
     own thresholds, so the watcher and ``camdl fit summary`` agree."""
     found = _read_summary_json(seed_dir)
-    findings = _read_findings(seed_dir)
+    # camdl tags each summary with ``schema`` from the release that also made
+    # ``bad_init.chain_id`` 1-based, so the tag is the vintage marker: with it,
+    # take chain ids as written; without it, shift them into agreement with the
+    # ``chain_N/`` directories. A leaf that wrote findings but no summary is
+    # read as the older vintage, which is what every such leaf on disk is.
+    findings = _read_findings(
+        seed_dir,
+        chain_ids_are_one_based=isinstance(found, dict) and bool(found.get("schema")),
+    )
     if found is None:
         if not findings:
             return None
@@ -284,7 +319,7 @@ def read_chain_summary(seed_dir: Path) -> ChainSummary | None:
         return ChainSummary(stage="", n_chains=0, rhat={}, ess={},
                             ess_per_chain={}, findings=findings)
 
-    _name, s = found
+    s = found
 
     def _fdict(key: str) -> dict[str, float]:
         d = s.get(key) or {}
@@ -391,18 +426,99 @@ def _read_algorithm_config(seed_dir: Path) -> dict[str, str | float | int]:
         # Anything structured (a list, a nested block) has no compact rendering
         # in a one-line header strip, so it is dropped rather than stringified.
     return out
-def _stage_seed_dirs(run_dir: Path) -> list[Path]:
-    """Every ``NN-posterior-*/seed_*`` leaf of a run, in stage then seed order.
 
-    A run dir accumulates stages: a resume, a crash-relaunch, or a re-run under
-    new sampler settings each add one (camdl's content-addressed layout hashes
-    the settings into the stage name, so a changed setting is a new dir rather
-    than an overwrite)."""
-    return [
-        seed_dir
-        for pdir in sorted(run_dir.glob("[0-9]*-posterior-*"))
-        for seed_dir in sorted(pdir.glob("seed_*"))
-    ]
+
+def _method_seed_dirs(run_dir: Path) -> list[Path]:
+    """Every ``<method dir>/seed_*`` leaf of a segment, in directory then seed
+    order.
+
+    A segment accumulates method dirs: a resume, a crash-relaunch, or a re-run
+    under changed sampler settings each add one (the layout hashes the settings
+    into the directory name, so a changed setting is a new dir rather than an
+    overwrite), and a second algorithm run on the same problem lands here too.
+
+    The directory name is not parsed. A method dir is one holding ``seed_*``
+    children; the segment's other children (``predictive/``, ``observed/``,
+    ``quantities/``, ``prior_predictive/``, ``contrasts/``) hold none. That reads
+    both the current ``<algorithm>-<hash>`` and the older
+    ``<NN>-<stage name>-<hash>``, and it also surfaces stages whose user-chosen
+    name was never ``posterior`` — ``01-post-*``, ``01-fit-*``, both present in
+    real stores — which the old name glob skipped without saying so."""
+    out: list[Path] = []
+    try:
+        with os.scandir(run_dir) as entries:
+            method_dirs = sorted(
+                (e for e in entries if e.is_dir()), key=lambda e: e.name
+            )
+    except OSError:
+        return out
+    for entry in method_dirs:
+        out.extend(sorted(Path(entry.path).glob("seed_*")))
+    return out
+
+
+def _mle_seed_dir(run_dir: Path) -> Path | None:
+    """The first method leaf carrying ``mle_params.toml`` — camdl's marker for a
+    point estimate rather than a posterior — or ``None``.
+
+    Classified by that artifact, not by the directory name: an optimizer used to
+    live in a ``01-scout-<hash>`` / ``01-mle-<hash>`` stage, and now sits in an
+    ``if2-<hash>`` or ``nl-sbplx-<hash>`` method dir which may be a sibling of a
+    posterior leaf under one segment. A posterior leaf never writes
+    ``mle_params.toml``, so nothing has to be excluded by name."""
+    for seed_dir in _method_seed_dirs(run_dir):
+        if (seed_dir / "mle_params.toml").is_file():
+            return seed_dir
+    return None
+
+
+#: A pre-split method dir, ``<ordinal>-<stage name>-<hash>``. The hash is the
+#: last dash-free segment, so the stage name may itself contain dashes.
+_LEGACY_STAGE_DIR = re.compile(r"\d+-(?P<name>.+)-[^-]+")
+
+
+def _legacy_stage_name(dir_name: str) -> str:
+    """The stage name a pre-split method dir was given in ``[stages]``, or ``""``
+    for a current ``<algorithm>-<hash>`` dir, which has none."""
+    m = _LEGACY_STAGE_DIR.fullmatch(dir_name)
+    return m.group("name") if m else ""
+
+
+def _method_dir_algorithm(dir_name: str) -> str:
+    """The algorithm a current method dir is named for — ``pgas-79d6825a`` ->
+    ``pgas``, ``nl-sbplx-4fd60eb3`` -> ``nl-sbplx`` — or ``""`` for a pre-split
+    dir, whose middle is a user-chosen stage name and not an algorithm.
+
+    Derived rather than matched against the eight algorithm labels camdl has
+    today, so a sampler added upstream is named correctly here without a
+    release."""
+    body = dir_name.rsplit("-", 1)[0] if "-" in dir_name else ""
+    if not body or body.split("-", 1)[0].isdigit():
+        return ""
+    return body
+
+
+def _method_table(toml: dict, method_dir_name: str = "") -> dict:
+    """The sampler settings for a fit: the ``[method]`` table current camdl
+    writes, else the pre-split ``[stages.<name>]`` entry.
+
+    One config declares one method, so ``[method]`` needs no name to look up.
+    The ``[stages]`` map needs one, and the leaf's own directory carries it
+    (``01-scout-9f2a`` -> ``[stages.scout]``). ``posterior`` is the fallback for
+    a leaf whose directory names no declared stage — which is what the reader
+    assumed unconditionally before, and why a stage a user called ``post`` or
+    ``fit`` came through with no algorithm, no backend and no sweep target."""
+    method = toml.get("method")
+    if isinstance(method, dict) and method:
+        return method
+    stages = toml.get("stages")
+    if not isinstance(stages, dict) or not stages:
+        return {}
+    for key in (_legacy_stage_name(method_dir_name), "posterior"):
+        entry = stages.get(key) if key else None
+        if isinstance(entry, dict):
+            return entry
+    return {}
 
 
 def _live_stage_dir(run_dir: Path) -> Path | None:
@@ -418,7 +534,7 @@ def _live_stage_dir(run_dir: Path) -> Path | None:
     classifying exactly as they did before.
     """
     best: tuple[float, Path] | None = None
-    for seed_dir in _stage_seed_dirs(run_dir):
+    for seed_dir in _method_seed_dirs(run_dir):
         prog = read_progress(seed_dir)
         if prog is None or prog.state != "running" or not progress_is_fresh(prog):
             continue
@@ -510,7 +626,7 @@ def _pick_posterior_dir(
     """
     live_dir = _live_stage_dir(run_dir)
     candidates: list[tuple[bool, int, float, Path, Path, dict[int, Path]]] = []
-    for seed_dir in _stage_seed_dirs(run_dir):
+    for seed_dir in _method_seed_dirs(run_dir):
         paths = _seed_chain_paths(seed_dir)
         ne = _nonempty(paths)
         if not paths:
@@ -641,24 +757,15 @@ def _native_labels(store: Path) -> dict[str, str]:
 
 def _mle_run_meta(run_dir: Path, mle_seed: Path, labels: dict[str, str]) -> RunMeta:
     """A ``RunMeta`` for a pure MLE (optimization) run. ``posterior_dir`` is
-    reused to point at the scout seed leaf (for status/progress); ``chain_paths``
-    is empty since there are no draws. Algorithm/backend come from the fit.toml
-    stage matching the seed's parent dir (``01-scout-<hash>`` → ``[stages.scout]``)."""
+    reused to point at the optimizer's seed leaf (for status/progress);
+    ``chain_paths`` is empty since there are no draws."""
     meta = _read_meta(run_dir)
     toml = _read_fit_toml(run_dir)
     model_path = meta.get("model_path", "")
     model = Path(model_path).stem if model_path else run_dir.name
 
-    stage_dir = mle_seed.parent.name
-    stage_name = (
-        stage_dir.split("-", 1)[1].rsplit("-", 1)[0] if "-" in stage_dir else stage_dir
-    )
-    stage = (toml.get("stages", {}) or {}).get(stage_name, {}) or {}
-    algorithm = stage.get("algorithm", "unknown")
-    try:
-        backend = Backend(stage.get("backend", "unknown"))
-    except ValueError:
-        backend = Backend.UNKNOWN
+    config = _read_algorithm_config(mle_seed)
+    algorithm, backend, _settings = _resolve_method(toml, config, mle_seed.parent.name)
 
     return RunMeta(
         run_id=run_dir.name,
@@ -677,8 +784,46 @@ def _mle_run_meta(run_dir: Path, mle_seed: Path, labels: dict[str, str]) -> RunM
         docs=ModelDocs.from_meta(meta),
         schema=ObsSchema.from_meta(meta),
         fit_kind="mle",
-        algorithm_config=_read_algorithm_config(mle_seed),
+        algorithm_config=config,
     )
+
+
+def _resolve_method(
+    toml: dict, config: dict, method_dir_name: str
+) -> tuple[str, Backend, dict]:
+    """What produced this leaf, and the settings that may be attributed to it:
+    ``(algorithm, backend, settings)``.
+
+    Three sources carry this, and only two of them are about *this* leaf. The
+    leaf's own ``run.json`` records the sampler and the settings that keyed the
+    run, but camdl writes that block when the leaf finishes — it is ``null`` for
+    the run you are watching. The method directory's name carries the algorithm
+    and is there from the first sweep. The segment's ``fit.toml.original``
+    carries what neither does (``burn_in``, ``thin``) but belongs to the
+    *segment*, not the leaf: one segment holds every leaf of one problem, and
+    the file on disk is whichever config was written into it last.
+
+    So the config is read only when it declares the algorithm this leaf actually
+    ran. Re-running one file after switching its algorithm leaves a PGAS leaf and
+    an IF2 leaf side by side under a fit.toml describing only the second — and
+    reporting that file's iteration budget and burn-in against the first fit
+    would be wrong in a way nothing on screen could contradict."""
+    leaf_algorithm = (
+        str(config.get("algorithm") or "") or _method_dir_algorithm(method_dir_name)
+    )
+    declared = _method_table(toml, method_dir_name)
+    if leaf_algorithm and str(declared.get("algorithm") or "") not in (
+        "", leaf_algorithm
+    ):
+        declared = {}
+    # The leaf's own record wins wherever the two overlap.
+    settings = {**declared, **config}
+    algorithm = leaf_algorithm or str(declared.get("algorithm") or "") or "unknown"
+    try:
+        backend = Backend(str(settings.get("backend") or "unknown"))
+    except ValueError:
+        backend = Backend.UNKNOWN
+    return algorithm, backend, settings
 
 
 def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta]:
@@ -700,9 +845,9 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
             continue
         picked = _pick_posterior_dir(run_dir, include_warming=include_warming)
         if picked is None:
-            # No posterior draws — but the run may be a pure MLE (optimization
-            # 'scout' stage) fit, which has a point estimate instead of chains.
-            mle_seed = mle.find_mle_seed(run_dir)
+            # No posterior draws — but the segment may hold an optimizer leaf,
+            # which has a point estimate instead of chains.
+            mle_seed = _mle_seed_dir(run_dir)
             if mle_seed is not None:
                 out.append(_mle_run_meta(run_dir, mle_seed, labels))
             continue
@@ -714,16 +859,21 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
         model = Path(model_path).stem if model_path else run_dir.name
         estimated = list(meta.get("estimated", []))
 
-        stage = (toml.get("stages", {}) or {}).get("posterior", {}) or {}
-        algorithm = stage.get("algorithm", "unknown")
-        backend_str = stage.get("backend", "unknown")
-        try:
-            backend = Backend(backend_str)
-        except ValueError:
-            backend = Backend.UNKNOWN
-        target = stage.get("sweeps") or stage.get("iterations")
-        burn_in = stage.get("burn_in")
-        thin = stage.get("thin")
+        config = _read_algorithm_config(seed_dir)
+        algorithm, backend, settings = _resolve_method(toml, config, pdir.name)
+        # Each sampler budgets its run in its own unit: PGAS counts ``sweeps``,
+        # PMMH/MH/IF2 ``iterations``, NUTS ``samples`` drawn after ``warmup``.
+        # They are the same number to a progress bar — how many iterations this
+        # run is aiming for — so they collapse to one field.
+        target = (
+            settings.get("sweeps")
+            or settings.get("iterations")
+            or settings.get("samples")
+        )
+        burn_in = settings.get("burn_in")
+        if burn_in is None:
+            burn_in = settings.get("warmup")
+        thin = settings.get("thin")
 
         out.append(
             RunMeta(
@@ -744,7 +894,7 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
                 docs=ModelDocs.from_meta(meta),
                 schema=ObsSchema.from_meta(meta),
                 column_roles=read_column_roles(seed_dir),
-                algorithm_config=_read_algorithm_config(seed_dir),
+                algorithm_config=config,
             )
         )
     return out

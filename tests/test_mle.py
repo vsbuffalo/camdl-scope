@@ -81,3 +81,32 @@ def test_mle_endpoints(tmp_path, monkeypatch):
 
     # A posterior-only run 404s on /mle.
     assert c.get("/api/runs/nope/mle").status_code == 404
+
+
+def test_restart_table_reads_the_current_filename_and_columns(tmp_path: Path):
+    """camdl renamed ``chain_results.tsv`` to ``chain_evaluations.tsv``, gave it
+    a leading ``# <version>`` stamp, and replaced NLopt's ``status``/``n_evals``
+    with IF2's ``se``/``ess_mean``/``ess_min``. Reading only the old name left a
+    current MLE fit reporting zero restarts and no spread — a point estimate
+    with nothing to say about whether the optimizer found the mode."""
+    seed = tmp_path / "if2-802e7013" / "seed_1-06cbd6b3"
+    seed.mkdir(parents=True)
+    (seed / "mle_params.toml").write_text(
+        "beta = 0.6148\ngamma = 0.2388\n\n[provenance]\nlog_likelihood = -543.4\n"
+    )
+    (seed / "chain_evaluations.tsv").write_text(
+        "# 0.1.0+57c607c1 (2026-09-10)\n"
+        "chain\tloglik\tse\tess_mean\tess_min\tbeta\tgamma\n"
+        "1\t-543.4\t0.99\t2986.9\t12.1\t0.6148\t0.2388\n"
+        "2\t-547.2\t0.98\t3359.7\t169.4\t0.7508\t0.2762\n"
+        "3\t-1e100\t0.00\t0.0\t0.0\t9.9\t9.9\n"
+    )
+
+    fit = read_mle(seed, ["beta", "gamma"])
+    assert fit is not None
+    assert fit.n_restarts == 3 and fit.n_converged == 2
+    # The columns IF2 does not write are simply absent, not a parse failure.
+    assert fit.restarts[0].status == "" and fit.restarts[0].n_evals == 0
+    beta = next(p for p in fit.params if p.name == "beta")
+    assert beta.value == 0.6148
+    assert (beta.restart_lo, beta.restart_hi) == (0.6148, 0.7508)

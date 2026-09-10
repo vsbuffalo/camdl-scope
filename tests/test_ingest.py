@@ -552,3 +552,186 @@ def test_sampler_telemetry_is_diagnostic_without_a_declared_schema():
                            diagnostic_cols=frozenset({"custom_metric"}))
     assert declared.is_diagnostic("custom_metric")
     assert not declared.is_diagnostic("n_divergent")
+
+
+# ----------------------------------------------------------------------------
+# The [stages] -> [method] split: one algorithm per config, and a method
+# directory named for it with no ordinal and no stage name.
+# ----------------------------------------------------------------------------
+
+
+def _method_leaf(
+    run_dir: Path, method_dir: str, *, toml: str, sweeps_ran: int | None = None
+) -> Path:
+    """A finished posterior leaf under ``run_dir/method_dir``: two chains with
+    rows, ``draws.tsv``, and (when ``sweeps_ran`` is given) the leaf's own
+    ``run.json`` record of what it ran."""
+    seed = run_dir / method_dir / "seed_1-06cbd6b3"
+    for cid in (1, 2):
+        (seed / f"chain_{cid}").mkdir(parents=True)
+        (seed / f"chain_{cid}" / "trace.tsv").write_text(
+            "sweep\tbeta\n0\t0.5\n1\t0.52\n"
+        )
+    (seed / "draws.tsv").write_text("beta\n0.5\n0.52\n")
+    (run_dir / "fit.meta.json").write_text(
+        json.dumps({"model_path": "models/m.camdl", "estimated": ["beta"]})
+    )
+    (run_dir / "fit.toml.original").write_text(toml)
+    if sweeps_ran is not None:
+        (seed / "run.json").write_text(json.dumps({
+            "kind": "fit_stage",
+            "levels": [{"name": "fit"}, {"name": "method"}, {"name": "seed"}],
+            "inputs": {"algorithm": {
+                "algorithm": "pgas", "backend": "chain_binomial",
+                "chains": 2, "particles": 100, "sweeps": sweeps_ran,
+            }},
+        }))
+    return seed
+
+
+_METHOD_TOML = (
+    '[method]\nalgorithm = "pgas"\nbackend = "chain_binomial"\n'
+    "chains = 2\nsweeps = 300\nburn_in = 50\nthin = 2\n"
+)
+
+
+def test_method_layout_is_discovered(tmp_path: Path):
+    """The current layout: ``[method]`` in the config and a method directory
+    named for the algorithm. The old reader globbed ``[0-9]*-posterior-*`` and
+    matched nothing here, so a fit written by a current camdl was invisible."""
+    run = tmp_path / "fits" / "pgas_demo-62fdd451"
+    _method_leaf(run, "pgas-dd1b21fd", toml=_METHOD_TOML)
+
+    runs = ingest.discover_runs(tmp_path / "fits")
+    assert len(runs) == 1
+    m = runs[0]
+    assert m.posterior_dir.parent.name == "pgas-dd1b21fd"
+    assert (m.algorithm, m.backend.value) == ("pgas", "chain_binomial")
+    assert (m.target_sweeps, m.declared_burn_in, m.thin) == (300, 50, 2)
+
+
+def test_stage_named_anything_but_posterior_is_discovered(tmp_path: Path):
+    """A pre-split stage the user called something other than ``posterior``.
+    Both ``01-post-*`` and ``01-fit-*`` exist in real stores; the name glob
+    skipped them and said nothing, so the fit simply never appeared."""
+    run = tmp_path / "fits" / "m1-48d2340a"
+    _method_leaf(
+        run,
+        "01-post-1be97327",
+        toml=('[stages.post]\nalgorithm = "pgas"\nbackend = "chain_binomial"\n'
+              "sweeps = 900\nburn_in = 100\n"),
+    )
+
+    runs = ingest.discover_runs(tmp_path / "fits")
+    assert len(runs) == 1
+    # …and the stage's own name resolves its [stages.<name>] entry, so the
+    # settings come through instead of defaulting to "unknown".
+    assert runs[0].algorithm == "pgas"
+    assert (runs[0].target_sweeps, runs[0].declared_burn_in) == (900, 100)
+
+
+def test_config_describing_a_sibling_leaf_is_not_attributed(tmp_path: Path):
+    """``fit.toml.original`` belongs to the segment, not the leaf. Re-running one
+    config after editing it leaves several leaves under a file describing only
+    the last, and reporting its sweep budget against an earlier leaf makes a
+    finished fit read as half-done forever."""
+    run = tmp_path / "fits" / "fit_base-abde5fe0"
+    # The config on disk says 40000 sweeps; this leaf ran 20000.
+    seed = _method_leaf(
+        run, "01-posterior-dd00a557",
+        toml=('[stages.posterior]\nalgorithm = "pgas"\nbackend = "chain_binomial"\n'
+              "sweeps = 40000\nburn_in = 2000\nthin = 5\n"),
+        sweeps_ran=20000,
+    )
+    assert seed.exists()
+
+    m = ingest.discover_runs(tmp_path / "fits")[0]
+    assert m.target_sweeps == 20000, "the leaf's own record must win"
+    # Same algorithm, so the config is still attributable for what the leaf's
+    # record does not carry.
+    assert (m.declared_burn_in, m.thin) == (2000, 5)
+
+
+def test_config_for_a_different_algorithm_is_refused(tmp_path: Path):
+    """Switching a config's algorithm and re-running lands an IF2 leaf beside
+    the PGAS one under a config now describing only IF2. None of its numbers
+    describe the PGAS leaf, so none of them are reported against it."""
+    run = tmp_path / "fits" / "pgas_demo-62fdd451"
+    _method_leaf(
+        run, "pgas-969fb88c",
+        toml=('[method]\nalgorithm = "if2"\nbackend = "chain_binomial"\n'
+              "iterations = 25\ncooling = 0.7\n"),
+        sweeps_ran=120,
+    )
+
+    m = ingest.discover_runs(tmp_path / "fits")[0]
+    assert m.algorithm == "pgas"          # from the leaf, not the config
+    assert m.target_sweeps == 120         # not the config's 25 iterations
+    assert m.declared_burn_in is None     # unknown beats a sibling's number
+
+
+def test_point_estimate_leaf_is_classified_by_its_artifact(tmp_path: Path):
+    """``mle_params.toml`` marks a point estimate. The reader used to find it by
+    globbing for a non-``posterior`` stage name; a current optimizer leaf is
+    ``if2-<hash>``, which that glob missed."""
+    run = tmp_path / "fits" / "if2_demo-62fdd451"
+    seed = run / "if2-802e7013" / "seed_1-06cbd6b3"
+    seed.mkdir(parents=True)
+    (run / "fit.meta.json").write_text(
+        json.dumps({"model_path": "models/m.camdl", "estimated": ["beta"]})
+    )
+    (run / "fit.toml.original").write_text(
+        '[method]\nalgorithm = "if2"\nbackend = "chain_binomial"\niterations = 25\n'
+    )
+    (seed / "mle_params.toml").write_text(
+        "beta = 0.61\n\n[provenance]\nlog_likelihood = -543.4\nmethod = \"if2\"\n"
+    )
+
+    runs = ingest.discover_runs(tmp_path / "fits")
+    assert len(runs) == 1
+    assert runs[0].fit_kind == "mle"
+    assert runs[0].algorithm == "if2"
+    assert runs[0].posterior_dir == seed
+
+
+def test_summary_is_found_for_any_sampler(tmp_path: Path):
+    """The summary was looked up by an enumerated list of algorithm names, so a
+    sampler not on it — ``mh``, which is in stores today — reached the viewer
+    with no R̂, no ESS and no findings."""
+    seed = tmp_path / "mh-aaaa1111" / "seed_1-bbbb"
+    seed.mkdir(parents=True)
+    (seed / "mh_summary.json").write_text(json.dumps({
+        "stage": "mh", "n_chains": 2, "rhat": {"beta": 1.01},
+        "ess": {"beta": 420.0}, "thin": 3,
+    }))
+
+    cs = ingest.read_chain_summary(seed)
+    assert cs is not None
+    assert cs.rhat == {"beta": 1.01} and cs.thin == 3
+
+
+def test_bad_init_chain_ids_are_reported_one_based(tmp_path: Path):
+    """camdl numbered ``bad_init.chain_id`` from 0 while numbering the
+    ``chain_N/`` directories, its own finding message and ``progress.json`` from
+    1; the release that tags summaries with ``schema`` makes them agree. Ingest
+    normalizes both vintages to 1-based, so nothing downstream has to know
+    which camdl wrote the store."""
+    def _leaf(dirname: str, summary: dict) -> Path:
+        seed = tmp_path / dirname / "seed_1-bbbb"
+        seed.mkdir(parents=True)
+        (seed / "pgas_summary.json").write_text(json.dumps(summary))
+        (seed / "diagnostics.json").write_text(json.dumps([
+            {"kind": {"type": "bad_init", "chain_id": 6, "reason": "non-finite"},
+             "message": "Chain 7 skipped", "severity": "error"},
+        ]))
+        return seed
+
+    untagged = ingest.read_chain_summary(_leaf("pgas-old", {"n_chains": 8}))
+    assert untagged is not None
+    assert untagged.findings[0].detail["chain_id"] == 7  # 0-based on disk
+
+    tagged = ingest.read_chain_summary(
+        _leaf("pgas-new", {"schema": "camdl.fit-summary/v1", "n_chains": 8})
+    )
+    assert tagged is not None
+    assert tagged.findings[0].detail["chain_id"] == 6  # already 1-based

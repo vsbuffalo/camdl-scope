@@ -31,8 +31,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_OUT = _REPO_ROOT / "tests" / "fixtures" / "golden-store"
 
 RUN_DIR = "seir_patch_demo-a1b2c3d4"
-POSTERIOR_DIR = "01-posterior-b2c3d4e5"
-SEED_DIR = "seed_0-c3d4e5f6"
+# The layout camdl writes today: one `[method]` per config, and a method
+# directory named for the algorithm with no ordinal and no stage name. The
+# pre-split `NN-<stage name>-<hash>` shape still exists in real stores and is
+# covered by the unit tests, which build it directly.
+POSTERIOR_DIR = "pgas-b2c3d4e5"
+SEED_DIR = "seed_1-c3d4e5f6"
 
 # (param, posterior mean, sd, chain-offset) — the offset gives R̂ a touch above 1.
 PARAMS: list[tuple[str, float, float, float]] = [
@@ -140,7 +144,7 @@ FIT_META = {
 
 FIT_TOML = """\
 # Golden demo fit config (synthetic). Mirrors the shape camdl writes.
-[stages.posterior]
+[method]
 algorithm = "pgas"
 backend = "chain_binomial"
 sweeps = 600
@@ -235,6 +239,36 @@ def _summary(rng: np.random.Generator) -> dict:
     }
 
 
+#: The leaf's own record. ``levels`` names the middle level ``method`` (it was
+#: ``stage`` before the split), and ``inputs`` is populated only once the leaf
+#: finishes — it is ``null`` while a run is in flight, which is why nothing in
+#: the reader may depend on it to classify a leaf.
+RUN_JSON = {
+    "format_version": 1,
+    "kind": "fit_stage",
+    "levels": [
+        {"name": "fit", "label": "seir_patch_demo", "hash": "a1b2c3d4" * 8,
+         "schema_version": 1},
+        {"name": "method", "label": "pgas", "hash": "b2c3d4e5" * 8,
+         "schema_version": 1},
+        {"name": "seed", "label": "seed_1", "hash": "c3d4e5f6" * 8,
+         "schema_version": 1},
+    ],
+    "status": "completed",
+    "inputs": {
+        "algorithm": {"algorithm": "pgas", "backend": "chain_binomial",
+                      "chains": N_CHAINS, "particles": 256, "sweeps": N_SWEEPS},
+        "backend": "chain_binomial",
+        "method": "pgas",
+        "stage": "pgas",
+        "n_chains": N_CHAINS,
+        "seed": 1,
+        "starts": "from_prior",
+        "chain_starts_kind": "spread",
+    },
+}
+
+
 def _predictive_observed(rng: np.random.Generator, run_dir: Path) -> None:
     times = list(range(0, 20, 2))
     patches = SCHEMA["dimensions"]["patch"]["levels"]
@@ -279,6 +313,7 @@ def build(out: Path) -> Path:
     (seed_dir / "progress.json").write_text(json.dumps({
         "state": "done", "updated_at": 1_700_000_000, "pid": 0,
     }) + "\n")
+    (seed_dir / "run.json").write_text(json.dumps(RUN_JSON, indent=2) + "\n")
     (seed_dir / "pgas_summary.json").write_text(
         json.dumps(_summary(rng), indent=2) + "\n")
     _predictive_observed(rng, run_dir)
