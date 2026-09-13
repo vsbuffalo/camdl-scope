@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { writeClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
 
@@ -13,11 +13,15 @@ import { cn } from '@/lib/utils'
 export function CopyButton({
   text,
   label,
+  icon,
   className,
 }: {
   text: string
   /** What is being copied, for the tooltip and screen readers. */
   label: string
+  /** Resting glyph. Defaults to the two-sheets copy mark; pass something else
+   *  where two copy buttons sit side by side and need telling apart. */
+  icon?: ReactNode
   className?: string
 }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -60,6 +64,8 @@ export function CopyButton({
             strokeLinejoin="round"
           />
         </svg>
+      ) : icon ? (
+        icon
       ) : (
         <svg viewBox="0 0 16 16" className="size-3" aria-hidden="true">
           <rect

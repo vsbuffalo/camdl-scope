@@ -4,6 +4,8 @@ import { useRun } from '@/api/queries'
 import { CopyButton } from '@/components/CopyButton'
 import { RunSelect } from '@/components/RunSelect'
 import { StatusBadge } from '@/components/StatusBadge'
+import { Link } from '@/components/ui/icons'
+import { runLink } from '@/lib/deeplink'
 
 interface RunBarProps {
   runs: RunSummary[]
@@ -69,6 +71,14 @@ function Ticker({ run }: { run: RunSummary }) {
       <span className="inline-flex items-center gap-1">
         <span className="text-neutral-700">{run.run_id}</span>
         <CopyButton text={run.run_id} label="run id" />
+        {/* The id identifies the fit; the link *opens* it. Both are worth a
+            click, because they get pasted into different places — the id into a
+            shell or a camdl command, the link into a message. */}
+        <CopyButton
+          text={runLink(run.run_id)}
+          label="link to this fit"
+          icon={<Link className="size-3" />}
+        />
       </span>
       {sep}
       <span className="uppercase">

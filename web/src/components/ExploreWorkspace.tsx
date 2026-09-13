@@ -17,6 +17,12 @@ import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { excludedChainsKey, loadJson, saveJson, warmupKey } from '@/lib/persist'
+import {
+  readDeepLink,
+  resolveRunToken,
+  writeDeepLink,
+  type RunResolution,
+} from '@/lib/deeplink'
 import { DEFAULT_WARMUP_PCT } from '@/lib/chains'
 
 /** The single-fit tab grid — the inner navigation level of the Explore
@@ -42,12 +48,13 @@ function MleTabs({ run }: { run: RunSummary }) {
     ...(hasQuantities ? [{ value: 'quantities', label: 'Quantities' }] : []),
     { value: 'source', label: 'Model' },
   ]
-  const [tab, setTab] = useState<string>(() =>
-    loadJson('explore:mle-tab', 'estimate'),
+  const [tab, setTab] = useState<string>(
+    () => readDeepLink().tab ?? loadJson('explore:mle-tab', 'estimate'),
   )
   const activeTab = tabs.some((t) => t.value === tab) ? tab : 'estimate'
   const onTab = (v: string) => {
     saveJson('explore:mle-tab', v)
+    writeDeepLink({ tab: v })
     setTab(v)
   }
 
@@ -162,10 +169,13 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
   // Persist the active tab across reloads, but fall back to Posterior if the
   // stored tab isn't available for this run (e.g. Quantities on a run without a
   // sidecar) so we never land on an empty panel.
-  const [tab, setTab] = useState<string>(() => loadJson('explore:tab', 'posterior'))
+  const [tab, setTab] = useState<string>(
+    () => readDeepLink().tab ?? loadJson('explore:tab', 'posterior'),
+  )
   const activeTab = tabs.some((t) => t.value === tab) ? tab : 'posterior'
   const onTab = (v: string) => {
     saveJson('explore:tab', v)
+    writeDeepLink({ tab: v })
     setTab(v)
   }
 
@@ -232,9 +242,32 @@ export function ExploreWorkspace() {
   const lastViewed = useRef<string | undefined>(
     loadJson<string | undefined>('explore:run', undefined),
   )
+  // A `?run=` token, frozen at mount for the same reason as the landing choice:
+  // the URL is rewritten as the reader navigates, so re-reading it later would
+  // make the link follow them instead of the other way round.
+  const linkToken = useRef<string | undefined>(readDeepLink().run)
+  // Picking a fit by hand answers a link that could not be followed.
+  const [linkDismissed, setLinkDismissed] = useState(false)
+  const runIds = useMemo(() => runs.map((r) => r.run_id), [runs])
+  const linkResolution: RunResolution | null = useMemo(
+    () =>
+      linkToken.current && !linkDismissed && runIds.length > 0
+        ? resolveRunToken(linkToken.current, runIds)
+        : null,
+    [runIds, linkDismissed],
+  )
+  const linkFailed = linkResolution !== null && linkResolution.kind !== 'ok'
+
   const landing = useRef<string | undefined>(undefined)
   if (landing.current === undefined && runs.length > 0) {
+    // A link naming a fit is an instruction, and it outranks every default —
+    // including the newest live run, which is what a reload would otherwise
+    // open. When the token resolves to nothing the landing falls through to the
+    // usual choice, and the notice below says which link failed: quietly
+    // opening a different fit than the link named is the one outcome the reader
+    // could not detect.
     landing.current =
+      (linkResolution?.kind === 'ok' ? linkResolution.runId : undefined) ??
       runs.find((r) => r.status === 'running' || r.status === 'warming')
         ?.run_id ??
       runs.find((r) => r.run_id === lastViewed.current)?.run_id ??
@@ -258,7 +291,18 @@ export function ExploreWorkspace() {
     if (!selectedId) return
     lastViewed.current = selectedId
     saveJson('explore:run', selectedId)
-  }, [selectedId])
+    // Keep the address bar pointing at what is actually on screen, so the URL
+    // is always the link to hand over — no "share" mode to remember to enter.
+    //
+    // Except while a link could not be followed: the fallback run is loaded but
+    // deliberately not shown, and writing it here would leave the address bar
+    // naming a fit the reader is not looking at — which is the one thing this
+    // whole feature exists to prevent. The unresolved token stays in the URL, so
+    // a reload reproduces the same message rather than quietly opening the
+    // fallback.
+    if (linkFailed) return
+    writeDeepLink({ run: selectedId })
+  }, [selectedId, linkFailed])
 
   // Live monitoring: while the open run is still sampling, refresh its data (and
   // the run list, for the progress blurb) on a short interval so the tabs track
@@ -285,7 +329,10 @@ export function ExploreWorkspace() {
       <RunBar
         runs={runs}
         value={selected?.run_id}
-        onChange={setPickedId}
+        onChange={(id) => {
+          setLinkDismissed(true)
+          setPickedId(id)
+        }}
         loading={isPending}
         error={isError}
       />
@@ -303,6 +350,19 @@ export function ExploreWorkspace() {
         <MutedNotice
           title="No runs found"
           detail="This store has no discoverable fits yet."
+        />
+      ) : linkFailed ? (
+        <MutedNotice
+          title={
+            linkResolution?.kind === 'ambiguous'
+              ? `"${linkToken.current}" matches ${linkResolution.matches.length} fits`
+              : `No fit in this store matches "${linkToken.current}"`
+          }
+          detail={
+            linkResolution?.kind === 'ambiguous'
+              ? 'Add the hash to say which one — the run id under the selector is the exact form.'
+              : 'It may have been pruned, or this watcher may be serving a different store. Pick a fit above.'
+          }
         />
       ) : selected ? (
         <ResultsTabs run={selected} />

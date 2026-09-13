@@ -6,6 +6,7 @@ import { ProfileWorkspace } from '@/components/ProfileWorkspace'
 import { SimWorkspace } from '@/components/SimWorkspace'
 import { StoreWorkspace } from '@/components/StoreWorkspace'
 import { loadJson, saveJson } from '@/lib/persist'
+import { readDeepLink } from '@/lib/deeplink'
 import { DEMO } from '@/lib/demo'
 
 /**
@@ -14,8 +15,12 @@ import { DEMO } from '@/lib/demo'
  * tabs — App only switches between them. New top-level modes plug in here.
  */
 function App() {
+  // A link naming a fit outranks the workspace last left open: following one
+  // while the saved workspace is `store` would otherwise land on the store
+  // summary, with the linked fit loaded behind it and nothing on screen saying
+  // so.
   const [workspace, setWorkspace] = useState<Workspace>(() =>
-    loadJson<Workspace>('workspace', 'explore'),
+    readDeepLink().run ? 'explore' : loadJson<Workspace>('workspace', 'explore'),
   )
   const onWorkspace = (w: Workspace) => {
     saveJson('workspace', w)

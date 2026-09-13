@@ -53,6 +53,38 @@ camdl-watch --port 8800 --host 0.0.0.0 --store /path/to/results/fits
 `--store` just sets the `CAMDL_WATCH_STORE` env var, so that works too;
 `python -m camdl_watch ...` is equivalent to the `camdl-watch` command.
 
+### Linking to one fit
+
+`?run=<token>` opens that fit directly, so a fit can be handed over in a
+message, a ticket, or an agent's output instead of described:
+
+```
+http://thuja:8800/?run=fit_national_base-abde5fe0
+http://thuja:8800/?run=abde5fe0&tab=diagnostics
+```
+
+`<token>` is whatever you have to hand, since whoever writes the link rarely has
+the run id itself:
+
+| token | example |
+| --- | --- |
+| the run id | `fit_national_base-abde5fe0` |
+| the fit hash, short or full 64-hex | `abde5fe0`, `abde5fe0ecd7…33c1` |
+| a leaf path, straight from camdl's stdout | `results/fits/fit_national_base-abde5fe0/pgas-34f379b8/seed_1-06cbd6b3` |
+| a config stem, when the store holds one fit of it | `fit_national_base` |
+
+`&tab=` opens an inner tab: `posterior`, `prior`, `pair`, `traces`,
+`diagnostics`, `predictive`, `quantities`, `source` — or `estimate` /
+`restarts` for a point-estimate fit.
+
+A token matching several fits opens **none** of them and says how many it
+matched, rather than guessing: silently opening a fit other than the one the
+link named is not something the reader could detect. Add the hash to
+disambiguate.
+
+The address bar tracks whatever is on screen, so the current URL is always the
+link to hand over; the chain-link button beside the run id copies it.
+
 ## What it shows
 
 **Explore a fit** — one fit, across tabs:
