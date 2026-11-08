@@ -1335,6 +1335,25 @@ export interface components {
             params: components["schemas"]["ParamPosterior"][];
         };
         /**
+         * PredictInfo
+         * @description One ``camdl fit predict`` output of the run shown. camdl writes one per
+         *     run per option set (``predict/<run_id12>[-<opts8>]/``, gh#896), so a run
+         *     predicted twice with different ``--horizon`` or ``--stream`` has two.
+         */
+        PredictInfo: {
+            /** Key */
+            key: string;
+            /** Default */
+            default: boolean;
+            /**
+             * Options
+             * @default {}
+             */
+            options: {
+                [key: string]: unknown;
+            };
+        };
+        /**
          * PredictivePoint
          * @description One posterior-predictive ribbon point: quantiles at a time × stratum, for
          *     a given ``scenario`` × forecast ``horizon`` × ``treatment``. ``scenario`` is
@@ -1828,6 +1847,13 @@ export interface components {
             dimensions: components["schemas"]["DimensionInfo"][];
             /** Findings */
             findings: components["schemas"]["FindingGroup"][];
+            /**
+             * Predicts
+             * @default []
+             */
+            predicts: components["schemas"]["PredictInfo"][];
+            /** Predict */
+            predict?: string | null;
             /** Available Streams */
             available_streams: string[];
             /**
@@ -2439,7 +2465,10 @@ export interface operations {
     };
     get_run_api_runs__run_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which `fit predict` output of the run to read: a key from RunDetail.predicts. Omitted, the default-options predict. */
+                predict?: string | null;
+            };
             header?: never;
             path: {
                 run_id: string;
@@ -2663,7 +2692,10 @@ export interface operations {
     };
     get_predictive_api_runs__run_id__predictive__stream__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which `fit predict` output of the run to read: a key from RunDetail.predicts. Omitted, the default-options predict. */
+                predict?: string | null;
+            };
             header?: never;
             path: {
                 run_id: string;
@@ -2695,7 +2727,10 @@ export interface operations {
     };
     get_quantity_series_api_runs__run_id__quantity_series__name__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which `fit predict` output of the run to read: a key from RunDetail.predicts. Omitted, the default-options predict. */
+                predict?: string | null;
+            };
             header?: never;
             path: {
                 run_id: string;
@@ -2727,7 +2762,10 @@ export interface operations {
     };
     get_quantity_scalars_api_runs__run_id__quantity_scalars_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which `fit predict` output of the run to read: a key from RunDetail.predicts. Omitted, the default-options predict. */
+                predict?: string | null;
+            };
             header?: never;
             path: {
                 run_id: string;
@@ -2793,7 +2831,10 @@ export interface operations {
     };
     get_prior_predictive_api_runs__run_id__prior_predictive__stream__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which `fit predict` output of the run to read: a key from RunDetail.predicts. Omitted, the default-options predict. */
+                predict?: string | null;
+            };
             header?: never;
             path: {
                 run_id: string;

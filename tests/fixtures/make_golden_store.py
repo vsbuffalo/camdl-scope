@@ -12,7 +12,10 @@ around:
     levels;
   * a two-chain posterior ``trace.tsv`` so the run is discoverable and has
     draws to summarize;
-  * ``predictive``/``observed`` TSVs for the ``cases`` stream.
+  * ``predictive``/``observed`` TSVs for the ``cases`` stream, in the run's
+    default-options predict directory ``predict/<run_id12>/``, plus one
+    option-keyed predict ``predict/<run_id12>-<opts8>/`` (a longer horizon) so
+    the predict picker has two to choose between.
 
 Deterministic: a fixed RNG seed and fixed content hashes, so re-running writes
 byte-identical files. Run via ``make fixture`` or ``python -m
@@ -243,9 +246,17 @@ def _summary(rng: np.random.Generator) -> dict:
 #: ``stage`` before the split), and ``inputs`` is populated only once the leaf
 #: finishes — it is ``null`` while a run is in flight, which is why nothing in
 #: the reader may depend on it to classify a leaf.
+#: The leaf's camdl run_id; ``fit predict`` files its output under the first 12
+#: hex characters (camdl gh#896).
+RUN_ID = "d4e5f6a7" * 8
+#: The option-keyed predict's directory suffix and the options it records.
+KEYED_OPTS8 = "e5f6a7b8"
+KEYED_OPTIONS = {"horizon": 30, "n_draws": 200}
+
 RUN_JSON = {
     "format_version": 1,
     "kind": "fit_stage",
+    "run_id": RUN_ID,
     "levels": [
         {"name": "fit", "label": "seir_patch_demo", "hash": "a1b2c3d4" * 8,
          "schema_version": 1},
@@ -269,8 +280,10 @@ RUN_JSON = {
 }
 
 
-def _predictive_observed(rng: np.random.Generator, run_dir: Path) -> None:
-    times = list(range(0, 20, 2))
+def _predictive_observed(
+    rng: np.random.Generator, pdir: Path, options: dict, t_end: int
+) -> None:
+    times = list(range(0, t_end, 2))
     patches = SCHEMA["dimensions"]["patch"]["levels"]
     phead = ["time", "patch", "horizon", "treatment", "rhat_max", "ess_min",
              "n_draws", "q05", "q25", "q50", "q75", "q95"]
@@ -287,9 +300,11 @@ def _predictive_observed(rng: np.random.Generator, run_dir: Path) -> None:
             prows.append([t, patch, 0, "none", 1.01, 480, 600, *q])
             obs = max(0.0, mid + rng.normal(0.0, spread * 0.5))
             orows.append([t, patch, round(obs)])
-    # camdl writes predictive/observed at the FIT (run) dir level, not the seed.
-    _write_tsv(run_dir / "predictive" / "cases.tsv", phead, prows)
-    _write_tsv(run_dir / "observed" / "cases.tsv", ohead, orows)
+    _write_tsv(pdir / "predictive" / "cases.tsv", phead, prows)
+    _write_tsv(pdir / "observed" / "cases.tsv", ohead, orows)
+    for name in ("predictive.json", "observed.json"):
+        (pdir / name).write_text(json.dumps(
+            {"run_id": RUN_ID, "options": options}, indent=2) + "\n")
 
 
 def build(out: Path) -> Path:
@@ -316,7 +331,11 @@ def build(out: Path) -> Path:
     (seed_dir / "run.json").write_text(json.dumps(RUN_JSON, indent=2) + "\n")
     (seed_dir / "pgas_summary.json").write_text(
         json.dumps(_summary(rng), indent=2) + "\n")
-    _predictive_observed(rng, run_dir)
+    # camdl writes predict output per run, in the problem folder (gh#896).
+    predict = run_dir / "predict"
+    _predictive_observed(rng, predict / RUN_ID[:12], {}, 20)
+    _predictive_observed(
+        rng, predict / f"{RUN_ID[:12]}-{KEYED_OPTS8}", KEYED_OPTIONS, 30)
     return run_dir
 
 

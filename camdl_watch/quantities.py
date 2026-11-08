@@ -1,10 +1,13 @@
 """Generated-quantities sidecar — the ``camdl fit predict`` quantities output.
 
 A fit has these once ``camdl fit predict`` ran on a model with a ``quantities {}``
-block. They are written sibling to predictive/observed::
+block. They are written sibling to predictive/observed, inside the run's predict
+directory (``<run_dir>/predict/<run_id12>[-<opts8>]/``, found by
+:func:`camdl_watch.predictive.predict_dirs`); every reader here takes that
+directory as ``run_dir``::
 
-    <run_dir>/quantities.json         # manifest (schema camdl.quantities/v1)
-    <run_dir>/quantities/<name>.tsv   # one banded TSV per logical quantity
+    <predict dir>/quantities.json         # manifest (schema camdl.quantities/v1)
+    <predict dir>/quantities/<name>.tsv   # one banded TSV per logical quantity
 
 The MANIFEST is the authoritative index. The ``quantities/`` dir can also hold
 stale TSVs from a prior predict whose block named quantities differently (a

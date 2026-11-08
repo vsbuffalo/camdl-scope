@@ -14,7 +14,7 @@ arrive as ``None`` (not ``NaN``) because Starlette serializes with
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -237,6 +237,20 @@ class Calendar(BaseModel):
     days_per_unit: float = 1.0
 
 
+class PredictInfo(BaseModel):
+    """One ``camdl fit predict`` output of the run shown. camdl writes one per
+    run per option set (``predict/<run_id12>[-<opts8>]/``, gh#896), so a run
+    predicted twice with different ``--horizon`` or ``--stream`` has two."""
+
+    #: The directory name; pass it back as ``?predict=`` to read this one.
+    key: str
+    #: Predicted with camdl's default options.
+    default: bool
+    #: The predict options camdl recorded (``predictive.json`` ``options``),
+    #: verbatim — the key set is camdl's.
+    options: dict[str, Any] = {}
+
+
 class RunDetail(BaseModel):
     """A run's metadata, schema, and verdict — everything but the draws."""
 
@@ -260,6 +274,11 @@ class RunDetail(BaseModel):
     streams: list[StreamInfo]
     dimensions: list[DimensionInfo]
     findings: list[FindingGroup]
+    # Every predict of this run, the default-options one first; empty when it
+    # was never predicted. ``predict`` is the key of the one the fields below
+    # (streams, quantities, calendar) were read from.
+    predicts: list[PredictInfo] = []
+    predict: str | None = None
     available_streams: list[str]
     # Streams with a PRIOR predictive available. Empty unless one was generated
     # into the run dir — camdl writes none by default (camdl#711).

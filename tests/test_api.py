@@ -18,9 +18,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.fixtures.make_golden_store import (
+    KEYED_OPTIONS,
+    KEYED_OPTS8,
     PARAM_NAMES,
     POSTERIOR_DIR,
     RUN_DIR,
+    RUN_ID,
     SEED_DIR,
     build,
 )
@@ -88,6 +91,40 @@ def test_run_detail_schema_streams_and_dimensions(client):
     assert detail["estimated"] == [
         "beta", "sigma", "gamma", "rho", "k_raw_Bo", "k_raw_Bombali",
     ]
+
+
+def test_run_detail_lists_predicts_default_first(client):
+    """camdl gh#896 files predict output per run and option set; the detail
+    lists both, the default-options one first and shown."""
+    detail = client.get(f"/api/runs/{RUN_DIR}").json()
+    default, keyed = RUN_ID[:12], f"{RUN_ID[:12]}-{KEYED_OPTS8}"
+    assert [(p["key"], p["default"]) for p in detail["predicts"]] == [
+        (default, True), (keyed, False),
+    ]
+    assert detail["predicts"][1]["options"] == KEYED_OPTIONS
+    assert detail["predict"] == default
+
+
+def test_predictive_reads_the_selected_predict(client):
+    keyed = f"{RUN_ID[:12]}-{KEYED_OPTS8}"
+    times = lambda body: {p["time"] for p in body["predictive"]}  # noqa: E731
+    default = client.get(f"/api/runs/{RUN_DIR}/predictive/cases")
+    picked = client.get(f"/api/runs/{RUN_DIR}/predictive/cases", params={"predict": keyed})
+    assert default.status_code == picked.status_code == 200
+    # The fixture's keyed predict runs to t=28, the default to t=18.
+    assert max(times(default.json())) == 18
+    assert max(times(picked.json())) == 28
+    assert client.get(f"/api/runs/{RUN_DIR}", params={"predict": keyed}).json()[
+        "predict"] == keyed
+
+
+def test_unknown_predict_is_404_not_the_default(client):
+    """A key this run has no predict under — another run's, say — must not be
+    answered with this run's default, which would plot the wrong run."""
+    bogus = "000000000000"
+    assert client.get(f"/api/runs/{RUN_DIR}", params={"predict": bogus}).status_code == 404
+    r = client.get(f"/api/runs/{RUN_DIR}/predictive/cases", params={"predict": bogus})
+    assert r.status_code == 404
 
 
 def test_run_detail_404(client):

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { usePredictChoice } from '@/lib/predict-selection'
 import {
   getCompare,
   getDiagnostics,
@@ -38,8 +39,8 @@ export const qk = {
   sims: ['sims'] as const,
   simSeries: (id: string, state: string, win: string) =>
     ['sim-series', id, state, win] as const,
-  predictive: (id: string, stream: string) =>
-    ['predictive', id, stream] as const,
+  predictive: (id: string, stream: string, predict: string) =>
+    ['predictive', id, stream, predict] as const,
   traces: (id: string, warmupPct: number, chains: string) =>
     ['traces', id, warmupPct, chains] as const,
   diagnostics: (id: string, warmupPct: number, chains: string) =>
@@ -69,11 +70,44 @@ export function useRuns() {
 
 /** One run's detail (schema, findings). */
 export function useRun(runId: string | undefined) {
-  return useQuery({
-    queryKey: qk.run(runId ?? '∅'),
+  const id = runId ?? '∅'
+  const [choice] = usePredictChoice(runId)
+  // The plain detail lists the run's predicts and is read from its default
+  // one. A stored choice is applied only while that list still has it, so a
+  // predict deleted since it was picked falls back to the default rather than
+  // 404ing the whole run.
+  const base = useQuery({
+    queryKey: qk.run(id),
     queryFn: () => getRun(runId as string),
     enabled: Boolean(runId),
   })
+  const picked =
+    choice != null &&
+    choice !== base.data?.predict &&
+    (base.data?.predicts ?? []).some((p) => p.key === choice)
+      ? choice
+      : null
+  const other = useQuery({
+    queryKey: [...qk.run(id), 'predict', picked ?? ''] as const,
+    queryFn: () => getRun(runId as string, picked),
+    enabled: Boolean(runId && picked),
+    placeholderData: (prev) => prev,
+  })
+  if (!picked) return base
+  // Until the picked predict's detail arrives, show the base detail rather
+  // than nothing: only the predict-derived fields differ.
+  return other.data ? other : { ...other, data: base.data }
+}
+
+/**
+ * The key of the predict the viewer is showing for this run, once the run's
+ * detail has said which one that is. `undefined` while it is still loading, so
+ * predict-reading queries wait for it rather than fetch the default and then
+ * refetch; `null` when the run has never been predicted.
+ */
+export function useShownPredict(runId: string | undefined): string | null | undefined {
+  const run = useRun(runId)
+  return run.data ? (run.data.predict ?? null) : undefined
 }
 
 /** The doc-labelled posterior summary — overlays, labels, and numbers.
@@ -132,10 +166,11 @@ export function useDraws(
 
 /** All scalar generated quantities for a run (the quantities table). */
 export function useQuantityScalars(runId: string | undefined) {
+  const predict = useShownPredict(runId)
   return useQuery({
-    queryKey: ['quantity-scalars', runId ?? '∅'],
-    queryFn: () => getQuantityScalars(runId as string),
-    enabled: Boolean(runId),
+    queryKey: ['quantity-scalars', runId ?? '∅', predict ?? ''],
+    queryFn: () => getQuantityScalars(runId as string, predict),
+    enabled: Boolean(runId) && predict !== undefined,
     placeholderData: (prev) => prev,
   })
 }
@@ -145,10 +180,11 @@ export function useQuantitySeries(
   runId: string | undefined,
   name: string | undefined,
 ) {
+  const predict = useShownPredict(runId)
   return useQuery({
-    queryKey: ['quantity-series', runId ?? '∅', name ?? '∅'],
-    queryFn: () => getQuantitySeries(runId as string, name as string),
-    enabled: Boolean(runId && name),
+    queryKey: ['quantity-series', runId ?? '∅', name ?? '∅', predict ?? ''],
+    queryFn: () => getQuantitySeries(runId as string, name as string, predict),
+    enabled: Boolean(runId && name) && predict !== undefined,
     placeholderData: (prev) => prev,
   })
 }
@@ -220,10 +256,11 @@ export function usePredictive(
   runId: string | undefined,
   stream: string | undefined,
 ) {
+  const predict = useShownPredict(runId)
   return useQuery({
-    queryKey: qk.predictive(runId ?? '∅', stream ?? '∅'),
-    queryFn: () => getPredictive(runId as string, stream as string),
-    enabled: Boolean(runId && stream),
+    queryKey: qk.predictive(runId ?? '∅', stream ?? '∅', predict ?? ''),
+    queryFn: () => getPredictive(runId as string, stream as string, predict),
+    enabled: Boolean(runId && stream) && predict !== undefined,
     placeholderData: (prev) => prev,
   })
 }
@@ -253,10 +290,11 @@ export function usePriorPredictive(
   runId: string | undefined,
   stream: string | undefined,
 ) {
+  const predict = useShownPredict(runId)
   return useQuery({
-    queryKey: ['prior-predictive', runId ?? '∅', stream ?? '∅'] as const,
-    queryFn: () => getPriorPredictive(runId as string, stream as string),
-    enabled: Boolean(runId && stream),
+    queryKey: ['prior-predictive', runId ?? '∅', stream ?? '∅', predict ?? ''] as const,
+    queryFn: () => getPriorPredictive(runId as string, stream as string, predict),
+    enabled: Boolean(runId && stream) && predict !== undefined,
     placeholderData: (prev) => prev,
   })
 }

@@ -122,8 +122,17 @@ export function getRuns(): Promise<RunSummary[]> {
 }
 
 /** One run's metadata, schema, and verdict. */
-export function getRun(runId: string): Promise<RunDetail> {
-  return getJson<RunDetail>(`/api/runs/${encodeURIComponent(runId)}`)
+/**
+ * `?predict=<key>` (or `&predict=`) selecting one `fit predict` output of a run;
+ * empty for the run's default. Never sent in demo mode: the snapshot holds only
+ * the default predict.
+ */
+function predictParam(predict: string | null | undefined, sep: '?' | '&' = '?'): string {
+  return predict && !DEMO ? `${sep}predict=${encodeURIComponent(predict)}` : ''
+}
+
+export function getRun(runId: string, predict?: string | null): Promise<RunDetail> {
+  return getJson<RunDetail>(`/api/runs/${encodeURIComponent(runId)}${predictParam(predict)}`)
 }
 
 /**
@@ -219,10 +228,11 @@ export function getSimSeries(
 export function getPredictive(
   runId: string,
   stream: string,
+  predict?: string | null,
 ): Promise<PredictiveResponse> {
   const id = encodeURIComponent(runId)
   const s = encodeURIComponent(stream)
-  return getJson<PredictiveResponse>(`/api/runs/${id}/predictive/${s}`)
+  return getJson<PredictiveResponse>(`/api/runs/${id}/predictive/${s}${predictParam(predict)}`)
 }
 
 /**
@@ -249,10 +259,11 @@ export function getTraces(
 export function getPriorPredictive(
   runId: string,
   stream: string,
+  predict?: string | null,
 ): Promise<PredictiveResponse> {
   const id = encodeURIComponent(runId)
   return getJson<PredictiveResponse>(
-    `/api/runs/${id}/prior-predictive/${encodeURIComponent(stream)}`,
+    `/api/runs/${id}/prior-predictive/${encodeURIComponent(stream)}${predictParam(predict)}`,
   )
 }
 
@@ -281,19 +292,25 @@ export function getDiagnostics(
 /** Every scalar generated quantity for a run — the quantities table. */
 export function getQuantityScalars(
   runId: string,
+  predict?: string | null,
 ): Promise<QuantityScalarsResponse> {
   const id = encodeURIComponent(runId)
-  return getJson<QuantityScalarsResponse>(`/api/runs/${id}/quantity-scalars`)
+  return getJson<QuantityScalarsResponse>(
+    `/api/runs/${id}/quantity-scalars${predictParam(predict)}`,
+  )
 }
 
 /** One series generated quantity's banded trajectory (a ribbon). */
 export function getQuantitySeries(
   runId: string,
   name: string,
+  predict?: string | null,
 ): Promise<QuantitySeriesResponse> {
   const id = encodeURIComponent(runId)
   const n = encodeURIComponent(name)
-  return getJson<QuantitySeriesResponse>(`/api/runs/${id}/quantity-series/${n}`)
+  return getJson<QuantitySeriesResponse>(
+    `/api/runs/${id}/quantity-series/${n}${predictParam(predict)}`,
+  )
 }
 
 /**

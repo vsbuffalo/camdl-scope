@@ -83,6 +83,7 @@ from .models import (
     ProgressInfo,
     QuantityBandPoint,
     QuantityInfo,
+    PredictInfo,
     QuantityScalarRow,
     QuantityScalarsResponse,
     QuantitySeriesResponse,
@@ -498,7 +499,24 @@ def _quantity_info(q: quantities_mod.QuantityMeta, meta: RunMeta) -> QuantityInf
     )
 
 
-def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
+#: The ``?predict=`` query parameter every predict-reading endpoint takes.
+_PREDICT_Q = Query(
+    None,
+    description="Which `fit predict` output of the run to read: a key from "
+    "RunDetail.predicts. Omitted, the default-options predict.",
+)
+
+
+def _predict_dir(meta: RunMeta, key: str | None) -> Path | None:
+    """The predict directory of the run ``meta`` shows. 404 for a ``key`` this
+    run has no predict under; ``None`` (no key) for a never-predicted run."""
+    d = predictive.resolve_predict_dir(meta.run_dir, meta.leaf_run_id, key)
+    if d is None and key is not None:
+        raise HTTPException(status_code=404, detail=f"no predict {key!r} for this run")
+    return d
+
+
+def _run_detail(meta: RunMeta, rs: RunState, predict: str | None = None) -> RunDetail:
     schema = meta.schema
     streams = [
         StreamInfo(
@@ -531,8 +549,17 @@ def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
         families=[ParamFamily(base=b, members=ms) for b, ms in pg.families.items()],
         default_selection=pg.default_selection(),
     )
-    _quantity_manifest = quantities_mod.read_manifest(meta.run_dir)
-    cal = predictive.read_calendar(meta.run_dir)
+    pdirs = predictive.predict_dirs(meta.run_dir, meta.leaf_run_id)
+    pdir = _predict_dir(meta, predict)
+    shown = next((p.key for p in pdirs if p.path == pdir), None)
+    if pdir is not None:
+        _quantity_manifest = quantities_mod.read_manifest(pdir)
+        cal = predictive.read_calendar(pdir)
+        pred_streams = predictive.discover_streams(pdir)
+    else:
+        _quantity_manifest = quantities_mod.Manifest(quantities=[], scenarios=[])
+        cal = None
+        pred_streams = []
     return RunDetail(
         run_id=meta.run_id,
         label=meta.display_label,
@@ -550,9 +577,11 @@ def _run_detail(meta: RunMeta, rs: RunState) -> RunDetail:
         streams=streams,
         dimensions=dimensions,
         findings=findings,
-        # camdl writes predictive/observed at the FIT (run) dir level, not the
-        # seed dir — read there.
-        available_streams=predictive.discover_streams(meta.run_dir),
+        predicts=[
+            PredictInfo(key=p.key, default=p.default, options=p.options) for p in pdirs
+        ],
+        predict=shown,
+        available_streams=pred_streams,
         available_prior_streams=predictive.discover_prior_streams(meta.run_dir),
         available_quantities=[
             _quantity_info(q, meta) for q in _quantity_manifest.quantities
@@ -862,13 +891,13 @@ def list_runs() -> list[RunSummary]:
 
 
 @router.get("/runs/{run_id}", response_model=RunDetail)
-def get_run(run_id: str) -> RunDetail:
+def get_run(run_id: str, predict: str | None = _PREDICT_Q) -> RunDetail:
     """One run's metadata, schema, and authoritative verdict."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
-    return _run_detail(meta, build_run_state(meta))
+    return _run_detail(meta, build_run_state(meta), predict)
 
 
 @router.get("/runs/{run_id}/mle", response_model=MleResponse)
@@ -1240,17 +1269,20 @@ def _worst(
 
 
 @router.get("/runs/{run_id}/predictive/{stream}", response_model=PredictiveResponse)
-def get_predictive(run_id: str, stream: str) -> PredictiveResponse:
+def get_predictive(
+    run_id: str, stream: str, predict: str | None = _PREDICT_Q
+) -> PredictiveResponse:
     """One stream's posterior-predictive ribbons (``camdl fit predict`` output)
     plus the observed series. 404 if the stream has no predictive artifact."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
-    ps = predictive.read_predictive(meta.run_dir, stream)
+    pdir = _predict_dir(meta, predict)
+    ps = predictive.read_predictive(pdir, stream) if pdir is not None else None
     if ps is None:
         raise HTTPException(status_code=404, detail=f"no predictive artifact for stream: {stream}")
-    obs = predictive.read_observed(meta.run_dir, stream)
+    obs = predictive.read_observed(pdir, stream)
     index_dims = _stream_index_dims(meta, stream)
 
     def stratum(row: dict) -> dict[str, str]:
@@ -1325,21 +1357,26 @@ def _stratum_of(row: dict, dims: list[str]) -> dict[str, str]:
 @router.get(
     "/runs/{run_id}/quantity-series/{name}", response_model=QuantitySeriesResponse
 )
-def get_quantity_series(run_id: str, name: str) -> QuantitySeriesResponse:
+def get_quantity_series(
+    run_id: str, name: str, predict: str | None = _PREDICT_Q
+) -> QuantitySeriesResponse:
     """One series quantity's banded trajectory (a ribbon). 404 if the run has no
     such series quantity in its manifest, or its TSV is missing."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
-    manifest = quantities_mod.read_manifest(meta.run_dir)
+    pdir = _predict_dir(meta, predict)
+    if pdir is None:
+        raise HTTPException(status_code=404, detail=f"no series quantity: {name}")
+    manifest = quantities_mod.read_manifest(pdir)
     qm = next(
         (q for q in manifest.quantities if q.name == name and q.shape == "series"),
         None,
     )
     if qm is None:
         raise HTTPException(status_code=404, detail=f"no series quantity: {name}")
-    df = quantities_mod.read_quantity(meta.run_dir, name)
+    df = quantities_mod.read_quantity(pdir, name)
     if df is None:
         raise HTTPException(status_code=404, detail=f"no data for quantity: {name}")
     points = [
@@ -1359,19 +1396,25 @@ def get_quantity_series(run_id: str, name: str) -> QuantitySeriesResponse:
 
 
 @router.get("/runs/{run_id}/quantity-scalars", response_model=QuantityScalarsResponse)
-def get_quantity_scalars(run_id: str) -> QuantityScalarsResponse:
+def get_quantity_scalars(
+    run_id: str, predict: str | None = _PREDICT_Q
+) -> QuantityScalarsResponse:
     """Every scalar quantity, one row per stratum cell — the quantities table.
     Manifest-driven (stale orphan TSVs are ignored)."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
-    manifest = quantities_mod.read_manifest(meta.run_dir)
+    pdir = _predict_dir(meta, predict)
+    manifest = (
+        quantities_mod.read_manifest(pdir) if pdir is not None
+        else quantities_mod.Manifest(quantities=[], scenarios=[])
+    )
     rows: list[QuantityScalarRow] = []
     for qm in manifest.quantities:
         if qm.shape != "scalar":
             continue
-        df = quantities_mod.read_quantity(meta.run_dir, qm.name)
+        df = quantities_mod.read_quantity(pdir, qm.name)
         if df is None:
             continue
         for r in df.iter_rows(named=True):
@@ -1512,7 +1555,9 @@ def _live_findings(diag: diag_mod.Diagnostics, rs: RunState) -> list[FindingGrou
 @router.get(
     "/runs/{run_id}/prior-predictive/{stream}", response_model=PredictiveResponse
 )
-def get_prior_predictive(run_id: str, stream: str) -> PredictiveResponse:
+def get_prior_predictive(
+    run_id: str, stream: str, predict: str | None = _PREDICT_Q
+) -> PredictiveResponse:
     """One stream's PRIOR predictive ribbon plus the observed series.
 
     Returns the same shape as the posterior predictive so the two are directly
@@ -1537,10 +1582,11 @@ def get_prior_predictive(run_id: str, stream: str) -> PredictiveResponse:
         )
         for r in bands.to_dicts()
     ]
-    # The observed overlay is the point of a prior predictive CHECK, and the
-    # posterior side already wrote it into this run dir.
+    # The observed overlay is the point of a prior predictive CHECK; the
+    # posterior predict already wrote it, into the run's predict directory.
     obs_points: list[ObservedPoint] = []
-    obs = predictive.read_observed(meta.run_dir, stream)
+    pdir = _predict_dir(meta, predict)
+    obs = predictive.read_observed(pdir, stream) if pdir is not None else None
     if obs is not None:
         for r in obs.table.to_dicts():
             v = r.get("value")

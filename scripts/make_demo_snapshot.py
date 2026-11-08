@@ -240,11 +240,12 @@ def build(
     include: list[str] | None = None, all_models: bool = False,
 ) -> dict:
     os.environ["CAMDL_WATCH_STORE"] = str(store)
-    # Discovery re-runs per request and shells out to `camdl list` for native
-    # labels each time — fine for a live server, O(N) subprocesses here. The demo
-    # uses derived labels, so skip it: turns a multi-minute bake into seconds.
+    # The demo shows derived labels, not the labels a modeller gave their runs:
+    # keep each leaf's run_id (it locates the run's predict output) and drop
+    # its label.
     from camdl_watch import ingest as _ingest
-    _ingest._native_labels = lambda _store: {}
+    _read_identity = _ingest._read_leaf_identity
+    _ingest._read_leaf_identity = lambda d: _read_identity(d)._replace(label=None)
     from camdl_watch.api.app import app  # import AFTER env is set
 
     client = TestClient(app)

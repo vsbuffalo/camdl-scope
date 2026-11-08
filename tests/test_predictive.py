@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+import json
+
 from camdl_watch import predictive
 
 _PRED_HEADER = (
@@ -122,3 +124,41 @@ def test_read_calendar_ignores_calendar_without_origin(tmp_path: Path):
     assert predictive.read_calendar(tmp_path) is None
     (tmp_path / "predictive.json").write_text("not json{")
     assert predictive.read_calendar(tmp_path) is None
+
+
+def _predict(run_dir: Path, key: str, options: dict | None = None) -> Path:
+    d = run_dir / "predict" / key
+    (d / "predictive").mkdir(parents=True)
+    if options is not None:
+        (d / "predictive.json").write_text(json.dumps({"options": options}))
+    return d
+
+
+def test_predict_dirs_are_the_runs_own_default_first(tmp_path):
+    rid = "abcdef012345" + "6" * 52
+    keyed = _predict(tmp_path, "abcdef012345-11112222", {"horizon": 30})
+    default = _predict(tmp_path, "abcdef012345", {})
+    _predict(tmp_path, "999999999999")  # another run of the same problem
+    dirs = predictive.predict_dirs(tmp_path, rid)
+    assert [(d.key, d.default) for d in dirs] == [
+        ("abcdef012345", True), ("abcdef012345-11112222", False),
+    ]
+    assert dirs[1].options == {"horizon": 30}
+    assert predictive.resolve_predict_dir(tmp_path, rid) == default
+    assert predictive.resolve_predict_dir(tmp_path, rid, keyed.name) == keyed
+    # Another run's key is not found, never substituted with this run's default.
+    assert predictive.resolve_predict_dir(tmp_path, rid, "999999999999") is None
+
+
+def test_only_keyed_predict_is_shown_by_default(tmp_path):
+    rid = "abcdef012345" + "0" * 52
+    keyed = _predict(tmp_path, "abcdef012345-11112222", {"horizon": 30})
+    assert predictive.resolve_predict_dir(tmp_path, rid) == keyed
+
+
+def test_no_run_id_or_folder_level_output_reads_nothing(tmp_path):
+    # Output an older camdl wrote at the folder level names no run: not read.
+    (tmp_path / "predictive").mkdir()
+    (tmp_path / "predictive" / "cases.tsv").write_text("time\tq50\n0\t1\n")
+    assert predictive.predict_dirs(tmp_path, "abcdef012345" + "0" * 52) == []
+    assert predictive.predict_dirs(tmp_path, None) == []

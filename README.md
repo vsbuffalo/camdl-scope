@@ -122,7 +122,7 @@ root — the 'scope never generates anything.
 | Run this | Artifacts it writes | Tabs it lights up |
 |---|---|---|
 | `camdl fit run <fit.toml>` | `chain_*/trace.tsv`, `diagnostics.json`, `<stage>_summary.json`, `model.render.json`, `model.graph.json` | Posterior, Pair, Traces, Diagnostics, Model |
-| `camdl fit predict <run_dir>` | `predictive/`, `observed/`, `predictive.json`, `quantities/` | Predictive, Quantities |
+| `camdl fit predict <run>` | `predict/<run_id12>/` holding `predictive/`, `observed/`, `predictive.json`, `quantities/` (`predict/<run_id12>-<opts8>/` under non-default options) | Predictive, Quantities |
 | `camdl simulate <model> --draws prior --fit <fit.toml> --obs-dir <run_dir>/prior_predictive` | `prior_predictive/<stream>.tsv` | Prior (the predictive-check plot) |
 
 The Prior tab's prior→posterior contraction table needs no extra command — it
@@ -132,12 +132,13 @@ plot needs the third row.
 Two traps worth knowing, both of which produce a viewer that looks wrong when
 the artifact is:
 
-- **A filtered re-run overwrites, it does not merge.** `camdl fit predict
-  --stream X` (or `--horizon`) rewrites that stream's files *whole*, discarding
-  the scenarios and horizons the invocation did not run. A narrow re-check
-  against a run directory silently destroys the broad artifact beside it
-  ([camdl#627](https://github.com/vsbuffalo/camdl/issues/627)). Re-run predict
-  in full, or expect to.
+- **A predict with other options is a separate predict.** `camdl fit predict
+  --stream X` (or `--horizon`, `--n-draws`, `--scenario`, …) writes
+  `predict/<run_id12>-<opts8>/` beside the default one rather than over it. The
+  viewer shows the default-options predict and offers the others in a picker
+  labelled by their options. Predict output an older camdl wrote directly in
+  the run directory (`predictive/`, `observed/`, `quantities/`) is not read;
+  rerun `camdl fit predict`.
 - **Naming scenarios drops the fitted arm.** `camdl fit predict --scenario A
   --scenario B` emits A and B and *not* the as-fitted posterior predictive, so
   the scenarios have nothing to be compared against
@@ -145,8 +146,8 @@ the artifact is:
   horizons restores a `fitted` block via the one-step section — unless one-step
   aborts, which is how a sidecar ends up scenario-only.
 
-If a tab is empty, the fastest diagnosis is `ls` on the run directory: the
-table above says which name should be there.
+If a tab is empty, the fastest diagnosis is `ls` on the run directory (and its
+`predict/`): the table above says which name should be there.
 
 ## Develop
 

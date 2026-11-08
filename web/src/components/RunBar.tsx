@@ -5,7 +5,15 @@ import { CopyButton } from '@/components/CopyButton'
 import { RunSelect } from '@/components/RunSelect'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Link } from '@/components/ui/icons'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from '@/components/ui/select'
 import { runLink } from '@/lib/deeplink'
+import { DEMO } from '@/lib/demo'
+import { usePredictChoice } from '@/lib/predict-selection'
 
 interface RunBarProps {
   runs: RunSummary[]
@@ -176,6 +184,52 @@ function ProgressBlurb({ run }: { run: RunSummary }) {
   )
 }
 
+/** A predict's options as camdl recorded them, e.g. `horizon 30 · n draws 200`. */
+function predictLabel(p: { key: string; default: boolean; options: Record<string, unknown> }) {
+  if (p.default) return 'default options'
+  const parts = Object.entries(p.options).map(
+    ([k, v]) => `${k.replace(/_/g, ' ')} ${Array.isArray(v) ? v.join(',') : String(v)}`,
+  )
+  return parts.length ? parts.join(' · ') : p.key
+}
+
+/**
+ * Which `camdl fit predict` output of this run the Predictive, Quantities and
+ * Posterior tabs read. camdl keeps one per option set (gh#896), so a run
+ * predicted again with `--horizon 60` has two, and neither overwrote the
+ * other. Shown only when there is a choice to make.
+ */
+function PredictPicker({ runId }: { runId: string }) {
+  const run = useRun(runId)
+  const [, setChoice] = usePredictChoice(runId)
+  const predicts = run.data?.predicts ?? []
+  if (DEMO || predicts.length < 2) return null
+  const shown = predicts.find((p) => p.key === run.data?.predict) ?? predicts[0]
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 pb-1.5 font-mono text-[11px] text-neutral-500">
+      <span className="uppercase">predict</span>
+      <Select
+        value={shown.key}
+        onValueChange={(k) => setChoice(predicts.find((p) => p.key === k)?.default ? null : k)}
+      >
+        <SelectTrigger className="w-auto min-w-0 max-w-full py-0.5 text-[11px]" aria-label="Select a predict">
+          <span className="truncate">{predictLabel(shown)}</span>
+        </SelectTrigger>
+        <SelectContent>
+          {predicts.map((p) => (
+            <SelectItem key={p.key} value={p.key}>
+              <span className="font-mono text-[12px]">
+                {predictLabel(p)}
+                <span className="ml-1.5 text-neutral-400">{p.key}</span>
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
 /**
  * The Explore workspace's selector bar: the run dropdown over its identity
  * ticker (and, for a live or failed run, a progress blurb). Lives in the
@@ -191,6 +245,7 @@ export function RunBar(props: RunBarProps) {
         <RunArea {...props} />
       </div>
       {selected && <Ticker run={selected} />}
+      {selected && <PredictPicker runId={selected.run_id} />}
       {selected && <ProgressBlurb run={selected} />}
     </div>
   )

@@ -311,6 +311,12 @@ class RunMeta:
     thin: int = 1  # thinning factor from fit.toml — denominator for a live ESS/iter
     fit_toml_stem: str = ""  # config stem, e.g. natbc_dens_hierk_nc_pgas_long
     user_label: str | None = None  # camdl-native user-display label, if set
+    # camdl's run_id of the leaf shown (``posterior_dir``'s run.json). Not the
+    # same thing as ``run_id`` above, which is the problem folder's name: a
+    # folder holds every run of one problem, and ``fit predict`` output is
+    # filed under the first 12 hex of this one. None when run.json is absent or
+    # unreadable (a leaf still warming up).
+    leaf_run_id: str | None = None
     # The stage whose heartbeat is running *now*, when the run has one. A re-run
     # under new sampler settings adds a stage beside the finished one, and until
     # that stage writes rows we still read the finished stage's draws — so the

@@ -274,6 +274,7 @@ def test_label_is_the_shown_leafs_own(tmp_path: Path):
     m = {r.run_id: r for r in ingest.discover_runs(tmp_path / "fits")}["cfg-cafef00d"]
     assert m.posterior_dir.parent.name == "pgas-aaaa1111"
     assert m.user_label == "long"
+    assert m.leaf_run_id == "pgas-aaaa1111"
     assert m.display_label == "long"
 
 
@@ -283,7 +284,7 @@ def test_unlabelled_leaf_falls_back_to_derived(tmp_path: Path):
     m = ingest.discover_runs(tmp_path / "fits")[0]
     assert m.user_label is None
     assert m.display_label == m.derived_label
-    assert ingest._read_leaf_label(tmp_path / "absent") is None
+    assert ingest._read_leaf_identity(tmp_path / "absent") == (None, None)
 
 
 def test_fit_toml_stem_fallback_to_dirname(tmp_path: Path):

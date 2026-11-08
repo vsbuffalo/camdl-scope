@@ -10,7 +10,8 @@ Store layout (content-addressed, nested)::
     <store>/<stem>-<fit hash>/         # a "segment": one problem, one config
         fit.meta.json
         fit.toml.original
-        predictive/  observed/  quantities/     # no seed_* children
+        predict/<run_id12>[-<opts8>]/  # `fit predict` output, one per run (and
+                                       #   option set); no seed_* children
         <method dir>/                  # pgas-<hash>, if2-<hash>, nl-sbplx-<hash>
             seed_<n>-<hash>/
                 draws.tsv              # the pooled posterior, written at the end
@@ -436,8 +437,8 @@ def _method_seed_dirs(run_dir: Path) -> list[Path]:
     overwrite), and a second algorithm run on the same problem lands here too.
 
     The directory name is not parsed. A method dir is one holding ``seed_*``
-    children; the segment's other children (``predictive/``, ``observed/``,
-    ``quantities/``, ``prior_predictive/``, ``contrasts/``) hold none. That reads
+    children; the segment's other children (``predict/``, ``prior_predictive/``)
+    hold none. That reads
     both the current ``<algorithm>-<hash>`` and the older
     ``<NN>-<stage name>-<hash>``, and it also surfaces stages whose user-chosen
     name was never ``posterior`` — ``01-post-*``, ``01-fit-*``, both present in
@@ -685,25 +686,39 @@ def _fit_toml_stem(meta: dict, run_dir: Path) -> str:
     return name.rsplit("-", 1)[0] if "-" in name else name
 
 
-def _read_leaf_label(seed_dir: Path) -> str | None:
-    """The run's own label, from the leaf's ``run.json`` (``provenance.label``).
+class LeafIdentity(NamedTuple):
+    """What a leaf's ``run.json`` says about which run it is."""
+
+    run_id: str | None  # camdl's run_id; names the run's predict/ directory
+    label: str | None  # provenance.label, the run's own label
+
+
+def _read_leaf_identity(seed_dir: Path) -> LeafIdentity:
+    """The run's ``run_id`` and label, from the leaf's ``run.json``.
 
     camdl (gh#896, 0.2.0) gives a label to exactly one run and records it on
-    that run's leaf, set by ``fit run --label L`` or ``camdl label <run_id> L``.
-    A problem folder holding several runs can therefore hold several labels, so
-    the label is read from the leaf this entry shows, never from the folder.
+    that run's leaf (``provenance.label``), set by ``fit run --label L`` or
+    ``camdl label <run_id> L``. A problem folder holding several runs can hold
+    several labels, so the label is read from the leaf this entry shows, never
+    from the folder. Labels an older camdl kept on the folder
+    (``fit.meta.json``) are not read: camdl itself no longer reads them, and
+    showing one would name a run that ``@L`` does not resolve to.
 
-    Labels an older camdl kept on the folder (``fit.meta.json``) are not read:
-    camdl itself no longer reads them, and showing one would name a run that
-    ``@L`` does not resolve to. ``None`` when the run is unlabelled or its
-    ``run.json`` is absent or unreadable (a leaf still warming up)."""
+    Both fields are ``None`` when ``run.json`` is absent or unreadable (a leaf
+    still warming up); ``label`` is ``None`` for an unlabelled run."""
     try:
         rec = json.loads((seed_dir / "run.json").read_text())
     except (OSError, json.JSONDecodeError):
-        return None
-    prov = rec.get("provenance") if isinstance(rec, dict) else None
+        return LeafIdentity(None, None)
+    if not isinstance(rec, dict):
+        return LeafIdentity(None, None)
+    run_id = rec.get("run_id")
+    prov = rec.get("provenance")
     label = prov.get("label") if isinstance(prov, dict) else None
-    return label if isinstance(label, str) and label else None
+    return LeafIdentity(
+        run_id if isinstance(run_id, str) and run_id else None,
+        label if isinstance(label, str) and label else None,
+    )
 
 
 def _mle_run_meta(run_dir: Path, mle_seed: Path) -> RunMeta:
@@ -717,6 +732,7 @@ def _mle_run_meta(run_dir: Path, mle_seed: Path) -> RunMeta:
 
     config = _read_algorithm_config(mle_seed)
     algorithm, backend, _settings = _resolve_method(toml, config, mle_seed.parent.name)
+    ident = _read_leaf_identity(mle_seed)
 
     return RunMeta(
         run_id=run_dir.name,
@@ -731,7 +747,8 @@ def _mle_run_meta(run_dir: Path, mle_seed: Path) -> RunMeta:
         declared_burn_in=None,
         thin=1,
         fit_toml_stem=_fit_toml_stem(meta, run_dir),
-        user_label=_read_leaf_label(mle_seed),
+        user_label=ident.label,
+        leaf_run_id=ident.run_id,
         docs=ModelDocs.from_meta(meta),
         schema=ObsSchema.from_meta(meta),
         fit_kind="mle",
@@ -824,6 +841,7 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
         if burn_in is None:
             burn_in = settings.get("warmup")
         thin = settings.get("thin")
+        ident = _read_leaf_identity(seed_dir)
 
         out.append(
             RunMeta(
@@ -840,7 +858,8 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
                 declared_burn_in=int(burn_in) if burn_in is not None else None,
                 thin=int(thin) if thin is not None else 1,
                 fit_toml_stem=_fit_toml_stem(meta, run_dir),
-                user_label=_read_leaf_label(seed_dir),
+                user_label=ident.label,
+                leaf_run_id=ident.run_id,
                 docs=ModelDocs.from_meta(meta),
                 schema=ObsSchema.from_meta(meta),
                 column_roles=read_column_roles(seed_dir),
