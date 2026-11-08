@@ -253,6 +253,39 @@ def test_display_label_prefers_user_label():
         assert m.display_label == m.derived_label
 
 
+def _leaf(run: Path, method: str, label: str | None, trace: str) -> Path:
+    seed = run / method / "seed_1-06cbd6b3"
+    (seed / "chain_1").mkdir(parents=True)
+    (seed / "chain_1" / "trace.tsv").write_text(trace)
+    prov = {"argv": ["camdl", "fit", "run"]} | ({"label": label} if label else {})
+    (seed / "run.json").write_text(json.dumps({"run_id": method, "provenance": prov}))
+    return seed
+
+
+def test_label_is_the_shown_leafs_own(tmp_path: Path):
+    """camdl gh#896: a label names one run and lives on that leaf's run.json
+    (``provenance.label``). A folder with two runs holds two labels; the entry
+    shows the label of the leaf it reads, never a folder-level one."""
+    run = tmp_path / "fits" / "cfg-cafef00d"
+    _leaf(run, "pgas-aaaa1111", "long", "sweep\tR0\n0\t1.1\n1\t1.2\n")
+    _leaf(run, "pgas-bbbb2222", "short", "")  # empty sibling: not the one shown
+    # An older camdl's folder-level label: camdl no longer reads it, nor do we.
+    (run / "fit.meta.json").write_text(json.dumps({"label": "stale"}))
+    m = {r.run_id: r for r in ingest.discover_runs(tmp_path / "fits")}["cfg-cafef00d"]
+    assert m.posterior_dir.parent.name == "pgas-aaaa1111"
+    assert m.user_label == "long"
+    assert m.display_label == "long"
+
+
+def test_unlabelled_leaf_falls_back_to_derived(tmp_path: Path):
+    run = tmp_path / "fits" / "cfg-deadbeef"
+    _leaf(run, "pgas-aaaa1111", None, "sweep\tR0\n0\t1.1\n")
+    m = ingest.discover_runs(tmp_path / "fits")[0]
+    assert m.user_label is None
+    assert m.display_label == m.derived_label
+    assert ingest._read_leaf_label(tmp_path / "absent") is None
+
+
 def test_fit_toml_stem_fallback_to_dirname(tmp_path: Path):
     # When fit.meta.json lacks fit_toml_path, fall back to the dir-name prefix.
     run_dir = tmp_path / "my_cfg_stem-deadbeef"

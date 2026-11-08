@@ -53,8 +53,6 @@ import json
 import math
 import os
 import re
-import shutil
-import subprocess
 import tomllib
 from pathlib import Path
 from typing import NamedTuple
@@ -687,75 +685,28 @@ def _fit_toml_stem(meta: dict, run_dir: Path) -> str:
     return name.rsplit("-", 1)[0] if "-" in name else name
 
 
-def _native_labels(store: Path) -> dict[str, str]:
-    """Best-effort map ``{run_dir_name: user_label}`` from camdl's own index.
+def _read_leaf_label(seed_dir: Path) -> str | None:
+    """The run's own label, from the leaf's ``run.json`` (``provenance.label``).
 
-    Reads ``camdl list --kind fit --format json`` (JSONL: one object per fit).
-    Each row carries ``path`` (e.g. ``results/fits/<run>-<hash>``) and ``label``
-    (the user-display label set via ``camdl label <hash> "..."``, else null).
+    camdl (gh#896, 0.2.0) gives a label to exactly one run and records it on
+    that run's leaf, set by ``fit run --label L`` or ``camdl label <run_id> L``.
+    A problem folder holding several runs can therefore hold several labels, so
+    the label is read from the leaf this entry shows, never from the folder.
 
-    Native labeling: ``camdl label`` writes the label into the run's leaf
-    ``run.json`` and surfaces it here. We key on the run-dir *name* so it lines
-    up with our ``run_id``. Returns ``{}`` if the binary is absent or errors —
-    the caller then falls back to the derived label.
-    """
-    exe = shutil.which("camdl")
-    if exe is None:
-        return {}
-    # The store is ``<root>/fits``; camdl's --root is that parent.
-    root = store.parent if store.name == "fits" else store
+    Labels an older camdl kept on the folder (``fit.meta.json``) are not read:
+    camdl itself no longer reads them, and showing one would name a run that
+    ``@L`` does not resolve to. ``None`` when the run is unlabelled or its
+    ``run.json`` is absent or unreadable (a leaf still warming up)."""
     try:
-        proc = subprocess.run(
-            [exe, "list", "--root", str(root), "--kind", "fit",
-             "--format", "json", "--all"],
-            capture_output=True, text=True, timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return {}
-    if proc.returncode != 0:
-        return {}
-    out: dict[str, str] = {}
-
-    def _ingest_row(row: object) -> None:
-        if not isinstance(row, dict):
-            return
-        label = row.get("label")
-        path = row.get("path")
-        if label and path:
-            out[Path(str(path)).name] = str(label)
-
-    # camdl emits one JSON object per fit (JSONL), plus a trailing empty-array
-    # sentinel line. Tolerate both: a dict line is a row; a list line is a batch
-    # of rows. Also try a whole-output array parse as a last resort.
-    parsed_any = False
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        parsed_any = True
-        if isinstance(obj, list):
-            for r in obj:
-                _ingest_row(r)
-        else:
-            _ingest_row(obj)
-    if not parsed_any:
-        try:
-            obj = json.loads(proc.stdout)
-        except json.JSONDecodeError:
-            return out
-        if isinstance(obj, list):
-            for r in obj:
-                _ingest_row(r)
-        else:
-            _ingest_row(obj)
-    return out
+        rec = json.loads((seed_dir / "run.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    prov = rec.get("provenance") if isinstance(rec, dict) else None
+    label = prov.get("label") if isinstance(prov, dict) else None
+    return label if isinstance(label, str) and label else None
 
 
-def _mle_run_meta(run_dir: Path, mle_seed: Path, labels: dict[str, str]) -> RunMeta:
+def _mle_run_meta(run_dir: Path, mle_seed: Path) -> RunMeta:
     """A ``RunMeta`` for a pure MLE (optimization) run. ``posterior_dir`` is
     reused to point at the optimizer's seed leaf (for status/progress);
     ``chain_paths`` is empty since there are no draws."""
@@ -780,7 +731,7 @@ def _mle_run_meta(run_dir: Path, mle_seed: Path, labels: dict[str, str]) -> RunM
         declared_burn_in=None,
         thin=1,
         fit_toml_stem=_fit_toml_stem(meta, run_dir),
-        user_label=labels.get(run_dir.name),
+        user_label=_read_leaf_label(mle_seed),
         docs=ModelDocs.from_meta(meta),
         schema=ObsSchema.from_meta(meta),
         fit_kind="mle",
@@ -839,7 +790,6 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
     out: list[RunMeta] = []
     if not store.is_dir():
         return out
-    labels = _native_labels(store)
     for run_dir in sorted(store.iterdir()):
         if not run_dir.is_dir():
             continue
@@ -849,7 +799,7 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
             # which has a point estimate instead of chains.
             mle_seed = _mle_seed_dir(run_dir)
             if mle_seed is not None:
-                out.append(_mle_run_meta(run_dir, mle_seed, labels))
+                out.append(_mle_run_meta(run_dir, mle_seed))
             continue
         pdir, seed_dir, chain_paths, _has_draws = picked
         meta = _read_meta(run_dir)
@@ -890,7 +840,7 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
                 declared_burn_in=int(burn_in) if burn_in is not None else None,
                 thin=int(thin) if thin is not None else 1,
                 fit_toml_stem=_fit_toml_stem(meta, run_dir),
-                user_label=labels.get(run_dir.name),
+                user_label=_read_leaf_label(seed_dir),
                 docs=ModelDocs.from_meta(meta),
                 schema=ObsSchema.from_meta(meta),
                 column_roles=read_column_roles(seed_dir),
