@@ -23,7 +23,7 @@ which run it replays.
 Column layout (read straight off camdl's renderer):
 
 * ``predictive/<stream>.tsv`` —
-  ``time | <index dims…> | horizon | treatment | rhat_max | ess_min | n_draws |
+  ``time | <index dims…> | horizon | treatment | fit_rhat_max | fit_ess_min | n_draws |
   q05 | q25 | q50 | q75 | q95``. The ``<index dims…>`` columns are the stream's
   stratifying dimensions (none for a single national series); several horizons
   stack under the one header.

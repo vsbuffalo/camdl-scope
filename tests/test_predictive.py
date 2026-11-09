@@ -3,7 +3,7 @@ the reference store, so these use synthetic TSV fixtures written to a tmp dir,
 matching camdl's on-disk column layout (predict.rs renderer):
 
 * predictive/<stream>.tsv:
-    time | <dims…> | horizon | treatment | rhat_max | ess_min | n_draws | q05 … q95
+    time | <dims…> | horizon | treatment | fit_rhat_max | fit_ess_min | n_draws | q05 … q95
 * observed/<stream>.tsv:
     time | <dims…> | value
 """
@@ -19,7 +19,7 @@ import json
 from camdl_scope import predictive
 
 _PRED_HEADER = (
-    "time\tpatch\thorizon\ttreatment\trhat_max\tess_min\tn_draws"
+    "time\tpatch\thorizon\ttreatment\tfit_rhat_max\tfit_ess_min\tn_draws"
     "\tq05\tq25\tq50\tq75\tq95\n"
 )
 _PRED_ROWS = (
@@ -57,7 +57,7 @@ def test_read_predictive_columns_and_values(tmp_path: Path):
     assert df.height == 2
     # The renderer's column layout round-trips faithfully.
     assert df.columns == [
-        "time", "patch", "horizon", "treatment", "rhat_max", "ess_min",
+        "time", "patch", "horizon", "treatment", "fit_rhat_max", "fit_ess_min",
         "n_draws", "q05", "q25", "q50", "q75", "q95",
     ]
     assert df["q50"].to_list() == [2.0, 2.3]

@@ -285,7 +285,8 @@ def _predictive_observed(
 ) -> None:
     times = list(range(0, t_end, 2))
     patches = SCHEMA["dimensions"]["patch"]["levels"]
-    phead = ["time", "patch", "horizon", "treatment", "rhat_max", "ess_min",
+    # camdl.predictive/v3 columns (run spec §2.2.2), less the per-row channels.
+    phead = ["time", "patch", "horizon", "treatment", "fit_rhat_max", "fit_ess_min",
              "n_draws", "q05", "q25", "q50", "q75", "q95"]
     ohead = ["time", "patch", "value"]
     prows, orows = [], []
