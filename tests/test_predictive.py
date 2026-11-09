@@ -16,7 +16,7 @@ import pytest
 
 import json
 
-from camdl_watch import predictive
+from camdl_scope import predictive
 
 _PRED_HEADER = (
     "time\tpatch\thorizon\ttreatment\trhat_max\tess_min\tn_draws"

@@ -373,7 +373,7 @@ def read_column_roles(seed_dir: Path) -> dict[str, str]:
 
     This is the contract that lets the watcher classify a column it has never
     heard of. ``{}`` when the file is absent or predates the schema — the
-    caller then falls back to :data:`camdl_watch.state.AUX_COLUMNS`."""
+    caller then falls back to :data:`camdl_scope.state.AUX_COLUMNS`."""
     try:
         rec = json.loads((seed_dir / "run.json").read_text())
     except (OSError, json.JSONDecodeError):

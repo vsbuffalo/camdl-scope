@@ -5,6 +5,8 @@
  * guarded so a disabled/full store (private mode, quota) degrades to in-memory
  * state rather than throwing. This is view state, not data — never load-bearing.
  */
+// The viewer's name before it was camdl-scope. Kept: changing it would erase
+// every viewer's remembered runs and selections, and nobody types it.
 const PREFIX = 'camdl-watch:'
 
 export function loadJson<T>(key: string, fallback: T): T {

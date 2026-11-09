@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from camdl_watch import model_graph
-from camdl_watch.api.models import ModelGraph
+from camdl_scope import model_graph
+from camdl_scope.api.models import ModelGraph
 
 _SAMPLES_DIR = Path(__file__).resolve().parents[1] / "model-graph-samples"
 _SAMPLES = sorted(_SAMPLES_DIR.glob("*.graph.json"))

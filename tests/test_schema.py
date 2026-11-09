@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from camdl_watch.schema import DimensionSpec, ObsSchema, StreamSpec
+from camdl_scope.schema import DimensionSpec, ObsSchema, StreamSpec
 
 # Real fit.meta.json sidecars live under the camdl sibling repo; mirrors
 # test_ingest's relative store derivation.

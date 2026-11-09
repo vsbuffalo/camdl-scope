@@ -1,7 +1,7 @@
-"""camdl-watch CLI — launch the browser results viewer.
+"""camdl-scope CLI — launch the browser results viewer.
 
 A thin ``defopt`` wrapper over :func:`uvicorn.run`. ``--store`` maps to the
-``CAMDL_WATCH_STORE`` env var (the app's public override), set before the app is
+``CAMDL_SCOPE_STORE`` env var (the app's public override), set before the app is
 imported so it reads the chosen store. The server hosts the JSON API under
 ``/api`` and, when ``web/dist`` has been built, the React frontend at ``/``.
 
@@ -62,7 +62,7 @@ def main(
     host: str = "127.0.0.1",
     port: int = 8800,
 ) -> None:
-    """Launch the camdl-watch results viewer.
+    """Launch the camdl-scope results viewer.
 
     Serves the JSON API (and the built frontend, if present) for a camdl fit
     store. Bind ``--host 0.0.0.0`` to reach it from a phone over LAN / Tailscale.
@@ -73,13 +73,13 @@ def main(
     :param port: TCP port to serve on.
     """
     if store is not None:
-        os.environ["CAMDL_WATCH_STORE"] = str(store)
+        os.environ["CAMDL_SCOPE_STORE"] = str(store)
 
     # Announce BEFORE the imports: pulling in the app (arviz → xarray → pandas →
     # scipy) takes seconds, and on a cold cache tens of seconds, during which
     # uvicorn has printed nothing. Silence for that long reads as a hang, so the
     # URL goes to stdout first — uvicorn's own banner goes to stderr later.
-    resolved = Path(os.environ.get("CAMDL_WATCH_STORE", "results/fits")).resolve()
+    resolved = Path(os.environ.get("CAMDL_SCOPE_STORE", "results/fits")).resolve()
     shown_host = "localhost" if host in ("0.0.0.0", "::") else host
 
     # Refuse a held port instead of announcing one we will not get. uvicorn
@@ -89,31 +89,31 @@ def main(
     if not _port_is_free(host, port):
         holder = _port_holder(port)
         print(
-            f"camdl-watch: port {port} is already in use — refusing to start.\n"
-            + (f"camdl-watch: held by  {holder}\n" if holder else "")
-            + f"camdl-watch: pick another port (--port {port + 1}), or stop that "
+            f"camdl-scope: port {port} is already in use — refusing to start.\n"
+            + (f"camdl-scope: held by  {holder}\n" if holder else "")
+            + f"camdl-scope: pick another port (--port {port + 1}), or stop that "
             "process first.",
             file=sys.stderr,
             flush=True,
         )
         raise SystemExit(1)
     print(
-        f"camdl-watch: serving {resolved} on http://{shown_host}:{port}"
+        f"camdl-scope: serving {resolved} on http://{shown_host}:{port}"
         f"{' (all interfaces)' if host in ('0.0.0.0', '::') else ''}\n"
-        "camdl-watch: starting … (first launch takes a few seconds)",
+        "camdl-scope: starting … (first launch takes a few seconds)",
         flush=True,
     )
     if not resolved.is_dir():
         print(
-            f"camdl-watch: note — {resolved} does not exist yet; "
+            f"camdl-scope: note — {resolved} does not exist yet; "
             "run from your camdl project root or pass --store.",
             flush=True,
         )
 
-    # Import after setting the env var: the app reads CAMDL_WATCH_STORE at import.
+    # Import after setting the env var: the app reads CAMDL_SCOPE_STORE at import.
     import uvicorn
 
-    uvicorn.run("camdl_watch.api.app:app", host=host, port=port, reload=False)
+    uvicorn.run("camdl_scope.api.app:app", host=host, port=port, reload=False)
 
 
 def cli() -> None:

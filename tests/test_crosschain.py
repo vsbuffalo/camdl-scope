@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from camdl_watch import crosschain
+from camdl_scope import crosschain
 
 
 def _write(seed: Path, chains, M, **extra) -> Path:

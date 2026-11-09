@@ -10,9 +10,9 @@ import arviz as az
 import numpy as np
 import pytest
 
-from camdl_watch import diagnostics as dmod
-from camdl_watch import ingest
-from camdl_watch.state import (
+from camdl_scope import diagnostics as dmod
+from camdl_scope import ingest
+from camdl_scope.state import (
     ChainBuffer,
     ChainSummary,
     Finding,
@@ -22,9 +22,9 @@ from camdl_watch.state import (
     RunState,
     Severity,
 )
-from camdl_watch.state import Backend
+from camdl_scope.state import Backend
 
-STORE = Path(os.environ.get("CAMDL_WATCH_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
+STORE = Path(os.environ.get("CAMDL_SCOPE_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
 
 
 def _load_run(prefix: str) -> RunState:
@@ -163,7 +163,7 @@ def test_effective_rhat_ess_prefer_summary():
     rs = _run_with_summary(cs)
     diag = dmod.compute_diagnostics  # noqa: F841 (just touching the module)
     # Build a minimal Diagnostics by hand via the live path on empty chains:
-    from camdl_watch.state import Diagnostics, ParamDiag
+    from camdl_scope.state import Diagnostics, ParamDiag
     d = Diagnostics(per_param={"R0": ParamDiag(rhat=9.9, bulk_ess=5.0, tail_ess=5.0,
                                                mcse=0.1, mean=0.0, sd=1.0)},
                     acceptance=None, n_divergent=None, plateaued=None, plateau_slope=None,
@@ -219,8 +219,8 @@ def test_plateau_test_memory_is_bounded_on_long_traces():
 
     import numpy as np
 
-    from camdl_watch import diagnostics as diag_mod
-    from camdl_watch.state import ChainBuffer
+    from camdl_scope import diagnostics as diag_mod
+    from camdl_scope.state import ChainBuffer
 
     rng = np.random.default_rng(0)
     n = 30_000

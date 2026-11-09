@@ -175,7 +175,7 @@ const RUN_PAGE = 25
 
 /** Shown when /api/store 404s: the fix is a restart, not a rescan. */
 const STALE_BACKEND =
-  'The page was reloaded and picked up this tab, but the running camdl-watch process was started before the /api/store route existed — the SPA is static files read per request, while routes load once at startup. Restart camdl-watch and this tab will work.'
+  'The page was reloaded and picked up this tab, but the running camdl-scope process was started before the /api/store route existed — the SPA is static files read per request, while routes load once at startup. Restart camdl-scope and this tab will work.'
 
 export function StoreWorkspace() {
   const { data, isPending, isError, error } = useStore()
@@ -265,7 +265,7 @@ export function StoreWorkspace() {
             bordered={false}
             title={
               staleBackend
-                ? 'This camdl-watch process predates the store view'
+                ? 'This camdl-scope process predates the store view'
                 : "Couldn't reach the store API"
             }
             detail={

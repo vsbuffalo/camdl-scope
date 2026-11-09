@@ -1,6 +1,6 @@
 """API tests — the typed JSON projection of the run store.
 
-Each test points ``CAMDL_WATCH_STORE`` at a freshly-built golden store *before*
+Each test points ``CAMDL_SCOPE_STORE`` at a freshly-built golden store *before*
 importing the FastAPI app (so ``current_store()`` reads it) and drives the app
 through Starlette's ``TestClient``. The golden store carries the full
 ``docs``/``schema`` sidecar, so these assert the doc-labelled posterior contract
@@ -33,9 +33,9 @@ from tests.fixtures.make_golden_store import (
 def client(tmp_path, monkeypatch):
     """A TestClient over the app, pointed at a golden store in ``tmp_path``."""
     build(tmp_path)
-    monkeypatch.setenv("CAMDL_WATCH_STORE", str(tmp_path))
+    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(tmp_path))
     # current_store() reads the env fresh per request, so importing once is fine.
-    from camdl_watch.api.app import app
+    from camdl_scope.api.app import app
 
     return TestClient(app)
 
@@ -280,7 +280,7 @@ def test_chain_filter_unknown_ids_fall_back_to_all(client):
 
 def _chain_buffer(cid: int, n: int):
     """A minimal ChainBuffer carrying `n` sweeps (0..n-1) for _drop_warming."""
-    from camdl_watch.state import ChainBuffer
+    from camdl_scope.state import ChainBuffer
 
     buf = ChainBuffer(cid=cid, path=Path("x"))
     buf.iters = np.arange(n, dtype=np.int64)
@@ -290,7 +290,7 @@ def _chain_buffer(cid: int, n: int):
 def test_drop_warming_chains_prunes_empty_and_short():
     """Chains with fewer than the arviz floor of post-cutoff draws are dropped;
     the ready ones remain, so a rectangular array can still be built."""
-    from camdl_watch.api.routes import _drop_warming_chains
+    from camdl_scope.api.routes import _drop_warming_chains
 
     rs = SimpleNamespace(
         chains={0: _chain_buffer(0, 500), 1: _chain_buffer(1, 500),
@@ -304,7 +304,7 @@ def test_drop_warming_chains_prunes_empty_and_short():
 def test_drop_warming_chains_noop_when_none_ready():
     """If no chain clears the floor, leave the run untouched so the usual
     "no draws yet" path applies rather than blanking it."""
-    from camdl_watch.api.routes import _drop_warming_chains
+    from camdl_scope.api.routes import _drop_warming_chains
 
     rs = SimpleNamespace(chains={0: _chain_buffer(0, 2), 1: _chain_buffer(1, 2)})
     assert _drop_warming_chains(rs, cutoff=0) == 0  # 2 draws each < floor of 4
@@ -337,8 +337,8 @@ def test_zero_draw_chain_is_warming_not_dead_while_the_run_is_live(
 ):
     """The same header-only chain in a RUNNING fit is still starting up. Only
     the run's status separates the two readings."""
-    from camdl_watch.api import routes as routes_mod
-    from camdl_watch.state import Status
+    from camdl_scope.api import routes as routes_mod
+    from camdl_scope.state import Status
 
     _add_warming_chain(tmp_path)
     monkeypatch.setattr(
@@ -377,8 +377,8 @@ def test_efficiency_metrics_formula_and_thinning_invariance():
     """`_efficiency_metrics` mirrors camdl's `fit summary`: min-param ESS over
     (n_samples × thin) and over wall-clock, keyed off the slowest parameter — and
     invariant to thinning ((500 draws, thin 1) == (50 draws, thin 10))."""
-    from camdl_watch.api.routes import _efficiency_metrics
-    from camdl_watch.state import ChainSummary
+    from camdl_scope.api.routes import _efficiency_metrics
+    from camdl_scope.state import ChainSummary
 
     def summ(thin, wall):
         return ChainSummary(
@@ -468,8 +468,8 @@ def test_efficiency_is_withheld_when_an_assessed_param_has_no_ess():
     CONVERGED parameters only, so the metric IMPROVED as the fit got worse. A
     parameter with a finite R̂ and no ESS means "chains disagree" — the blank is
     the diagnosis, and the minimum is unreportable."""
-    from camdl_watch.api.routes import _efficiency_metrics, _min_ess
-    from camdl_watch.state import ChainSummary
+    from camdl_scope.api.routes import _efficiency_metrics, _min_ess
+    from camdl_scope.state import ChainSummary
 
     # tau was assessed (R̂ 2.6) and has no ESS -> unreportable, tau named.
     bad = ChainSummary(
@@ -497,8 +497,8 @@ def test_unassessed_param_does_not_withhold_but_still_bounds_the_minimum():
     """A parameter with no finite R̂ was never assessable across chains (a
     constant column, or an excluded-chains view), so it must not trigger the
     withholding — otherwise every filtered view loses its efficiency line."""
-    from camdl_watch.api.routes import _min_ess
-    from camdl_watch.state import ChainSummary
+    from camdl_scope.api.routes import _min_ess
+    from camdl_scope.state import ChainSummary
 
     s = ChainSummary(
         stage="pgas", n_chains=1,
@@ -514,7 +514,7 @@ def test_unassessed_param_does_not_withhold_but_still_bounds_the_minimum():
 def _run_with_divergences(div_by_chain: dict[int, np.ndarray], n_par: int = 60):
     """A two-param RunState whose chains carry the given per-sweep divergence
     flags. A chain whose entry is ``None`` writes no divergence column at all."""
-    from camdl_watch.state import Backend, ChainBuffer, RunMeta, RunState
+    from camdl_scope.state import Backend, ChainBuffer, RunMeta, RunState
 
     meta = RunMeta(run_id="d", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
                    model="m", algorithm="nuts", backend=Backend.ODE,
@@ -535,7 +535,7 @@ def test_divergence_flag_is_thinned_with_the_draws_it_labels():
     were sampled separately the scatter would colour the wrong points, and
     over-sampling divergences would inflate their apparent density in an
     alpha-blended cloud — the one comparison the overlay exists to support."""
-    from camdl_watch.api import routes
+    from camdl_scope.api import routes
 
     div = np.zeros(60, dtype=np.int64)
     div[::3] = 1  # every third sweep diverges -> a stable 1/3 rate under thinning
@@ -554,7 +554,7 @@ def test_divergence_flag_is_thinned_with_the_draws_it_labels():
 def test_no_divergence_column_reports_none_not_zero():
     """An MH/ODE fit writes no divergence column. Reporting 0 would claim a
     clean run; None lets the UI hide the control instead."""
-    from camdl_watch.api import routes
+    from camdl_scope.api import routes
 
     meta, rs = _run_with_divergences({1: None})
     s = routes._build_draws(meta, rs, cutoff=0, max_draws=50)
@@ -565,7 +565,7 @@ def test_no_divergence_column_reports_none_not_zero():
 def test_a_chain_that_never_logged_divergences_does_not_vote_zero():
     """One silent chain must not be filled with zeros and pooled — that would
     report 'nothing diverged here' about a chain that never said."""
-    from camdl_watch.api import routes
+    from camdl_scope.api import routes
 
     meta, rs = _run_with_divergences({1: np.ones(60, dtype=np.int64), 2: None})
     s = routes._build_draws(meta, rs, cutoff=0, max_draws=50)
@@ -578,8 +578,8 @@ def test_log_axis_follows_the_declared_prior_not_the_draws():
     stays linear however wide. Deriving from observed spread instead made the
     axis depend on the display's point cap and let a parameter silently change
     scale as a live fit accumulated draws."""
-    from camdl_watch.api import routes
-    from camdl_watch.state import (
+    from camdl_scope.api import routes
+    from camdl_scope.state import (
         Backend, ChainBuffer, PriorFamily, PriorSpec, RunMeta, RunState,
     )
 
@@ -621,9 +621,9 @@ def test_bounded_flat_prior_gets_a_normalised_uniform_band():
     diagonals with no prior at all. The density must integrate to 1: the
     diagonal compares it against posterior bars in probability-mass units, and
     log_prior_density returns an unnormalised constant for FLAT."""
-    from camdl_watch.api import routes
-    from camdl_watch.state import PriorFamily, PriorSpec, RunMeta, RunState
-    from camdl_watch.state import Backend
+    from camdl_scope.api import routes
+    from camdl_scope.state import PriorFamily, PriorSpec, RunMeta, RunState
+    from camdl_scope.state import Backend
 
     meta = RunMeta(run_id="f", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
                    model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,

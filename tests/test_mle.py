@@ -7,8 +7,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from camdl_watch import ingest
-from camdl_watch.mle import read_mle
+from camdl_scope import ingest
+from camdl_scope.mle import read_mle
 
 
 def _scout_run(store: Path, run: str = "opt-aa") -> Path:
@@ -66,8 +66,8 @@ def test_mle_endpoints(tmp_path, monkeypatch):
     store = tmp_path / "results" / "fits"
     store.mkdir(parents=True)
     _scout_run(store, "opt-bb")
-    monkeypatch.setenv("CAMDL_WATCH_STORE", str(store))
-    from camdl_watch.api.app import app
+    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(store))
+    from camdl_scope.api.app import app
 
     c = TestClient(app)
     run = c.get("/api/runs").json()[0]

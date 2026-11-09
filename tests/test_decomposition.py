@@ -12,8 +12,8 @@ import pytest
 
 from pathlib import Path
 
-from camdl_watch import decomposition
-from camdl_watch.state import ChainBuffer, RunState
+from camdl_scope import decomposition
+from camdl_scope.state import ChainBuffer, RunState
 
 
 def _run(per_chain: dict[int, dict[str, np.ndarray]], n: int = 200) -> RunState:

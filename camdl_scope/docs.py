@@ -14,7 +14,7 @@ output column name (a posterior-draw parameter, a trajectory compartment, a
 predict stream) against this index to render a human label and symbol.
 
 This module is intentionally dependency-free (stdlib only) and knows nothing of
-the run store — :mod:`camdl_watch.ingest` reads the meta and populates these;
+the run store — :mod:`camdl_scope.ingest` reads the meta and populates these;
 nothing here imports ingest, so there is no cycle.
 """
 
@@ -124,7 +124,7 @@ class ModelDocs:
 
         Exact match first; else the longest base-name prefix, mirroring the
         ``<base>_<Level>`` expansion of indexed model params that
-        :func:`camdl_watch.ingest._resolve_ir_for_param` resolves (``k_raw_Bo``
+        :func:`camdl_scope.ingest._resolve_ir_for_param` resolves (``k_raw_Bo``
         inherits the doc of ``k_raw``). Returns ``None`` if nothing matches.
         """
         exact = self.parameters.get(coord)

@@ -52,7 +52,7 @@ export function ProfileWorkspace() {
       <div className="max-w-4xl">
         <MutedNotice
           title="Backend not reachable"
-          detail="Couldn't reach /api/profiles. Is camdl-watch running and serving this store?"
+          detail="Couldn't reach /api/profiles. Is camdl-scope running and serving this store?"
         />
       </div>
     )

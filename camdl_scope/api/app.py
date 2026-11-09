@@ -1,8 +1,8 @@
 """FastAPI application: the typed seam between the Python core and the browser.
 
 Routes live under ``/api/*``; the built frontend (``web/dist``) is mounted at
-``/`` when present, so a single ``camdl-watch`` process serves both. The store
-to read is taken from ``CAMDL_WATCH_STORE`` (set by the CLI / env), else
+``/`` when present, so a single ``camdl-scope`` process serves both. The store
+to read is taken from ``CAMDL_SCOPE_STORE`` (set by the CLI / env), else
 ``results/fits`` under the working directory — matching the v1 app's contract.
 
 This module must import cleanly even while the rest of the core is mid-edit:
@@ -20,14 +20,14 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-_log = logging.getLogger("camdl_watch")
+_log = logging.getLogger("camdl_scope")
 
 # Store resolution mirrors the v1 app: an explicit override wins, else the
-# conventional ``results/fits`` under the directory camdl-watch is launched from.
+# conventional ``results/fits`` under the directory camdl-scope is launched from.
 _DEFAULT_STORE = Path.cwd() / "results" / "fits"
 
 # Where the built SPA can live, in resolution order:
-#   1. inside the installed package (``camdl_watch/_web``) — put there by the
+#   1. inside the installed package (``camdl_scope/_web``) — put there by the
 #      wheel build hook, the only layout a non-editable install ever sees;
 #   2. ``web/dist`` at the repo root — a source checkout / editable install,
 #      where `make build` writes.
@@ -39,11 +39,11 @@ _CHECKOUT_WEB = Path(__file__).resolve().parents[2] / "web" / "dist"
 
 
 def _web_candidates() -> tuple[Path, ...]:
-    """Where to look for the bundle, in order. ``CAMDL_WATCH_WEB_DIST`` is an
+    """Where to look for the bundle, in order. ``CAMDL_SCOPE_WEB_DIST`` is an
     explicit override (for a packager serving a bundle from elsewhere) and wins
     *exclusively*: falling back after an override would quietly serve a
     different UI than the one asked for, hiding the typo."""
-    override = os.environ.get("CAMDL_WATCH_WEB_DIST")
+    override = os.environ.get("CAMDL_SCOPE_WEB_DIST")
     if override:
         return (Path(override),)
     return (_PACKAGED_WEB, _CHECKOUT_WEB)
@@ -64,21 +64,21 @@ _WEB_DIST = _find_web_dist()
 #: Shown at ``/`` when there is no bundle, so the failure explains itself
 #: instead of surfacing as a bare 404 (or as "the server hangs").
 _NO_BUNDLE_MESSAGE = (
-    "The camdl-watch API is running, but this installation has no browser UI "
+    "The camdl-scope API is running, but this installation has no browser UI "
     "bundle, so there is nothing to serve here."
 )
 
 
 def current_store() -> Path:
     """The fit store to read, resolved *fresh* on every call from
-    ``CAMDL_WATCH_STORE`` (the CLI/env override), else the conventional
+    ``CAMDL_SCOPE_STORE`` (the CLI/env override), else the conventional
     ``results/fits``. Reading the env each call — rather than freezing it at
     import — lets the CLI and the tests repoint the store after this module is
     imported."""
-    return Path(os.environ.get("CAMDL_WATCH_STORE", str(_DEFAULT_STORE)))
+    return Path(os.environ.get("CAMDL_SCOPE_STORE", str(_DEFAULT_STORE)))
 
 
-app = FastAPI(title="camdl-watch", version="2.0.0-dev")
+app = FastAPI(title="camdl-scope", version="2.0.0-dev")
 
 # Compress everything worth compressing. This app is read over Tailscale from a
 # phone as often as from a laptop, and it was shipping uncompressed: a 1.09 MB
@@ -132,14 +132,14 @@ app.include_router(router)
 
 # Serve the built SPA at the root when this install has one. A missing bundle is
 # normal in `make dev` (Vite serves the frontend and proxies /api here), but for
-# an installed `camdl-watch` it means the UI is simply absent — which used to
+# an installed `camdl-scope` it means the UI is simply absent — which used to
 # surface as an unexplained 404 at `/`. Say so, in the log and at `/`.
 if _WEB_DIST is not None:
     app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="web")
 else:
     _searched = ", ".join(str(p) for p in _web_candidates())
     _log.warning(
-        "camdl-watch: no frontend bundle found (searched: %s) — serving the API "
+        "camdl-scope: no frontend bundle found (searched: %s) — serving the API "
         "only; / will explain how to get the UI.",
         _searched,
     )
@@ -149,10 +149,10 @@ else:
         """Explain the missing UI rather than 404-ing at the root."""
         return HTMLResponse(
             "<!doctype html><meta charset=utf-8>"
-            "<title>camdl-watch — API only</title>"
+            "<title>camdl-scope — API only</title>"
             '<body style="font:14px/1.6 system-ui,sans-serif;max-width:46rem;'
             'margin:3rem auto;padding:0 1rem;color:#171717">'
-            f"<h1 style='font-size:1.1rem'>camdl-watch is running (API only)</h1>"
+            f"<h1 style='font-size:1.1rem'>camdl-scope is running (API only)</h1>"
             f"<p>{_NO_BUNDLE_MESSAGE}</p>"
             "<p>The JSON API works: try "
             "<a href='/api/health'><code>/api/health</code></a>.</p>"
@@ -164,7 +164,7 @@ else:
             "uv tool install --force --editable ..</pre>"
             "<p style='color:#737373'>Installing from git builds the bundle "
             "automatically when Node.js is available; a wheel built with "
-            "<code>CAMDL_WATCH_SKIP_WEB_BUILD=1</code> has no UI by design.</p>"
+            "<code>CAMDL_SCOPE_SKIP_WEB_BUILD=1</code> has no UI by design.</p>"
             "</body>",
             status_code=503,
         )

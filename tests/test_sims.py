@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from camdl_watch import sims
+from camdl_scope import sims
 
 
 def _member(leaf: Path, params_label: str, header: str, rows: list[str], schema=None):

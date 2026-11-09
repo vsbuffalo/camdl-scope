@@ -9,8 +9,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from camdl_watch import model_render
-from camdl_watch.api.models import ModelRender
+from camdl_scope import model_render
+from camdl_scope.api.models import ModelRender
 
 _EXAMPLE = {
     "model": "sir_basic",

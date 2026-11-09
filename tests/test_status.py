@@ -4,7 +4,7 @@ trace mtime.
 A slow / write-buffered sampler (PGAS on a spatial model can take minutes per
 sweep) legitimately goes a long time between trace writes. Status must come from
 whether the process is alive, never from file staleness — otherwise a live run
-is mislabeled "done". The classification core is :func:`camdl_watch.assembly`,
+is mislabeled "done". The classification core is :func:`camdl_scope.assembly`,
 exercised here against synthetic on-disk stores the way the API assembles them.
 """
 
@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from camdl_watch import assembly, ingest
-from camdl_watch.state import RunState
+from camdl_scope import assembly, ingest
+from camdl_scope.state import RunState
 
 
 def _trace(rows: int) -> str:

@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from camdl_watch import ingest
-from camdl_watch.grouping import group_params
+from camdl_scope import ingest
+from camdl_scope.grouping import group_params
 
-STORE = Path(os.environ.get("CAMDL_WATCH_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
+STORE = Path(os.environ.get("CAMDL_SCOPE_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
 
 
 def test_hierk_families_and_scalars():
@@ -80,7 +80,7 @@ def test_fully_indexed_run_falls_back_to_all():
 
 def test_default_selection_capped():
     # A wide fit opens on a legible grid, not an N² wall (the ⚙ control adds more).
-    from camdl_watch.grouping import DEFAULT_PAIR_CAP
+    from camdl_scope.grouping import DEFAULT_PAIR_CAP
 
     params = [f"s{i}" for i in range(20)]  # 20 scalars
     dflt = group_params(params).default_selection()

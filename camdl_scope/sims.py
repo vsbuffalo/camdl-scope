@@ -14,7 +14,7 @@ per-column stratum breakdown, so a compartment *total* is obtained by summing
 the columns that share a compartment base name (see :func:`compartment_bases`).
 
 Pure readers over the tree — no dependency on the fit ingest, no cycle. Time is
-dated via the fit-level calendar (:func:`camdl_watch.predictive.read_calendar`),
+dated via the fit-level calendar (:func:`camdl_scope.predictive.read_calendar`),
 which is the same origin across a project's runs.
 """
 

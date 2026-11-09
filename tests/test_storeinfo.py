@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from camdl_watch import storeinfo
+from camdl_scope import storeinfo
 
 
 def _file(path: Path, n: int) -> None:

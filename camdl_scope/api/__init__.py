@@ -1,4 +1,4 @@
-"""camdl-watch v2 HTTP layer.
+"""camdl-scope v2 HTTP layer.
 
 A thin FastAPI projection of the Python core (ingest / state / diagnostics)
 as typed JSON, plus static hosting of the built React frontend. The browser

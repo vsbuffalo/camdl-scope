@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from camdl_watch.profiles import discover_profiles, load_profile
+from camdl_scope.profiles import discover_profiles, load_profile
 
 
 def _leaf(
@@ -180,8 +180,8 @@ def test_profile_endpoints(tmp_path, monkeypatch):
     store = tmp_path / "results" / "fits"
     store.mkdir(parents=True)
     _peak_profile(tmp_path / "results" / "profiles")
-    monkeypatch.setenv("CAMDL_WATCH_STORE", str(store))
-    from camdl_watch.api.app import app
+    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(store))
+    from camdl_scope.api.app import app
 
     c = TestClient(app)
     lst = c.get("/api/profiles").json()
@@ -204,8 +204,8 @@ def test_2d_profile_endpoint(tmp_path, monkeypatch):
     store = tmp_path / "results" / "fits"
     store.mkdir(parents=True)
     _grid_2d(tmp_path / "results" / "profiles")
-    monkeypatch.setenv("CAMDL_WATCH_STORE", str(store))
-    from camdl_watch.api.app import app
+    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(store))
+    from camdl_scope.api.app import app
 
     c = TestClient(app)
     lst = c.get("/api/profiles").json()

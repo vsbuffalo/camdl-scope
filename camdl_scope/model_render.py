@@ -7,7 +7,7 @@ and owns the layout, so no server-side math rendering is needed.
 
 This reader is a pure pass-through: it reads and JSON-parses the file (or returns
 ``None`` when absent / unreadable). Interpretation into typed fields belongs to
-the API layer's :class:`camdl_watch.api.models.ModelRender`, which validates the
+the API layer's :class:`camdl_scope.api.models.ModelRender`, which validates the
 parsed dict — additive and forward-compatible: unknown keys are ignored, missing
 optional sections default to empty.
 """

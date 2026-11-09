@@ -867,7 +867,7 @@ class ChainMixing(BaseModel):
 
 class PriorPosteriorRow(BaseModel):
     """One parameter's prior→posterior comparison — see
-    :class:`camdl_watch.diagnostics.PriorPosterior` for what each number means
+    :class:`camdl_scope.diagnostics.PriorPosterior` for what each number means
     and why a null is not a zero."""
 
     param: str

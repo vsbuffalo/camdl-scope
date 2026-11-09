@@ -3,7 +3,7 @@
 A fit has these once ``camdl fit predict`` ran on a model with a ``quantities {}``
 block. They are written sibling to predictive/observed, inside the run's predict
 directory (``<run_dir>/predict/<run_id12>[-<opts8>]/``, found by
-:func:`camdl_watch.predictive.predict_dirs`); every reader here takes that
+:func:`camdl_scope.predictive.predict_dirs`); every reader here takes that
 directory as ``run_dir``::
 
     <predict dir>/quantities.json         # manifest (schema camdl.quantities/v1)

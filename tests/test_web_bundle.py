@@ -2,7 +2,7 @@
 
 Regression cover for camdl-scope#3: every non-editable install shipped a wheel
 with no bundle *and* resolved the bundle path relative to a repo root that does
-not exist in site-packages, so `camdl-watch` answered `/` with a bare 404 — read
+not exist in site-packages, so `camdl-scope` answered `/` with a bare 404 — read
 by the user as "the server hangs". Two independent defects, so two kinds of test
 here: the packaged layout must be found, and a missing bundle must announce
 itself rather than 404.
@@ -23,8 +23,8 @@ import pytest
 
 
 def test_finds_bundle_in_the_installed_package_layout(tmp_path, monkeypatch):
-    """`camdl_watch/_web/index.html` — the only layout a wheel install has."""
-    import camdl_watch.api.app as app_mod
+    """`camdl_scope/_web/index.html` — the only layout a wheel install has."""
+    import camdl_scope.api.app as app_mod
 
     packaged = tmp_path / "_web"
     packaged.mkdir()
@@ -36,7 +36,7 @@ def test_finds_bundle_in_the_installed_package_layout(tmp_path, monkeypatch):
 
 def test_prefers_the_packaged_bundle_over_the_checkout(tmp_path, monkeypatch):
     """An installed copy must not depend on a path outside itself."""
-    import camdl_watch.api.app as app_mod
+    import camdl_scope.api.app as app_mod
 
     packaged = tmp_path / "_web"
     checkout = tmp_path / "web" / "dist"
@@ -50,7 +50,7 @@ def test_prefers_the_packaged_bundle_over_the_checkout(tmp_path, monkeypatch):
 
 def test_a_directory_without_index_html_is_not_a_bundle(tmp_path, monkeypatch):
     """An empty/partial `dist` must not count — that is how the 404 looked."""
-    import camdl_watch.api.app as app_mod
+    import camdl_scope.api.app as app_mod
 
     empty = tmp_path / "_web"
     empty.mkdir()
@@ -60,15 +60,15 @@ def test_a_directory_without_index_html_is_not_a_bundle(tmp_path, monkeypatch):
 
 
 def test_explicit_override_wins_and_does_not_fall_back(tmp_path, monkeypatch):
-    """`CAMDL_WATCH_WEB_DIST` is exclusive: a bad override must fail visibly
+    """`CAMDL_SCOPE_WEB_DIST` is exclusive: a bad override must fail visibly
     rather than silently serving the bundle it was meant to replace."""
-    import camdl_watch.api.app as app_mod
+    import camdl_scope.api.app as app_mod
 
     real = tmp_path / "_web"
     real.mkdir()
     (real / "index.html").write_text("<!doctype html>")
     monkeypatch.setattr(app_mod, "_PACKAGED_WEB", real)
-    monkeypatch.setenv("CAMDL_WATCH_WEB_DIST", str(tmp_path / "typo"))
+    monkeypatch.setenv("CAMDL_SCOPE_WEB_DIST", str(tmp_path / "typo"))
     assert app_mod._find_web_dist() is None
 
 
@@ -76,10 +76,10 @@ def test_missing_bundle_explains_itself_at_root(tmp_path, monkeypatch):
     """No bundle: `/` must say so (503 + guidance), never a bare 404."""
     from fastapi.testclient import TestClient
 
-    import camdl_watch.api.app as app_mod
+    import camdl_scope.api.app as app_mod
 
-    monkeypatch.setenv("CAMDL_WATCH_STORE", str(tmp_path))
-    monkeypatch.setenv("CAMDL_WATCH_WEB_DIST", str(tmp_path / "no-bundle-here"))
+    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(tmp_path))
+    monkeypatch.setenv("CAMDL_SCOPE_WEB_DIST", str(tmp_path / "no-bundle-here"))
     # The static mount is decided at import, so the module must be re-executed;
     # the env override survives that (a patched global would not).
     fresh = importlib.reload(app_mod)
@@ -92,7 +92,7 @@ def test_missing_bundle_explains_itself_at_root(tmp_path, monkeypatch):
         # The API stays available — that distinction is the whole point.
         assert client.get("/api/health").status_code == 200
     finally:
-        monkeypatch.delenv("CAMDL_WATCH_WEB_DIST", raising=False)
+        monkeypatch.delenv("CAMDL_SCOPE_WEB_DIST", raising=False)
         importlib.reload(app_mod)  # leave the module as the suite expects
 
 
@@ -101,7 +101,7 @@ def test_build_hook_packages_the_bundle_into_the_wheel():
     pyproject must register it — either half missing ships a UI-less wheel."""
     root = Path(__file__).resolve().parents[1]
     hook_src = (root / "hatch_build.py").read_text()
-    assert 'PACKAGED_WEB = "camdl_watch/_web"' in hook_src
+    assert 'PACKAGED_WEB = "camdl_scope/_web"' in hook_src
     assert 'build_data["force_include"]' in hook_src
 
     pyproject = (root / "pyproject.toml").read_text()
@@ -113,7 +113,7 @@ def test_build_hook_packages_the_bundle_into_the_wheel():
 def test_cli_announces_the_url_before_importing_the_app(capsys, tmp_path, host):
     """The URL must reach stdout before the multi-second import, or the wait
     reads as a hang (camdl-scope#3). Patch uvicorn so nothing actually binds."""
-    from camdl_watch import cli
+    from camdl_scope import cli
 
     calls = {}
     monkey = SimpleNamespace(run=lambda *a, **k: calls.update(ran=True))
@@ -127,7 +127,7 @@ def test_cli_announces_the_url_before_importing_the_app(capsys, tmp_path, host):
         else:
             del sys.modules["uvicorn"]
     out = capsys.readouterr().out
-    assert "camdl-watch: serving" in out
+    assert "camdl-scope: serving" in out
     assert "8899" in out
     assert str(tmp_path) in out
     assert calls.get("ran") is True
@@ -139,7 +139,7 @@ def test_refuses_a_held_port_instead_of_announcing_one_it_cannot_get(capsys):
     store, silently, under a success exit code a script would believe."""
     import socket
 
-    from camdl_watch import cli
+    from camdl_scope import cli
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
         held.bind(("127.0.0.1", 0))
@@ -152,11 +152,11 @@ def test_refuses_a_held_port_instead_of_announcing_one_it_cannot_get(capsys):
     assert f"port {port} is already in use" in err
     # The announcement must NOT have been printed: a URL we cannot serve is the
     # whole defect.
-    assert "camdl-watch: serving" not in capsys.readouterr().out
+    assert "camdl-scope: serving" not in capsys.readouterr().out
 
 
 def test_a_free_port_is_reported_free():
-    from camdl_watch.cli import _port_is_free
+    from camdl_scope.cli import _port_is_free
 
     import socket
 

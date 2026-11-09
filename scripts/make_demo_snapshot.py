@@ -13,7 +13,7 @@ only — the demo build disables those live controls.
 
 Usage::
 
-    CAMDL_WATCH_STORE=/path/to/results/fits \
+    CAMDL_SCOPE_STORE=/path/to/results/fits \
         uv run python -m scripts.make_demo_snapshot --out demo-snapshot \
         --posterior 4 --mle 1 --sims 3
 
@@ -75,7 +75,7 @@ def _camdl_render(run_id: str, fmt: str) -> dict | None:
     if the model source or the ``camdl`` binary is unavailable."""
     if shutil.which("camdl") is None:
         return None
-    model = Path(os.environ["CAMDL_WATCH_STORE"]) / run_id / "model.camdl.original"
+    model = Path(os.environ["CAMDL_SCOPE_STORE"]) / run_id / "model.camdl.original"
     if not model.is_file():
         return None
     try:
@@ -239,14 +239,14 @@ def build(
     store: Path, out: Path, n_posterior: int, n_mle: int, n_sims: int,
     include: list[str] | None = None, all_models: bool = False,
 ) -> dict:
-    os.environ["CAMDL_WATCH_STORE"] = str(store)
+    os.environ["CAMDL_SCOPE_STORE"] = str(store)
     # The demo shows derived labels, not the labels a modeller gave their runs:
     # keep each leaf's run_id (it locates the run's predict output) and drop
     # its label.
-    from camdl_watch import ingest as _ingest
+    from camdl_scope import ingest as _ingest
     _read_identity = _ingest._read_leaf_identity
     _ingest._read_leaf_identity = lambda d: _read_identity(d)._replace(label=None)
-    from camdl_watch.api.app import app  # import AFTER env is set
+    from camdl_scope.api.app import app  # import AFTER env is set
 
     client = TestClient(app)
     dropped: list[dict] = []
@@ -298,7 +298,7 @@ def build(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--store", type=Path, default=Path(os.environ.get("CAMDL_WATCH_STORE", "results/fits")))
+    ap.add_argument("--store", type=Path, default=Path(os.environ.get("CAMDL_SCOPE_STORE", "results/fits")))
     ap.add_argument("--out", type=Path, default=Path("demo-snapshot"))
     ap.add_argument("--posterior", type=int, default=4)
     ap.add_argument("--mle", type=int, default=1)

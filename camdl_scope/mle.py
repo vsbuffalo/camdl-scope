@@ -1,5 +1,5 @@
 """MLE fits — point estimates from an optimizer, not posterior draws. Read-only,
-parallel to :mod:`camdl_watch.profiles`.
+parallel to :mod:`camdl_scope.profiles`.
 
 An optimizer (``nl-sbplx``, ``if2``, …) runs from N restarts and writes, per
 seed leaf::
@@ -9,7 +9,7 @@ seed leaf::
         chain_evaluations.tsv     # one row per restart's optimum
 
 ``mle_params.toml`` is what marks the leaf as a point estimate;
-:func:`camdl_watch.ingest._mle_seed_dir` finds it, since the method directory's
+:func:`camdl_scope.ingest._mle_seed_dir` finds it, since the method directory's
 name says nothing reliable about what it holds.
 
 There are no chains/marginals here — the fit is a single θ̂ plus the multi-start

@@ -2,8 +2,8 @@
 from __future__ import annotations
 from pathlib import Path
 import numpy as np
-from camdl_watch import particles
-from camdl_watch.state import ChainBuffer, RunState
+from camdl_scope import particles
+from camdl_scope.state import ChainBuffer, RunState
 
 
 class _Meta:

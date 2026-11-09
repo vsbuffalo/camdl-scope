@@ -8,7 +8,7 @@ edge's rate reads). It is byte-identical across runs of the same model.
 
 This reader is a pure pass-through: it reads and JSON-parses the file (or returns
 ``None`` when absent / unreadable). Interpretation into typed fields belongs to
-the API layer's :class:`camdl_watch.api.models.ModelGraph`, which validates the
+the API layer's :class:`camdl_scope.api.models.ModelGraph`, which validates the
 parsed dict — additive and forward-compatible: unknown keys are ignored, missing
 optional sections default to empty.
 """

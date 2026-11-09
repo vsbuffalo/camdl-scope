@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from camdl_watch import compare
+from camdl_scope import compare
 
 
 def _write_prequential(path: Path, level: float, n: int = 60) -> None:

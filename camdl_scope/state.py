@@ -1,4 +1,4 @@
-"""Core data types for camdl-watch.
+"""Core data types for camdl-scope.
 
 The middle layer. Everything downstream (diagnostics, plots, UI) is a
 projection of these. Ingest builds them; diagnostics consumes them; the
@@ -55,7 +55,7 @@ AUX_COLUMNS: tuple[str, ...] = (
 """Fallback list of non-parameter trace columns.
 
 Only a fallback: camdl declares a ``role`` for every trace column in the stage's
-``run.json`` (``output_schema``), and :func:`camdl_watch.ingest.read_column_roles`
+``run.json`` (``output_schema``), and :func:`camdl_scope.ingest.read_column_roles`
 prefers that. Use this only for runs whose ``run.json`` predates the schema.
 
 A hardcoded list silently misfiles whatever a sampler adds, and the cost is
@@ -486,7 +486,7 @@ class ChainSummary:
     estimable). ``ess_per_chain`` maps param -> a list in CHAIN ORDER: the
     index is an array position, NOT a chain id — camdl names chains
     ``chain_1 … chain_n`` on disk, so position ``i`` is chain ``i + 1``. Label
-    via :func:`camdl_watch.diagnostics.chain_ids_for`; treating the position as
+    via :func:`camdl_scope.diagnostics.chain_ids_for`; treating the position as
     an id produced a ``c0`` that names no chain. ``acceptance_rates`` is normalized to
     ``[chain][*]``: PGAS keeps its per-parameter block-MH rates (constant within
     a chain); PMMH's per-chain scalar is wrapped as a singleton — reduce via

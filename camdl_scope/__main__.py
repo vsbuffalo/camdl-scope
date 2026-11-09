@@ -1,4 +1,4 @@
-"""``python -m camdl_watch`` → the CLI."""
+"""``python -m camdl_scope`` → the CLI."""
 
 from .cli import cli
 

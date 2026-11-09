@@ -143,7 +143,7 @@ xarray = [
 ]
 
 [[package]]
-name = "camdl-watch"
+name = "camdl-scope"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -159,14 +159,10 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "httpx" },
+    { name = "pytest" },
 ]
 
 [package.metadata]
@@ -177,14 +173,15 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.26" },
     { name = "polars", specifier = ">=1.0" },
     { name = "pygments", specifier = ">=2.20.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "scipy", specifier = ">=1.11" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
 ]
-provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "httpx", specifier = ">=0.28.1" }]
+dev = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pytest", specifier = ">=8.0" },
+]
 
 [[package]]
 name = "certifi"

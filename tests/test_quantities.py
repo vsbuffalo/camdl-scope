@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from camdl_watch import quantities
+from camdl_scope import quantities
 
 
 def _write_manifest(run_dir: Path, entries: list[dict]) -> None:

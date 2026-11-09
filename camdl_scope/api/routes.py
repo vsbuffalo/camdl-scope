@@ -1,8 +1,8 @@
 """Read-only API routes — the typed projection of the run store as JSON.
 
 Each request resolves the store fresh via ``current_store()`` (so the CLI and
-tests can repoint it), discovers runs through :mod:`camdl_watch.ingest`, builds
-a :class:`~camdl_watch.state.RunState` server-side, and serializes the
+tests can repoint it), discovers runs through :mod:`camdl_scope.ingest`, builds
+a :class:`~camdl_scope.state.RunState` server-side, and serializes the
 diagnostics / docs / schema the core already computed. No statistic is computed
 in the browser; every number here is produced in Python (the proposal's
 correctness guardrail).

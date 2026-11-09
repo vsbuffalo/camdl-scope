@@ -18,11 +18,11 @@ Installing from source builds the browser UI, so [Node.js](https://nodejs.org)
 message rather than producing a server with no UI.
 
 ```sh
-# Install the `camdl-watch` command on your PATH:
+# Install the `camdl-scope` command on your PATH:
 uv tool install git+https://github.com/vsbuffalo/camdl-scope
 
 # Or run it once without installing:
-uvx --from git+https://github.com/vsbuffalo/camdl-scope camdl-watch --port 8800
+uvx --from git+https://github.com/vsbuffalo/camdl-scope camdl-scope --port 8800
 
 # Or add it to a project's dev dependencies:
 uv add --dev git+https://github.com/vsbuffalo/camdl-scope
@@ -35,7 +35,7 @@ From a local checkout, swap the git URL for the path (add `--editable` to track 
 Run from your camdl project root and open the printed URL:
 
 ```sh
-camdl-watch --port 8800
+camdl-scope --port 8800
 ```
 
 Flags:
@@ -47,11 +47,11 @@ Flags:
   Defaults to `results/fits` under the current directory.
 
 ```sh
-camdl-watch --port 8800 --host 0.0.0.0 --store /path/to/results/fits
+camdl-scope --port 8800 --host 0.0.0.0 --store /path/to/results/fits
 ```
 
-`--store` just sets the `CAMDL_WATCH_STORE` env var, so that works too;
-`python -m camdl_watch ...` is equivalent to the `camdl-watch` command.
+`--store` just sets the `CAMDL_SCOPE_STORE` env var, so that works too;
+`python -m camdl_scope ...` is equivalent to the `camdl-scope` command.
 
 ### Linking to one fit
 

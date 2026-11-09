@@ -32,7 +32,7 @@ Column layout (read straight off camdl's renderer):
 
 We return the frames verbatim (polars, schema inferred) — interpretation
 (which columns are dims vs. quantiles) belongs to the consumer, which can read
-the stream's ``index_dims`` from the :class:`camdl_watch.schema.ObsSchema`.
+the stream's ``index_dims`` from the :class:`camdl_scope.schema.ObsSchema`.
 Pure readers: no dependency on ingest, no cycle.
 """
 

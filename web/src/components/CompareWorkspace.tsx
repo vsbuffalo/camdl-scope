@@ -108,7 +108,7 @@ export function CompareWorkspace() {
         {isError ? (
           <MutedNotice
             title="Backend not reachable"
-            detail="Couldn't reach /api. Is camdl-watch running and serving this store?"
+            detail="Couldn't reach /api. Is camdl-scope running and serving this store?"
           />
         ) : selectedIds.length < 2 ? (
           <MutedNotice

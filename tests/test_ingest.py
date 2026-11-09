@@ -11,10 +11,10 @@ import pytest
 
 import json
 
-from camdl_watch import ingest
-from camdl_watch.state import ChainBuffer, PriorFamily, Severity
+from camdl_scope import ingest
+from camdl_scope.state import ChainBuffer, PriorFamily, Severity
 
-STORE = Path(os.environ.get("CAMDL_WATCH_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
+STORE = Path(os.environ.get("CAMDL_SCOPE_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
 
 
 def _pgas_run():
@@ -411,7 +411,7 @@ def test_read_algorithm_config_degrades_to_empty(tmp_path: Path):
 
 
 def test_sample_prior_respects_bounds():
-    from camdl_watch.state import PriorSpec
+    from camdl_scope.state import PriorSpec
 
     spec = PriorSpec("D50", PriorFamily.LOGNORMAL, {"mu": 7.6, "sigma": 0.6},
                      bounds=(200.0, 20000.0))
@@ -442,7 +442,7 @@ def test_log_uniform_prior_resolves_and_samples(tmp_path: Path):
     assert parsed.args["lo"] == pytest.approx(1e-9)
     assert parsed.args["hi"] == pytest.approx(1e-2)
 
-    from camdl_watch.state import PriorSpec
+    from camdl_scope.state import PriorSpec
 
     spec = PriorSpec("kappa", parsed.family, parsed.args, bounds=parsed.bounds)
     x = ingest.sample_prior(spec, 5000)
@@ -488,7 +488,7 @@ def test_exponential_prior_reads_rate_not_scale(tmp_path: Path):
     assert parsed.args == {"rate": pytest.approx(5.99)}
     assert parsed.unsupported is None
 
-    from camdl_watch.state import PriorSpec
+    from camdl_scope.state import PriorSpec
 
     spec = PriorSpec("sigma_se", parsed.family, parsed.args, bounds=parsed.bounds)
     x = ingest.sample_prior(spec, 40_000)
@@ -518,7 +518,7 @@ def test_truncated_normal_normalises_over_the_declared_box(tmp_path: Path):
     assert parsed.family is PriorFamily.TRUNCNORMAL
     assert parsed.args == {"mu": pytest.approx(0.7), "sigma": pytest.approx(0.2)}
 
-    from camdl_watch.state import PriorSpec
+    from camdl_scope.state import PriorSpec
 
     spec = PriorSpec("take", parsed.family, parsed.args, bounds=parsed.bounds)
     x = ingest.sample_prior(spec, 20_000)
@@ -575,7 +575,7 @@ def test_sampler_telemetry_is_diagnostic_without_a_declared_schema():
     filed as a *parameter* — a bucket nothing reads, since RunState.params comes
     from the fit's declared estimands — so divergences were parsed off disk
     every refresh and silently dropped, and the run read as clean."""
-    from camdl_watch.state import ChainBuffer
+    from camdl_scope.state import ChainBuffer
 
     buf = ChainBuffer(cid=1, path=Path("/tmp"))  # no diagnostic_cols declared
     for col in ("n_divergent", "step_size", "tree_depth", "n_leapfrog",

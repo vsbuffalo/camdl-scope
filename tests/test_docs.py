@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from camdl_watch.docs import DocBlock, ModelDocs
+from camdl_scope.docs import DocBlock, ModelDocs
 
 # The camdl sibling repo (its golden IR envelopes carry a top-level ``docs``
 # block in the same shape fit.meta.json embeds). Mirrors test_ingest's relative

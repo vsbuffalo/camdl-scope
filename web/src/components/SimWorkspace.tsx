@@ -62,7 +62,7 @@ export function SimWorkspace() {
       <div className="max-w-4xl">
         <MutedNotice
           title="Backend not reachable"
-          detail="Couldn't reach /api/sims. Is camdl-watch running and serving this store?"
+          detail="Couldn't reach /api/sims. Is camdl-scope running and serving this store?"
         />
       </div>
     )
