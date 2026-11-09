@@ -589,14 +589,20 @@ export function PairPlot({
     const byName = new Map(
       (posterior?.params ?? []).map((p) => [p.name, p] as const),
     )
+    // Where the sampler writes a complete-data split, log_posterior is the joint
+    // (θ, path) density, not a likelihood; its row label says so, not only its
+    // tooltip (camdl-scope#8).
+    const completeData = (draws.objectives ?? []).includes('obs_ll')
     return params.map((name) => ({
       name,
-      symbol: byName.get(name)?.symbol ?? name,
+      symbol:
+        byName.get(name)?.symbol ??
+        (name === 'log_posterior' && completeData ? 'complete-data lp' : name),
       median: byName.get(name)?.q50 ?? null,
       description: byName.get(name)?.description ?? OBJECTIVE_DOCS[name] ?? null,
       reference: byName.get(name)?.reference ?? null,
     }))
-  }, [params, posterior])
+  }, [params, posterior, draws.objectives])
 
   // Doc lookup: clicking a row label opens this variable's description strip
   // above the grid (click again, click another, or ✕ to change/close).

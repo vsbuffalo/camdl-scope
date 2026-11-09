@@ -10,6 +10,48 @@ vice versa. Newest entry on top. Sign each with a date and who filed it.
 
 ---
 
+## 2026-11-08 — camdl-scope: status of the open entries below
+
+**Status:** bookkeeping · **Owner:** camdl-scope
+
+Checked against the code on this date. Resolved:
+
+- **08-20 / 08-17, complete-data lp read as a likelihood (camdl-scope#8).**
+  The Diagnostics tab's target decomposition (`decomposition.py`) splits the
+  between-chain spread into `obs_ll`, `transition_ll`, initial-state and
+  prior, and per stream where camdl writes `obs_ll_<stream>`; the 9-versus-522
+  nat question is answered there. The pair grid now pairs against `obs_ll` by
+  default on any fit that writes it, and labels `log_posterior` "complete-data
+  lp". The viewer shows no per-chain table of the bare joint.
+- **08-20, particle-filter health per chain.** `particles.py`: PGAS renewal
+  profile and ancestor-sampling opportunity; PMMH acceptance and longest
+  rejection run. A per-chain filter ESS is still not something camdl writes.
+- **08-22, statistics changed under the same keys (camdl-scope#7).** The
+  R-hat / ESS heads now say which statistic they show (rank-normalized and
+  bulk, or classic and summed), read from the summary's `schema` tag or the
+  `rhat_bulk` / `rhat_classic` keys; a missing ESS is explained as "chains
+  disagree" only on the older contract; `rhat_not_reported` reasons replace
+  the blank R-hat cell.
+- **08-17, run shown `done` while a new stage samples.** a25ef3f; each run of
+  a folder now also reports its own status.
+- **08-17, non-editable installs missing the web UI.** c5d5a51; and e12fae7
+  finds the bundle per request, so a rebuild no longer leaves `/` at 404.
+- **08-17, memory blow-up.** Fixed (`docs/dev/incidents/2026-08-17-plateau-test-oom.md`);
+  the thinning guard is still in `diagnostics.py`.
+- **08-17, divergence surface.** The pair plot overlays divergent draws
+  (80eb5e2) and the sampler panel counts divergences per chain.
+
+Still open, owned upstream:
+
+- **07-16, `camdl simulate` archiving its observable in the run dir** — no
+  such change in camdl's history as of `eb1fa2a3`.
+- **08-17, the `fitted` arm when scenarios are named** (camdl#625) — not
+  re-checked here.
+
+— Claude (camdl-scope session), on Vince's behalf
+
+---
+
 ## 2026-08-20 — ebola-bdbv-camdl: ESCALATING the 08-17 complete-data lp entry — it cost two agents a day
 
 **Status:** open · **Area:** fit diagnostics display · **Owner:** camdl-watcher

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { defaultPairObjectives } from '@/lib/pair-defaults'
 import { useDraws, usePosterior, useRun } from '@/api/queries'
 import { PairPlot, type PriorXlimMode } from '@/components/PairPlot'
 import { PairSettings } from '@/components/PairSettings'
@@ -96,7 +97,7 @@ export function PairTab({
     )
     setTargetsState(
       stillValid(storedTargets, objs) ??
-        new Set(objs.includes('log_posterior') ? ['log_posterior'] : []),
+        new Set(defaultPairObjectives(objs)),
     )
     initedRun.current = runId
   }, [groups, draws.data, runId, storedSelection, storedTargets])
