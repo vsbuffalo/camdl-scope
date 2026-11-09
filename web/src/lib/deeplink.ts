@@ -9,7 +9,10 @@
  * has something *other* than the run id to hand. camdl prints a leaf path
  * (`results/fits/fit_x-1344469c/pgas-79d6825a/seed_1-…`); `run.json` carries the
  * full 64-hex fit hash; the viewer's ticker copies the 8-hex run id. All three
- * resolve, along with a stem when the store holds only one fit of it.
+ * resolve, along with a stem when the store holds only one fit of it. A problem
+ * folder holding several runs (one per fit seed) opens its default run unless
+ * the token names one: a leaf path, a seed run's id, camdl's run_id, or its
+ * label.
  *
  * What it will not do is guess. A token matching several runs resolves to
  * *nothing* and says so, because the failure that matters here is silently
@@ -34,53 +37,103 @@ export type RunResolution =
   | { kind: 'none' }
   | { kind: 'ambiguous'; matches: string[] }
 
-/** The content-hash suffix of a run id: `fit_x-1344469c` → `1344469c`. */
-function hashOf(runId: string): string {
-  const cut = runId.lastIndexOf('-')
-  return cut < 0 ? '' : runId.slice(cut + 1)
+/** What resolution needs to know about each run in the store. A problem folder
+ *  holds every run of one problem — one per fit seed — and each is an entry. */
+export interface RunRef {
+  run_id: string
+  /** The problem folder, e.g. `fit_x-1344469c`. */
+  folder: string
+  /** Whether a bare folder name opens this run. */
+  folder_default: boolean
+  /** The run's directory under the folder, e.g. `pmmh-83841c1b/seed_6-48b478e8`. */
+  leaf: string
+  /** camdl's 64-hex run_id, from the run's run.json. */
+  leaf_run_id?: string | null
+  /** The run's label (camdl's own when it has one). */
+  label: string
 }
 
-/** Resolve one already-split token (no path separators). */
-function matchToken(token: string, runIds: string[]): RunResolution {
-  const t = token.toLowerCase()
+/** The content-hash suffix of a folder name: `fit_x-1344469c` → `1344469c`. */
+function hashOf(folder: string): string {
+  const cut = folder.lastIndexOf('-')
+  return cut < 0 ? '' : folder.slice(cut + 1)
+}
 
-  const exact = runIds.find((id) => id.toLowerCase() === t)
-  if (exact) return { kind: 'ok', runId: exact }
-
-  // A hash, from either end: the run directory carries the first 8 hex digits,
-  // while camdl's own output and `run.json` carry all 64. Either may be the
-  // prefix of the other, so accept both directions.
-  if (new RegExp(`^[0-9a-f]{${HASH_MIN},}$`).test(t)) {
-    const byHash = runIds.filter((id) => {
-      const h = hashOf(id).toLowerCase()
-      return h.length >= HASH_MIN && (h.startsWith(t) || t.startsWith(h))
-    })
-    if (byHash.length === 1) return { kind: 'ok', runId: byHash[0]! }
-    if (byHash.length > 1) return { kind: 'ambiguous', matches: byHash }
-  }
-
-  // A config stem, which is unique only when the store holds one fit of it.
-  const byPrefix = runIds.filter((id) => id.toLowerCase().startsWith(t))
-  if (byPrefix.length === 1) return { kind: 'ok', runId: byPrefix[0]! }
-  if (byPrefix.length > 1) return { kind: 'ambiguous', matches: byPrefix }
-
+function result(ids: string[]): RunResolution {
+  const unique = [...new Set(ids)]
+  if (unique.length === 1) return { kind: 'ok', runId: unique[0]! }
+  if (unique.length > 1) return { kind: 'ambiguous', matches: unique }
   return { kind: 'none' }
 }
 
+/** The run a folder name opens. */
+function defaultOf(folder: string, runs: RunRef[]): string | undefined {
+  return runs.find((r) => r.folder === folder && r.folder_default)?.run_id
+}
+
+/** Resolve one already-split token (no path separators). */
+function matchToken(token: string, runs: RunRef[]): RunResolution {
+  const t = token.toLowerCase().replace(/^@/, '')
+
+  const exact = runs.find((r) => r.run_id.toLowerCase() === t)
+  if (exact) return { kind: 'ok', runId: exact.run_id }
+  const folder = runs.find((r) => r.folder.toLowerCase() === t)
+  if (folder) return { kind: 'ok', runId: defaultOf(folder.folder, runs)! }
+
+  // camdl's `@label` names one run.
+  const byLabel = runs.filter((r) => r.label.toLowerCase() === t).map((r) => r.run_id)
+  if (byLabel.length) return result(byLabel)
+
+  // A hash: camdl's run_id names one run, and a folder's 8-hex suffix names
+  // the problem. Either may be the prefix of the other, so both directions.
+  if (new RegExp(`^[0-9a-f]{${HASH_MIN},}$`).test(t)) {
+    const byRun = runs
+      .filter((r) => {
+        const h = (r.leaf_run_id ?? '').toLowerCase()
+        return h.length >= HASH_MIN && (h.startsWith(t) || t.startsWith(h))
+      })
+      .map((r) => r.run_id)
+    const byFolder = [
+      ...new Set(
+        runs
+          .filter((r) => {
+            const h = hashOf(r.folder).toLowerCase()
+            return h.length >= HASH_MIN && (h.startsWith(t) || t.startsWith(h))
+          })
+          .map((r) => r.folder),
+      ),
+    ].map((f) => defaultOf(f, runs)!)
+    const got = result([...byRun, ...byFolder])
+    if (got.kind !== 'none') return got
+  }
+
+  // A config stem, which is unique only when the store holds one fit of it.
+  const folders = [
+    ...new Set(runs.filter((r) => r.folder.toLowerCase().startsWith(t)).map((r) => r.folder)),
+  ]
+  return result(folders.map((f) => defaultOf(f, runs)!))
+}
+
 /**
- * Resolve a run token against the run ids in the store.
+ * Resolve a run token against the runs in the store.
  *
- * A token containing `/` is treated as a path and each segment is tried in
- * order, so a leaf path pasted straight out of camdl's stdout works: the
- * segment level (`fit_x-1344469c`) is reached before the method and seed levels,
- * and those never match anything the segment did not.
+ * A token containing `/` is treated as a path, so a leaf path pasted straight
+ * out of camdl's stdout (`results/fits/fit_x-…/pmmh-…/seed_6-…`) opens that
+ * seed's run, and a path that stops at the folder opens the folder's default.
+ * Otherwise each segment is tried in order.
  */
-export function resolveRunToken(token: string, runIds: string[]): RunResolution {
+export function resolveRunToken(token: string, runs: RunRef[]): RunResolution {
   const raw = token.trim()
   if (!raw) return { kind: 'none' }
+  const segs = raw.split('/').filter(Boolean)
+  if (segs.length > 1) {
+    const path = `/${segs.join('/')}/`
+    const byLeaf = runs.filter((r) => path.includes(`/${r.folder}/${r.leaf}/`))
+    if (byLeaf.length) return result(byLeaf.map((r) => r.run_id))
+  }
   let ambiguous: RunResolution | null = null
-  for (const seg of raw.split('/').filter(Boolean)) {
-    const got = matchToken(seg, runIds)
+  for (const seg of segs) {
+    const got = matchToken(seg, runs)
     if (got.kind === 'ok') return got
     // Remember an ambiguity, but keep looking: a later, more specific segment
     // may still resolve cleanly.

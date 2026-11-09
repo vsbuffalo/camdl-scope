@@ -1904,6 +1904,16 @@ export interface components {
             run_id: string;
             /** Label */
             label: string;
+            /** Folder */
+            folder: string;
+            /** Folder Default */
+            folder_default: boolean;
+            /** Seed */
+            seed: number | null;
+            /** Leaf */
+            leaf: string;
+            /** Leaf Run Id */
+            leaf_run_id: string | null;
             /** Model */
             model: string;
             /** Algorithm */

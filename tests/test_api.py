@@ -742,3 +742,12 @@ def test_camdls_empty_verdict_is_its_all_clear_not_ours(client):
     assert body["source"] == "camdl"
     assert [(f["kind"], f["severity"]) for f in body["findings"]] == [("ok", "info")]
     assert "camdl" in body["findings"][0]["headline"]
+
+
+def test_predictive_carries_the_fits_convergence(client):
+    """camdl.predictive/v3 names the producing fit's worst R-hat and ESS
+    ``fit_rhat_max`` / ``fit_ess_min``. Reading the pre-v3 names left the
+    Predictive tab's convergence badge blank on every current predict."""
+    body = client.get(f"/api/runs/{RUN_DIR}/predictive/cases").json()
+    assert body["rhat_max"] == pytest.approx(1.01)
+    assert body["ess_min"] == pytest.approx(480)

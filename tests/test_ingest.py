@@ -769,3 +769,43 @@ def test_bad_init_chain_ids_are_reported_one_based(tmp_path: Path):
     )
     assert tagged is not None
     assert tagged.findings[0].detail["chain_id"] == 6  # already 1-based
+
+
+def _seed_leaf(run: Path, n: int, label: str, mtime: float) -> Path:
+    """A finished seed run: draws.tsv, a non-empty trace, its own label."""
+    seed = run / "pmmh-83841c1b" / f"seed_{n}-{n:08x}"
+    (seed / "chain_1").mkdir(parents=True)
+    (seed / "chain_1" / "trace.tsv").write_text("step\tR0\n0\t1.1\n10\t1.2\n")
+    (seed / "draws.tsv").write_text("chain\tdraw\tR0\n1\t0\t1.2\n")
+    (seed / "run.json").write_text(json.dumps(
+        {"run_id": f"{n}" * 64, "provenance": {"label": label}}))
+    for p in seed.rglob("*"):
+        os.utime(p, (mtime, mtime))
+    return seed
+
+
+def test_each_seed_run_is_its_own_entry_lowest_seed_default(tmp_path):
+    """A fit run with seeds 1-6 used to open as one entry showing whichever
+    seed finished last (seed 6, "synthetic-s6"), with nothing saying so. Each
+    seed run is now an entry; the folder name opens seed 1."""
+    run = tmp_path / "fits" / "fit_synthetic-02e1fdff"
+    for n in (1, 2, 3):
+        # Seed 3 finished last: the old pick.
+        _seed_leaf(run, n, "synthetic" if n == 1 else f"synthetic-s{n}", 1_000 + n)
+    metas = ingest.discover_runs(tmp_path / "fits")
+    assert [(m.run_id, m.seed, m.folder_default, m.user_label) for m in metas] == [
+        ("fit_synthetic-02e1fdff~seed_1-00000001", 1, True, "synthetic"),
+        ("fit_synthetic-02e1fdff~seed_2-00000002", 2, False, "synthetic-s2"),
+        ("fit_synthetic-02e1fdff~seed_3-00000003", 3, False, "synthetic-s3"),
+    ]
+    assert ingest.resolve_run(metas, "fit_synthetic-02e1fdff").seed == 1
+    assert ingest.resolve_run(metas, "fit_synthetic-02e1fdff~seed_3-00000003").seed == 3
+    # The folder's hash still reads from the folder, not the seed suffix.
+    assert {m.hash for m in metas} == {"02e1fdff"}
+
+
+def test_a_single_run_folder_keeps_the_folder_name_as_its_id(tmp_path):
+    run = tmp_path / "fits" / "fit_r0-84761258"
+    _seed_leaf(run, 4, "r0", 1_000)
+    (m,) = ingest.discover_runs(tmp_path / "fits")
+    assert m.run_id == "fit_r0-84761258" and m.seed == 4 and m.folder_default

@@ -317,6 +317,14 @@ class RunMeta:
     # filed under the first 12 hex of this one. None when run.json is absent or
     # unreadable (a leaf still warming up).
     leaf_run_id: str | None = None
+    # Which run of its problem folder this entry is. A folder holds every run
+    # of one problem — one per fit seed, and one per re-run under changed
+    # settings — and each is its own entry. ``seed`` is the fit seed (from the
+    # ``seed_<n>-<hash>`` leaf name); ``folder_default`` marks the run a bare
+    # folder name opens. A folder holding one run keeps the folder name as its
+    # ``run_id``; in a folder of several, each id is ``<folder>~<leaf>``.
+    seed: int | None = None
+    folder_default: bool = True
     # The stage whose heartbeat is running *now*, when the run has one. A re-run
     # under new sampler settings adds a stage beside the finished one, and until
     # that stage writes rows we still read the finished stage's draws — so the
@@ -353,8 +361,11 @@ class RunMeta:
 
     @property
     def hash(self) -> str:
-        """The content-hash suffix of the run dir name (after the last '-')."""
-        return self.run_id.rsplit("-", 1)[-1] if "-" in self.run_id else ""
+        """The content-hash suffix of the problem folder's name (after the last
+        '-'). Read from the folder, not ``run_id``: a seed run's id carries the
+        seed directory after the folder name."""
+        name = self.run_dir.name
+        return name.rsplit("-", 1)[-1] if "-" in name else ""
 
     @property
     def status_dir(self) -> Path:
@@ -368,7 +379,7 @@ class RunMeta:
     def derived_label(self) -> str:
         """A readable label derived from metadata, independent of camdl's
         native label. Form: ``<config-stem> · <algorithm>/<backend>``."""
-        stem = self.fit_toml_stem or self.run_id.rsplit("-", 1)[0]
+        stem = self.fit_toml_stem or self.run_dir.name.rsplit("-", 1)[0]
         return f"{stem} · {self.algorithm}/{self.backend.value}"
 
     @property

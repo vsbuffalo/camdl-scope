@@ -251,13 +251,12 @@ export function ExploreWorkspace() {
   const linkToken = useRef<string | undefined>(readDeepLink().run)
   // Picking a fit by hand answers a link that could not be followed.
   const [linkDismissed, setLinkDismissed] = useState(false)
-  const runIds = useMemo(() => runs.map((r) => r.run_id), [runs])
   const linkResolution: RunResolution | null = useMemo(
     () =>
-      linkToken.current && !linkDismissed && runIds.length > 0
-        ? resolveRunToken(linkToken.current, runIds)
+      linkToken.current && !linkDismissed && runs.length > 0
+        ? resolveRunToken(linkToken.current, runs)
         : null,
-    [runIds, linkDismissed],
+    [runs, linkDismissed],
   )
   const linkFailed = linkResolution !== null && linkResolution.kind !== 'ok'
 
@@ -274,6 +273,8 @@ export function ExploreWorkspace() {
       runs.find((r) => r.status === 'running' || r.status === 'warming')
         ?.run_id ??
       runs.find((r) => r.run_id === lastViewed.current)?.run_id ??
+      // An id remembered from before its folder held several runs.
+      runs.find((r) => r.folder === lastViewed.current && r.folder_default)?.run_id ??
       runs[0]?.run_id
   }
 

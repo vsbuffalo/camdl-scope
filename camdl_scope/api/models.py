@@ -161,6 +161,16 @@ class RunSummary(BaseModel):
 
     run_id: str
     label: str
+    # Which run of its problem folder this is. A folder holds every run of one
+    # problem (one per fit seed; one per re-run under changed settings), and
+    # each is its own entry; ``folder_default`` marks the one a bare folder
+    # name opens. ``leaf`` is the run's directory under the folder
+    # (``pmmh-83841c1b/seed_6-48b478e8``) and ``leaf_run_id`` camdl's run_id.
+    folder: str
+    folder_default: bool
+    seed: int | None
+    leaf: str
+    leaf_run_id: str | None
     model: str
     algorithm: str
     backend: str

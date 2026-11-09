@@ -503,6 +503,11 @@ def _run_summary(meta: RunMeta, ov: RunOverview) -> RunSummary:
     return RunSummary(
         run_id=meta.run_id,
         label=meta.display_label,
+        folder=meta.run_dir.name,
+        folder_default=meta.folder_default,
+        seed=meta.seed,
+        leaf=meta.posterior_dir.relative_to(meta.run_dir).as_posix(),
+        leaf_run_id=meta.leaf_run_id,
         model=meta.model,
         algorithm=meta.algorithm,
         backend=meta.backend.value,
@@ -896,10 +901,7 @@ def _build_draws(
 
 
 def _find_meta(store: Path, run_id: str) -> RunMeta | None:
-    for meta in ingest.discover_runs(store, include_warming=True):
-        if meta.run_id == run_id:
-            return meta
-    return None
+    return ingest.resolve_run(ingest.discover_runs(store, include_warming=True), run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1342,8 +1344,10 @@ def get_predictive(
         treatments.add(t)
         if sc not in scenarios:
             scenarios.append(sc)
-        rhat_max = _worst(rhat_max, r.get("rhat_max"), max)
-        ess_min = _worst(ess_min, r.get("ess_min"), min)
+        # camdl.predictive/v3 (gh#794) names the fit's worst R-hat / ESS
+        # ``fit_*``; every per-run predict directory (gh#896) is v3 or later.
+        rhat_max = _worst(rhat_max, r.get("fit_rhat_max"), max)
+        ess_min = _worst(ess_min, r.get("fit_ess_min"), min)
         nd = _opt_num(r.get("n_draws"))
         if nd is not None:
             n_draws = int(nd) if n_draws is None else min(n_draws, int(nd))
@@ -2119,6 +2123,9 @@ def _project_snapshot(
     known: dict[str, RunOverview] = {}
     labels: dict[str, str] = {}
     for meta in ingest.discover_runs(store, include_warming=True):
+        # The walk is per problem folder; its default run speaks for it.
+        if not meta.folder_default:
+            continue
         known[meta.run_dir.name] = build_run_overview(meta)
         labels[meta.run_dir.name] = meta.display_label
 

@@ -794,19 +794,179 @@ def _resolve_method(
     return algorithm, backend, settings
 
 
+#: Separates a problem folder's name from a leaf's in a seed run's id. Not a
+#: character camdl writes in a directory name, and safe in a URL path.
+LEAF_SEP = "~"
+
+_SEED_RE = re.compile(r"^seed_(\d+)")
+
+
+def _leaf_seed(seed_dir: Path) -> int | None:
+    m = _SEED_RE.match(seed_dir.name)
+    return int(m.group(1)) if m else None
+
+
+class _Leaf(NamedTuple):
+    pdir: Path
+    seed_dir: Path
+    chain_paths: dict[int, Path]
+
+
+def _posterior_leaves(run_dir: Path, *, include_warming: bool) -> list[_Leaf]:
+    """Every posterior run of a problem folder worth its own entry, the one a
+    bare folder name opens first.
+
+    The default is :func:`_pick_posterior_dir`'s choice, which keeps a live
+    re-run ahead of the finished stage it supersedes and an abandoned stub
+    behind both. Among finished replicate seeds of one method directory, which
+    finished last is an accident of scheduling, so the default is the lowest
+    seed instead. Every other leaf that finished (``draws.tsv``) or is live is
+    listed after it, by method directory then seed; abandoned stubs are not."""
+    picked = _pick_posterior_dir(run_dir, include_warming=include_warming)
+    if picked is None:
+        return []
+    pdir, seed_dir, paths, _has_draws = picked
+    default = _Leaf(pdir, seed_dir, paths)
+    live = _live_stage_dir(run_dir)
+    others: list[_Leaf] = []
+    for sd in _method_seed_dirs(run_dir):
+        if sd == seed_dir:
+            continue
+        all_paths = _seed_chain_paths(sd)
+        ne = _nonempty(all_paths)
+        if stage_completed(sd) and ne:
+            others.append(_Leaf(sd.parent, sd, ne))
+        elif sd == live and (ne or include_warming):
+            others.append(_Leaf(sd.parent, sd, ne or all_paths))
+    if stage_completed(seed_dir) and seed_dir != live:
+        replicates = [o for o in others if o.pdir == pdir and stage_completed(o.seed_dir)
+                      and len(o.chain_paths) >= len(paths)]
+        lowest = min([default, *replicates],
+                     key=lambda lf: (_leaf_seed(lf.seed_dir) is None, _leaf_seed(lf.seed_dir) or 0))
+        if lowest is not default:
+            others = [default, *(o for o in others if o is not lowest)]
+            default = lowest
+    others.sort(key=lambda lf: (lf.pdir.name, _leaf_seed(lf.seed_dir) or 0, lf.seed_dir.name))
+    return [default, *others]
+
+
+def _leaf_ids(run_dir: Path, leaves: list[_Leaf]) -> list[str]:
+    """Entry ids for a folder's leaves: the folder name when it holds one run,
+    else ``<folder>~<seed dir>``, with the method dir added only when two
+    leaves share a seed dir name (the same seed under two method settings)."""
+    if len(leaves) == 1:
+        return [run_dir.name]
+    names = [lf.seed_dir.name for lf in leaves]
+    return [
+        LEAF_SEP.join([run_dir.name, lf.seed_dir.name]) if names.count(lf.seed_dir.name) == 1
+        else LEAF_SEP.join([run_dir.name, lf.pdir.name, lf.seed_dir.name])
+        for lf in leaves
+    ]
+
+
+def _posterior_run_meta(
+    run_dir: Path, leaf: _Leaf, run_id: str, *, folder_default: bool,
+    live_stage_dir: Path | None,
+) -> RunMeta:
+    pdir, seed_dir, chain_paths = leaf
+    meta = _read_meta(run_dir)
+    toml = _read_fit_toml(run_dir)
+
+    model_path = meta.get("model_path", "")
+    model = Path(model_path).stem if model_path else run_dir.name
+    estimated = list(meta.get("estimated", []))
+
+    config = _read_algorithm_config(seed_dir)
+    algorithm, backend, settings = _resolve_method(toml, config, pdir.name)
+    # Each sampler budgets its run in its own unit: PGAS counts ``sweeps``,
+    # PMMH/MH/IF2 ``iterations``, NUTS ``samples`` drawn after ``warmup``.
+    # They are the same number to a progress bar — how many iterations this
+    # run is aiming for — so they collapse to one field.
+    target = (
+        settings.get("sweeps")
+        or settings.get("iterations")
+        or settings.get("samples")
+    )
+    burn_in = settings.get("burn_in")
+    if burn_in is None:
+        burn_in = settings.get("warmup")
+    thin = settings.get("thin")
+    ident = _read_leaf_identity(seed_dir)
+
+    return RunMeta(
+        run_id=run_id,
+        run_dir=run_dir,
+        posterior_dir=seed_dir,
+        live_stage_dir=live_stage_dir,
+        chain_paths=chain_paths,
+        model=model,
+        algorithm=algorithm,
+        backend=backend,
+        estimated=estimated,
+        target_sweeps=int(target) if target is not None else None,
+        declared_burn_in=int(burn_in) if burn_in is not None else None,
+        thin=int(thin) if thin is not None else 1,
+        fit_toml_stem=_fit_toml_stem(meta, run_dir),
+        user_label=ident.label,
+        leaf_run_id=ident.run_id,
+        seed=_leaf_seed(seed_dir),
+        folder_default=folder_default,
+        docs=ModelDocs.from_meta(meta),
+        schema=ObsSchema.from_meta(meta),
+        column_roles=read_column_roles(seed_dir),
+        algorithm_config=config,
+    )
+
+
+def resolve_run(metas: list[RunMeta], run_id: str) -> RunMeta | None:
+    """The entry ``run_id`` names: an exact entry id, or a problem folder's
+    name, which opens that folder's default run. A link written before a
+    folder held several runs keeps working, and opens what the folder now
+    defaults to."""
+    exact = next((m for m in metas if m.run_id == run_id), None)
+    if exact is not None:
+        return exact
+    return next(
+        (m for m in metas if m.folder_default and m.run_dir.name == run_id), None
+    )
+
+
 def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta]:
-    """Scan ``store`` for runs that have at least one non-empty chain trace.
+    """Scan ``store`` for runs that have at least one non-empty chain trace —
+    one entry per run, so a problem folder holding several (fit seeds, re-runs
+    under changed settings) yields several, its default first.
 
     With ``include_warming=True``, also surface runs whose latest posterior
     stage has started but written no draws yet *and* whose sampler process is
     still alive — i.e. live runs in burn-in. Killed-mid-burn-in stubs (same
-    empty files, dead PID) stay hidden. Default ``False`` keeps existing
-    callers byte-for-byte unchanged.
+    empty files, dead PID) stay hidden.
     """
     store = Path(store)
     out: list[RunMeta] = []
     if not store.is_dir():
         return out
+    for run_dir in sorted(store.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        leaves = _posterior_leaves(run_dir, include_warming=include_warming)
+        if not leaves:
+            # No posterior draws — but the segment may hold an optimizer leaf,
+            # which has a point estimate instead of chains.
+            mle_seed = _mle_seed_dir(run_dir)
+            if mle_seed is not None:
+                out.append(_mle_run_meta(run_dir, mle_seed))
+            continue
+        # A live stage listed as its own entry speaks for itself; otherwise
+        # (a re-run still in burn-in, not surfaced) the default entry reports
+        # it, so the folder does not read as idle while it samples.
+        live = _live_stage_dir(run_dir)
+        live_listed = any(lf.seed_dir == live for lf in leaves)
+        for i, (leaf, rid) in enumerate(zip(leaves, _leaf_ids(run_dir, leaves))):
+            out.append(_posterior_run_meta(
+                run_dir, leaf, rid, folder_default=(i == 0),
+                live_stage_dir=(_live_stage_dir(run_dir) if i == 0 and not live_listed else None),
+            ))
+    return out
     for run_dir in sorted(store.iterdir()):
         if not run_dir.is_dir():
             continue

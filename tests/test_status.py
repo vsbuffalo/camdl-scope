@@ -225,25 +225,35 @@ def _relaunch_stage(store: Path, name: str, *, rows: int) -> Path:
     return seed
 
 
+def _by_folder(store: Path, folder: str) -> list[RunState]:
+    """Every entry of one problem folder, its default first."""
+    return [rs for rid, rs in _registry(store).items() if rs.meta.run_dir.name == folder]
+
+
 def test_relaunch_beside_completed_stage_reads_live_not_done(tmp_path):
     # The friction case: a re-run adds a stage next to the finished one and is
-    # still in burn-in. The run is live because *a* stage is live; the finished
-    # stage's draws stay on screen because the new one has nothing to show yet.
+    # still in burn-in. Each is its own run. The folder opens the finished one,
+    # whose draws are the ones to show, and the re-run is listed beside it as
+    # warming — not hidden behind a "done" folder.
     store = tmp_path / "fits"
     _mkrun(store, "relaunch-aaaa", rows=72, lock_pid=_DEAD_PID)
     _write_progress(_seed(store, "relaunch-aaaa"), "done", updated_at=time.time())
     new = _relaunch_stage(store, "relaunch-aaaa", rows=0)
     _write_progress(new, {"running": {"phase": "burn_in", "step": 319, "total": 40000}},
                     updated_at=time.time())
-    rs = _registry(store)["relaunch-aaaa"]
-    assert rs.status.value == "warming"
-    assert (rs.progress.step, rs.progress.total) == (319, 40000)
-    assert rs.meta.posterior_dir == _seed(store, "relaunch-aaaa")
-    assert sum(b.n for b in rs.chains.values()) == 72
+    default, rerun = _by_folder(store, "relaunch-aaaa")
+    assert default.meta.folder_default and default.meta.posterior_dir == _seed(store, "relaunch-aaaa")
+    assert default.status.value == "done"
+    assert sum(b.n for b in default.chains.values()) == 72
+    assert rerun.meta.posterior_dir == new
+    assert rerun.status.value == "warming"
+    assert (rerun.progress.step, rerun.progress.total) == (319, 40000)
+    metas = ingest.discover_runs(store, include_warming=True)
+    assert ingest.resolve_run(metas, "relaunch-aaaa").posterior_dir == _seed(store, "relaunch-aaaa")
 
 
 def test_relaunch_with_rows_is_the_stage_we_read(tmp_path):
-    # Once the live stage has rows they are the ones to show: reporting
+    # Once the live stage has rows it is what the folder opens: reporting
     # "running" over the superseded stage's traces would pass off the old fit's
     # sweep count and mixing as the new sampler's.
     store = tmp_path / "fits"
@@ -252,10 +262,11 @@ def test_relaunch_with_rows_is_the_stage_we_read(tmp_path):
     new = _relaunch_stage(store, "relaunch-bbbb", rows=9)
     _write_progress(new, {"running": {"phase": "sampling", "step": 9, "total": 40000}},
                     updated_at=time.time())
-    rs = _registry(store)["relaunch-bbbb"]
-    assert rs.status.value == "running"
-    assert rs.meta.posterior_dir == new
-    assert sum(b.n for b in rs.chains.values()) == 9
+    default, older = _by_folder(store, "relaunch-bbbb")
+    assert default.meta.posterior_dir == new
+    assert default.status.value == "running"
+    assert sum(b.n for b in default.chains.values()) == 9
+    assert older.status.value == "done"
 
 
 def test_dead_relaunch_stub_keeps_the_completed_stage(tmp_path):

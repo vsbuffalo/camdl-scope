@@ -184,6 +184,58 @@ function ProgressBlurb({ run }: { run: RunSummary }) {
   )
 }
 
+/** How a run is named among its folder's runs: `seed 6 · synthetic-s6`. */
+function seedLabel(r: RunSummary): string {
+  const seed = r.seed != null ? `seed ${r.seed}` : r.leaf
+  return r.label && !r.label.includes(' · ') ? `${seed} · ${r.label}` : seed
+}
+
+/**
+ * Which run of this problem folder is open. A folder holds one run per fit
+ * seed (and one per re-run under changed settings); opening the fit opens its
+ * default, and this says which that is and switches between them. Shown only
+ * when the folder holds more than one.
+ */
+function SeedPicker({
+  runs,
+  selected,
+  onChange,
+}: {
+  runs: RunSummary[]
+  selected: RunSummary
+  onChange: (runId: string) => void
+}) {
+  const siblings = runs
+    .filter((r) => r.folder === selected.folder)
+    .sort((a, b) => (a.leaf < b.leaf ? -1 : a.leaf > b.leaf ? 1 : 0))
+    .sort((a, b) => (a.seed ?? 0) - (b.seed ?? 0))
+  if (siblings.length < 2) return null
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 pb-1 font-mono text-[11px] text-neutral-500">
+      <span className="uppercase">run</span>
+      <Select value={selected.run_id} onValueChange={onChange}>
+        <SelectTrigger className="w-auto min-w-0 max-w-full py-0.5 text-[11px]" aria-label="Select a seed run">
+          <span className="truncate">{seedLabel(selected)}</span>
+        </SelectTrigger>
+        <SelectContent>
+          {siblings.map((r) => (
+            <SelectItem key={r.run_id} value={r.run_id}>
+              <span className="flex items-center gap-2 font-mono text-[12px]">
+                <StatusBadge status={r.status} />
+                {seedLabel(r)}
+                {r.folder_default && <span className="text-neutral-400">default</span>}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <span className="text-neutral-400">
+        {siblings.length} runs of this fit
+      </span>
+    </div>
+  )
+}
+
 /** A predict's options as camdl recorded them, e.g. `horizon 30 · n draws 200`. */
 function predictLabel(p: { key: string; default: boolean; options: Record<string, unknown> }) {
   if (p.default) return 'default options'
@@ -245,6 +297,7 @@ export function RunBar(props: RunBarProps) {
         <RunArea {...props} />
       </div>
       {selected && <Ticker run={selected} />}
+      {selected && <SeedPicker runs={runs} selected={selected} onChange={props.onChange} />}
       {selected && <PredictPicker runId={selected.run_id} />}
       {selected && <ProgressBlurb run={selected} />}
     </div>
