@@ -54,7 +54,9 @@ class PosteriorResponse(BaseModel):
     order; empty when the run has no draws yet."""
 
     run_id: str
-    warmup_pct: int
+    # The slider's share, or None when the run's declared warm-up was used
+    # (``warmup_cutoff`` then is that iteration).
+    warmup_pct: int | None = None
     warmup_cutoff: int
     n_tail: int
     params: list[ParamPosterior]
@@ -75,7 +77,9 @@ class DrawsResponse(BaseModel):
     every value is finite (non-finite rows are dropped to keep alignment)."""
 
     run_id: str
-    warmup_pct: int
+    # The slider's share, or None when the run's declared warm-up was used
+    # (``warmup_cutoff`` then is that iteration).
+    warmup_pct: int | None = None
     warmup_cutoff: int
     n_draws: int
     params: list[str]
@@ -269,6 +273,11 @@ class RunDetail(BaseModel):
     dead_chain_ids: list[int] = []
     max_iter: int | None = None
     target_sweeps: int | None = None
+    # The warm-up the run declares (fit.toml ``burn_in``/``warmup``), as an
+    # iteration and as a share of the iterations on disk: the default cutoff
+    # for every warm-up-dependent view, because camdl's own numbers use it.
+    declared_burn_in: int | None = None
+    declared_warmup_pct: float | None = None
     estimated: list[str]
     groups: ParamGroups
     streams: list[StreamInfo]
@@ -895,7 +904,9 @@ class PriorPosteriorResponse(BaseModel):
     read against the same warm-up lens the other tabs use."""
 
     run_id: str
-    warmup_pct: int
+    # The slider's share, or None when the run's declared warm-up was used
+    # (``warmup_cutoff`` then is that iteration).
+    warmup_pct: int | None = None
     warmup_cutoff: int
     n_tail: int
     rows: list[PriorPosteriorRow]
@@ -940,7 +951,9 @@ class DiagnosticsResponse(BaseModel):
     ``live`` (the watcher's arviz estimate while a run is still sampling)."""
 
     run_id: str
-    warmup_pct: int
+    # The slider's share, or None when the run's declared warm-up was used
+    # (``warmup_cutoff`` then is that iteration).
+    warmup_pct: int | None = None
     warmup_cutoff: int
     n_tail: int
     n_chains: int  # chains actually diagnosed (excludes any still warming up)

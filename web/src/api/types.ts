@@ -724,7 +724,7 @@ export interface components {
             /** Run Id */
             run_id: string;
             /** Warmup Pct */
-            warmup_pct: number;
+            warmup_pct?: number | null;
             /** Warmup Cutoff */
             warmup_cutoff: number;
             /** N Tail */
@@ -806,7 +806,7 @@ export interface components {
             /** Run Id */
             run_id: string;
             /** Warmup Pct */
-            warmup_pct: number;
+            warmup_pct?: number | null;
             /** Warmup Cutoff */
             warmup_cutoff: number;
             /** N Draws */
@@ -1326,7 +1326,7 @@ export interface components {
             /** Run Id */
             run_id: string;
             /** Warmup Pct */
-            warmup_pct: number;
+            warmup_pct?: number | null;
             /** Warmup Cutoff */
             warmup_cutoff: number;
             /** N Tail */
@@ -1453,7 +1453,7 @@ export interface components {
             /** Run Id */
             run_id: string;
             /** Warmup Pct */
-            warmup_pct: number;
+            warmup_pct?: number | null;
             /** Warmup Cutoff */
             warmup_cutoff: number;
             /** N Tail */
@@ -1838,6 +1838,10 @@ export interface components {
             max_iter?: number | null;
             /** Target Sweeps */
             target_sweeps?: number | null;
+            /** Declared Burn In */
+            declared_burn_in?: number | null;
+            /** Declared Warmup Pct */
+            declared_warmup_pct?: number | null;
             /** Estimated */
             estimated: string[];
             groups: components["schemas"]["ParamGroups"];
@@ -2531,7 +2535,7 @@ export interface operations {
     get_posterior_api_runs__run_id__posterior_get: {
         parameters: {
             query?: {
-                warmup_pct?: number;
+                warmup_pct?: number | null;
                 chains?: string | null;
             };
             header?: never;
@@ -2565,7 +2569,7 @@ export interface operations {
     get_draws_api_runs__run_id__draws_get: {
         parameters: {
             query?: {
-                warmup_pct?: number;
+                warmup_pct?: number | null;
                 max_draws?: number;
                 chains?: string | null;
             };
@@ -2797,7 +2801,7 @@ export interface operations {
     get_traces_api_runs__run_id__traces_get: {
         parameters: {
             query?: {
-                warmup_pct?: number;
+                warmup_pct?: number | null;
                 max_points?: number;
                 chains?: string | null;
             };
@@ -2867,7 +2871,7 @@ export interface operations {
     get_prior_posterior_api_runs__run_id__prior_posterior_get: {
         parameters: {
             query?: {
-                warmup_pct?: number;
+                warmup_pct?: number | null;
                 chains?: string | null;
             };
             header?: never;
@@ -2901,7 +2905,7 @@ export interface operations {
     get_diagnostics_api_runs__run_id__diagnostics_get: {
         parameters: {
             query?: {
-                warmup_pct?: number;
+                warmup_pct?: number | null;
                 chains?: string | null;
             };
             header?: never;

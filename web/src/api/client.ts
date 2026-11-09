@@ -1,3 +1,4 @@
+import type { WarmupSetting } from '@/lib/chains'
 import type { components } from './types'
 import { DEMO } from '@/lib/demo'
 
@@ -127,6 +128,11 @@ export function getRuns(): Promise<RunSummary[]> {
  * empty for the run's default. Never sent in demo mode: the snapshot holds only
  * the default predict.
  */
+/** `warmup_pct=<n>&`, or nothing for the run's declared warm-up. */
+function warmupParam(warmupPct: WarmupSetting): string {
+  return warmupPct == null ? '' : `warmup_pct=${warmupPct}&`
+}
+
 function predictParam(predict: string | null | undefined, sep: '?' | '&' = '?'): string {
   return predict && !DEMO ? `${sep}predict=${encodeURIComponent(predict)}` : ''
 }
@@ -142,12 +148,12 @@ export function getRun(runId: string, predict?: string | null): Promise<RunDetai
  */
 export function getPosterior(
   runId: string,
-  warmupPct: number,
+  warmupPct: WarmupSetting,
   chains: number[] | null = null,
 ): Promise<PosteriorResponse> {
   const id = encodeURIComponent(runId)
   return getJson<PosteriorResponse>(
-    `/api/runs/${id}/posterior?warmup_pct=${warmupPct}${chainsParam(chains)}`,
+    `/api/runs/${id}/posterior?${warmupParam(warmupPct)}${chainsParam(chains)}`,
   )
 }
 
@@ -158,13 +164,13 @@ export function getPosterior(
  */
 export function getDraws(
   runId: string,
-  warmupPct: number,
+  warmupPct: WarmupSetting,
   maxDraws = 1200,
   chains: number[] | null = null,
 ): Promise<DrawsResponse> {
   const id = encodeURIComponent(runId)
   return getJson<DrawsResponse>(
-    `/api/runs/${id}/draws?warmup_pct=${warmupPct}&max_draws=${maxDraws}${chainsParam(chains)}`,
+    `/api/runs/${id}/draws?${warmupParam(warmupPct)}max_draws=${maxDraws}${chainsParam(chains)}`,
   )
 }
 
@@ -241,13 +247,13 @@ export function getPredictive(
  */
 export function getTraces(
   runId: string,
-  warmupPct: number,
+  warmupPct: WarmupSetting,
   maxPoints = 600,
   chains: number[] | null = null,
 ): Promise<TracesResponse> {
   const id = encodeURIComponent(runId)
   return getJson<TracesResponse>(
-    `/api/runs/${id}/traces?warmup_pct=${warmupPct}&max_points=${maxPoints}${chainsParam(chains)}`,
+    `/api/runs/${id}/traces?${warmupParam(warmupPct)}max_points=${maxPoints}${chainsParam(chains)}`,
   )
 }
 
@@ -269,23 +275,23 @@ export function getPriorPredictive(
 
 export function getPriorPosterior(
   runId: string,
-  warmupPct: number,
+  warmupPct: WarmupSetting,
   chains: number[] | null = null,
 ): Promise<PriorPosteriorResponse> {
   const id = encodeURIComponent(runId)
   return getJson<PriorPosteriorResponse>(
-    `/api/runs/${id}/prior-posterior?warmup_pct=${warmupPct}${chainsParam(chains)}`,
+    `/api/runs/${id}/prior-posterior?${warmupParam(warmupPct)}${chainsParam(chains)}`,
   )
 }
 
 export function getDiagnostics(
   runId: string,
-  warmupPct: number,
+  warmupPct: WarmupSetting,
   chains: number[] | null = null,
 ): Promise<DiagnosticsResponse> {
   const id = encodeURIComponent(runId)
   return getJson<DiagnosticsResponse>(
-    `/api/runs/${id}/diagnostics?warmup_pct=${warmupPct}${chainsParam(chains)}`,
+    `/api/runs/${id}/diagnostics?${warmupParam(warmupPct)}${chainsParam(chains)}`,
   )
 }
 

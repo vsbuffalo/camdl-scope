@@ -552,6 +552,7 @@ export function DiagnosticsTab({
   deadChainIds,
   warmupPct,
   onWarmupPct,
+  warmupDeclaredPct,
 }: { runId: string } & ChainControls) {
   const chains = includedChains({ chainIds, excludedChains })
   const { data, isPending, isError, isPlaceholderData } = useDiagnostics(
@@ -589,6 +590,7 @@ export function DiagnosticsTab({
       >
         <WarmupControl
           value={warmupPct}
+          declaredPct={warmupDeclaredPct}
           onChange={onWarmupPct}
           cutoff={data?.warmup_cutoff ?? null}
           nTail={data?.n_tail ?? null}

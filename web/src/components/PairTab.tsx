@@ -29,6 +29,7 @@ export function PairTab({
   deadChainIds,
   warmupPct,
   onWarmupPct,
+  warmupDeclaredPct,
 }: { runId: string } & ChainControls) {
   const [priorXlimMode, setPriorXlimMode] = usePersisted<PriorXlimMode>(
     'pair:xlim-mode',
@@ -145,6 +146,7 @@ export function PairTab({
     >
       <WarmupControl
         value={warmupPct}
+        declaredPct={warmupDeclaredPct}
         onChange={onWarmupPct}
         cutoff={posterior.data?.warmup_cutoff ?? draws.data?.warmup_cutoff ?? null}
         nTail={posterior.data?.n_tail ?? null}

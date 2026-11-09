@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import type { WarmupSetting } from '@/lib/chains'
 import { usePredictChoice } from '@/lib/predict-selection'
 import {
   getCompare,
@@ -29,9 +30,9 @@ export const qk = {
   runs: ['runs'] as const,
   store: ['store'] as const,
   run: (id: string) => ['run', id] as const,
-  posterior: (id: string, warmupPct: number, chains: string) =>
+  posterior: (id: string, warmupPct: WarmupSetting, chains: string) =>
     ['posterior', id, warmupPct, chains] as const,
-  draws: (id: string, warmupPct: number, maxDraws: number, chains: string) =>
+  draws: (id: string, warmupPct: WarmupSetting, maxDraws: number, chains: string) =>
     ['draws', id, warmupPct, maxDraws, chains] as const,
   source: (id: string) => ['source', id] as const,
   modelRender: (id: string) => ['model-render', id] as const,
@@ -41,11 +42,11 @@ export const qk = {
     ['sim-series', id, state, win] as const,
   predictive: (id: string, stream: string, predict: string) =>
     ['predictive', id, stream, predict] as const,
-  traces: (id: string, warmupPct: number, chains: string) =>
+  traces: (id: string, warmupPct: WarmupSetting, chains: string) =>
     ['traces', id, warmupPct, chains] as const,
-  diagnostics: (id: string, warmupPct: number, chains: string) =>
+  diagnostics: (id: string, warmupPct: WarmupSetting, chains: string) =>
     ['diagnostics', id, warmupPct, chains] as const,
-  priorPosterior: (id: string, warmupPct: number, chains: string) =>
+  priorPosterior: (id: string, warmupPct: WarmupSetting, chains: string) =>
     ['prior-posterior', id, warmupPct, chains] as const,
 }
 
@@ -115,7 +116,7 @@ export function useShownPredict(runId: string | undefined): string | null | unde
  *  chains, shared with the Pair / Traces / Diagnostics selection. */
 export function usePosterior(
   runId: string | undefined,
-  warmupPct: number,
+  warmupPct: WarmupSetting,
   chains: number[] | null = null,
 ) {
   return useQuery({
@@ -152,7 +153,7 @@ export function useCompare(
  */
 export function useDraws(
   runId: string | undefined,
-  warmupPct: number,
+  warmupPct: WarmupSetting,
   maxDraws = 1200,
   chains: number[] | null = null,
 ) {
@@ -268,7 +269,7 @@ export function usePredictive(
 /** Per-parameter, per-chain iteration traces for the trace grid. */
 export function useTraces(
   runId: string | undefined,
-  warmupPct: number,
+  warmupPct: WarmupSetting,
   chains: number[] | null = null,
 ) {
   return useQuery({
@@ -303,7 +304,7 @@ export function usePriorPredictive(
  *  pressure) over the retained draws — same warm-up/chain lens as the others. */
 export function usePriorPosterior(
   runId: string | undefined,
-  warmupPct: number,
+  warmupPct: WarmupSetting,
   chains: number[] | null = null,
 ) {
   return useQuery({
@@ -316,7 +317,7 @@ export function usePriorPosterior(
 
 export function useDiagnostics(
   runId: string | undefined,
-  warmupPct: number,
+  warmupPct: WarmupSetting,
   chains: number[] | null = null,
 ) {
   return useQuery({

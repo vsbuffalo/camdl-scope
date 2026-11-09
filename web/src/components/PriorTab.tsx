@@ -262,6 +262,7 @@ export function PriorTab({
   deadChainIds,
   warmupPct,
   onWarmupPct,
+  warmupDeclaredPct,
 }: { runId: string } & ChainControls) {
   const chains = includedChains({ chainIds, excludedChains })
   const { data, isPending, isError } = usePriorPosterior(runId, warmupPct, chains)
@@ -275,6 +276,7 @@ export function PriorTab({
       <Card className="overflow-hidden">
         <WarmupControl
           value={warmupPct}
+          declaredPct={warmupDeclaredPct}
           onChange={onWarmupPct}
           cutoff={data?.warmup_cutoff ?? null}
           nTail={data?.n_tail ?? null}

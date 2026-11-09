@@ -99,6 +99,7 @@ export function PosteriorTab({
   deadChainIds,
   warmupPct,
   onWarmupPct,
+  warmupDeclaredPct,
 }: { runId: string } & ChainControls) {
   const chains = includedChains({ chainIds, excludedChains })
   const { data, isPending, isError, isPlaceholderData } = usePosterior(
@@ -124,6 +125,7 @@ export function PosteriorTab({
     >
       <WarmupControl
         value={warmupPct}
+        declaredPct={warmupDeclaredPct}
         onChange={onWarmupPct}
         cutoff={data?.warmup_cutoff ?? null}
         nTail={data?.n_tail ?? null}

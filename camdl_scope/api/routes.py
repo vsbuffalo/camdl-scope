@@ -131,11 +131,36 @@ def _store() -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _warmup_cutoff(rs: RunState, warmup_pct: int) -> int:
-    """Sweep index that splits warm-up from the retained tail (app.py's rule)."""
+#: The warm-up share used when the run declares none.
+_FALLBACK_WARMUP_PCT = 50
+
+
+def _warmup_cutoff(rs: RunState, warmup_pct: int | None) -> int:
+    """Iteration index that splits warm-up from the retained tail.
+
+    ``warmup_pct`` is the viewer's slider. Without one, the cutoff is the
+    warm-up the run declares (``burn_in``/``warmup`` in its fit.toml), which is
+    the cutoff camdl's own R-hat, ESS and findings were computed at; numbers
+    shown beside camdl's must come from the same draws. Only a run declaring
+    none falls back to half of each chain."""
     lo = rs.min_iter() or 0
     hi = rs.max_iter() or lo
+    if warmup_pct is None:
+        declared = rs.meta.declared_burn_in
+        if declared is not None:
+            return min(max(int(declared), lo), hi)
+        warmup_pct = _FALLBACK_WARMUP_PCT
     return int(lo + (hi - lo) * warmup_pct / 100.0)
+
+
+def _declared_warmup_pct(rs: RunState) -> float | None:
+    """The declared warm-up as a share of the iterations on disk, for placing
+    the slider; ``None`` when the run declares none or has no draws yet."""
+    declared = rs.meta.declared_burn_in
+    lo, hi = rs.min_iter(), rs.max_iter()
+    if declared is None or lo is None or hi is None or hi <= lo:
+        return None
+    return min(max(100.0 * (declared - lo) / (hi - lo), 0.0), 100.0)
 
 
 def _select_chains(rs: RunState, chains: str | None) -> bool:
@@ -159,10 +184,19 @@ def _select_chains(rs: RunState, chains: str | None) -> bool:
 
 
 def _camdl_findings(summary: ChainSummary | None) -> list[FindingGroup]:
-    """camdl's stage findings, aggregated for display. Empty when the stage
-    wrote no summary (a run still sampling)."""
-    if summary is None or not summary.findings:
+    """camdl's stage findings, aggregated for display. Empty only when the
+    stage wrote no summary (a run still sampling). A summary with no findings
+    is camdl's all-clear and is shown as one: treating it as "no verdict"
+    substituted the viewer's own findings, at its own warm-up, under a header
+    that names camdl."""
+    if summary is None:
         return []
+    if not summary.findings:
+        return [FindingGroup(
+            kind="ok", severity="info",
+            headline="No findings — camdl's diagnostics are within its thresholds.",
+            params=[],
+        )]
     return [
         FindingGroup(
             kind=g.kind, severity=g.severity.value,
@@ -572,6 +606,8 @@ def _run_detail(meta: RunMeta, rs: RunState, predict: str | None = None) -> RunD
         dead_chain_ids=dead,
         max_iter=rs.max_iter(),
         target_sweeps=meta.target_sweeps,
+        declared_burn_in=meta.declared_burn_in,
+        declared_warmup_pct=_declared_warmup_pct(rs),
         estimated=list(meta.estimated),
         groups=groups,
         streams=streams,
@@ -942,7 +978,7 @@ def get_mle(run_id: str) -> MleResponse:
 @router.get("/runs/{run_id}/posterior", response_model=PosteriorResponse)
 def get_posterior(
     run_id: str,
-    warmup_pct: int = Query(default=50, ge=0, le=100),
+    warmup_pct: int | None = Query(default=None, ge=0, le=100),
     chains: str | None = Query(default=None),
 ) -> PosteriorResponse:
     """Doc-labelled posterior summary (the forest-plot payload). Params are in
@@ -1069,7 +1105,7 @@ def _prior_curves(
 @router.get("/runs/{run_id}/draws", response_model=DrawsResponse)
 def get_draws(
     run_id: str,
-    warmup_pct: int = Query(default=50, ge=0, le=100),
+    warmup_pct: int | None = Query(default=None, ge=0, le=100),
     max_draws: int = Query(default=1200, ge=50, le=5000),
     chains: str | None = Query(default=None),
 ) -> DrawsResponse:
@@ -1445,7 +1481,7 @@ def get_quantity_scalars(
 @router.get("/runs/{run_id}/traces", response_model=TracesResponse)
 def get_traces(
     run_id: str,
-    warmup_pct: int = Query(default=50, ge=0, le=100),
+    warmup_pct: int | None = Query(default=None, ge=0, le=100),
     max_points: int = Query(default=600, ge=50, le=4000),
     chains: str | None = Query(default=None),
 ) -> TracesResponse:
@@ -1606,7 +1642,7 @@ def get_prior_predictive(
 @router.get("/runs/{run_id}/prior-posterior", response_model=PriorPosteriorResponse)
 def get_prior_posterior(
     run_id: str,
-    warmup_pct: int = Query(default=50, ge=0, le=100),
+    warmup_pct: int | None = Query(default=None, ge=0, le=100),
     chains: str | None = Query(default=None),
 ) -> PriorPosteriorResponse:
     """What the data did to each prior: contraction, movement in prior SDs, and
@@ -1649,7 +1685,7 @@ def get_prior_posterior(
 @router.get("/runs/{run_id}/diagnostics", response_model=DiagnosticsResponse)
 def get_diagnostics(
     run_id: str,
-    warmup_pct: int = Query(default=50, ge=0, le=100),
+    warmup_pct: int | None = Query(default=None, ge=0, le=100),
     chains: str | None = Query(default=None),
 ) -> DiagnosticsResponse:
     """Convergence diagnostics: camdl's authoritative verdict (findings) and
@@ -1697,9 +1733,10 @@ def get_diagnostics(
         cross_chain=_cross_chain(meta),
         particle_health=_particle_health(rs, cutoff),
         ess_unreportable=ess_missing,
+        # camdl's v2 summary carries no stage name; the method names the verdict.
         stage=(
             summ.stage if summ is not None and summ.stage
-            else (reported.stage if reported is not None else None)
+            else ((reported.stage or meta.algorithm) if reported is not None else None)
         ),
         logpost_label=meta.backend.logpost_label,
         ess_per_iter=ess_per_iter, ess_per_sec=ess_per_sec,

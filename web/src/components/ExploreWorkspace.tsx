@@ -23,7 +23,7 @@ import {
   writeDeepLink,
   type RunResolution,
 } from '@/lib/deeplink'
-import { DEFAULT_WARMUP_PCT } from '@/lib/chains'
+import type { WarmupSetting } from '@/lib/chains'
 
 /** The single-fit tab grid — the inner navigation level of the Explore
  *  workspace. Its tab set depends on the fit *kind*: a posterior (sampling) fit
@@ -129,13 +129,15 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
   const onSetExcludedChains = (next: Set<number>) =>
     setExcludedChains(commitExcluded(new Set(next)))
 
-  const [warmupPct, setWarmupPct] = useState<number>(() =>
-    loadJson(warmupKey(run.run_id), DEFAULT_WARMUP_PCT),
+  // `null` until the user moves the slider: the run's declared warm-up, which
+  // is the cutoff camdl's own numbers use.
+  const [warmupPct, setWarmupPct] = useState<WarmupSetting>(() =>
+    loadJson<WarmupSetting>(warmupKey(run.run_id), null),
   )
   useEffect(() => {
-    setWarmupPct(loadJson(warmupKey(run.run_id), DEFAULT_WARMUP_PCT))
+    setWarmupPct(loadJson<WarmupSetting>(warmupKey(run.run_id), null))
   }, [run.run_id])
-  const onWarmupPct = (pct: number) => {
+  const onWarmupPct = (pct: WarmupSetting) => {
     saveJson(warmupKey(run.run_id), pct)
     setWarmupPct(pct)
   }
@@ -149,6 +151,7 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
     deadChainIds: detail.data?.dead_chain_ids ?? [],
     warmupPct,
     onWarmupPct,
+    warmupDeclaredPct: detail.data?.declared_warmup_pct ?? null,
   }
 
   // Ordered as a fit is actually read: the estimates, what the data did to the

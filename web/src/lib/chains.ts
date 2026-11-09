@@ -4,9 +4,14 @@
  * dropped across all of them (a stuck chain is stuck everywhere — unlike
  * warm-up, which each tab owns as a per-view lens).
  */
-/** Discard the first half of each chain unless told otherwise — the
- *  conventional default, and now stated once rather than per tab. */
-export const DEFAULT_WARMUP_PCT = 50
+/**
+ * A warm-up choice: the share of each chain to discard, or `null` for the
+ * warm-up the run declares (its fit.toml `burn_in`). `null` is the default,
+ * because camdl's own R̂, ESS and verdict are computed at that cutoff, and a
+ * view showing them beside numbers from another cutoff contradicts itself.
+ * The server falls back to half of each chain for a run that declares none.
+ */
+export type WarmupSetting = number | null
 
 export interface ChainControls {
   chainIds: number[]
@@ -21,8 +26,10 @@ export interface ChainControls {
   deadChainIds: number[]
   /** The run's warm-up percentage, shared by every tab that summarises draws —
    *  a property of the fit, not of the view looking at it. */
-  warmupPct: number
-  onWarmupPct: (pct: number) => void
+  warmupPct: WarmupSetting
+  onWarmupPct: (pct: WarmupSetting) => void
+  /** Where the declared warm-up sits on the slider, `null` when undeclared. */
+  warmupDeclaredPct: number | null
 }
 
 /** The include-list a query hook wants: ascending kept ids, or `null` for all.

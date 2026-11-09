@@ -710,3 +710,35 @@ def test_store_rescan_is_idempotent_and_keeps_serving(client):
     assert r.status_code == 200
     # The previous snapshot stays served while a new walk runs.
     assert r.json()["scan"]["state"] in {"scanning", "done"}
+
+
+def _set_burn_in(tmp_path, burn_in: int) -> None:
+    toml = tmp_path / RUN_DIR / "fit.toml.original"
+    toml.write_text(toml.read_text().replace("burn_in = 300", f"burn_in = {burn_in}"))
+
+
+def test_warm_up_defaults_to_the_declared_burn_in(client, tmp_path):
+    """camdl computes R-hat, ESS and its verdict after the fit's declared
+    burn_in. A viewer cutting elsewhere by default reported a different ESS
+    beside camdl's (bulk-ESS 388 at half of each chain, where camdl, at
+    burn_in 1000 of 3000, reported 473 and a converged fit)."""
+    _set_burn_in(tmp_path, 150)
+    detail = client.get(f"/api/runs/{RUN_DIR}").json()
+    assert detail["declared_burn_in"] == 150
+    for path in ("diagnostics", "posterior", "traces", "prior-posterior"):
+        body = client.get(f"/api/runs/{RUN_DIR}/{path}").json()
+        assert body["warmup_cutoff"] == 150, path
+        assert body.get("warmup_pct") is None, path
+    # The slider still overrides it.
+    moved = client.get(f"/api/runs/{RUN_DIR}/diagnostics", params={"warmup_pct": 50}).json()
+    assert moved["warmup_cutoff"] != 150 and moved["warmup_pct"] == 50
+
+
+def test_camdls_empty_verdict_is_its_all_clear_not_ours(client):
+    """A stage summary with no findings is camdl's verdict that the fit is
+    clean. It used to be read as "no verdict", and the viewer's own findings
+    (at its own warm-up) were shown under the "camdl · verdict" header."""
+    body = client.get(f"/api/runs/{RUN_DIR}/diagnostics").json()
+    assert body["source"] == "camdl"
+    assert [(f["kind"], f["severity"]) for f in body["findings"]] == [("ok", "info")]
+    assert "camdl" in body["findings"][0]["headline"]

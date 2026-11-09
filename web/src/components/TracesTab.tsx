@@ -160,6 +160,7 @@ export function TracesTab({
   deadChainIds,
   warmupPct,
   onWarmupPct,
+  warmupDeclaredPct,
 }: { runId: string } & ChainControls) {
   const chains = includedChains({ chainIds, excludedChains })
   const { data, isPending, isError, isPlaceholderData } = useTraces(
@@ -209,6 +210,7 @@ export function TracesTab({
     >
       <WarmupControl
         value={warmupPct}
+        declaredPct={warmupDeclaredPct}
         onChange={onWarmupPct}
         cutoff={data?.warmup_cutoff ?? null}
         nTail={null}
