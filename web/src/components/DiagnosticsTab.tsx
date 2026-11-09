@@ -427,8 +427,11 @@ function EfficiencyStrip({ data }: { data: DiagnosticsResponse }) {
         <span className="font-mono text-[11px] text-amber-600">
           not reportable — no ESS for{' '}
           <span className="font-medium">{unreportable.slice(0, 3).join(', ')}</span>
-          {unreportable.length > 3 && ` (+${unreportable.length - 3} more)`} (chains
-          disagree)
+          {unreportable.length > 3 && ` (+${unreportable.length - 3} more)`}{' '}
+          {/* Only an older camdl left ESS blank because chains disagreed; the
+              current one never withholds bulk-ESS for a high R̂ (camdl
+              4e418b17), so a blank there is a refusal, not that diagnosis. */}
+          {data.stats_vintage === 'classic' ? '(chains disagree)' : '(camdl reported none)'}
         </span>
       )}
       {data.ess_per_iter != null && (
@@ -449,12 +452,39 @@ function EfficiencyStrip({ data }: { data: DiagnosticsResponse }) {
   )
 }
 
+/** Column heads by what the numbers are. camdl changed the statistics behind
+ *  `rhat` / `ess` without changing the keys, and a stored fit keeps the older
+ *  ones, so the head says which a reader is looking at. */
+const VEHTARI = 'Vehtari, Gelman, Simpson, Carpenter & Bürkner (2021), Bayesian Analysis 16(2):667–718'
+const HEAD = {
+  rank_bulk: {
+    rhat: 'R̂ rank',
+    rhatTitle: `max of rank-normalized and folded split-R̂ — ${VEHTARI}`,
+    ess: 'bulk-ess',
+    essTitle: `bulk effective sample size — ${VEHTARI}`,
+  },
+  classic: {
+    rhat: 'R̂ classic',
+    rhatTitle: 'Gelman–Rubin R̂, as written by camdl before 2026-08-22 (no rank normalization)',
+    ess: 'ess Σchain',
+    essTitle: 'sum of per-chain ESS, as written by camdl before 2026-08-22; left blank when chains disagreed',
+  },
+} as const
+function vintageKey(v: string | null): keyof typeof HEAD {
+  return v === 'classic' ? 'classic' : 'rank_bulk'
+}
+
 /** Dense, mono, financial-register table — one row per parameter. */
 function ParamTable({
   params,
   perChainCols,
+  vintage,
 }: {
   params: ParamDiagnostic[]
+  /** Which R̂ / ESS the numbers are: camdl's current rank-normalized R̂ and
+   *  bulk-ESS, its older classic R̂ and summed ESS (same JSON keys), or `null`
+   *  for the live arviz estimate, which is rank-normalized / bulk. */
+  vintage: string | null
   /** Per-chain ESS columns: `at` is the position in `ess_per_chain`, `id` the
    *  chain it belongs to (camdl's 1-based name) — they are not the same. */
   perChainCols: { at: number; id: number }[]
@@ -467,8 +497,12 @@ function ParamTable({
         <thead>
           <tr className="border-b border-neutral-200 text-[9px] uppercase tracking-wider text-neutral-400">
             <th className="px-2 py-1.5 text-left font-medium">parameter</th>
-            <th className="px-2 py-1.5 text-right font-medium">R&#x0302;</th>
-            <th className="px-2 py-1.5 text-right font-medium">ess</th>
+            <th className="px-2 py-1.5 text-right font-medium" title={HEAD[vintageKey(vintage)].rhatTitle}>
+              {HEAD[vintageKey(vintage)].rhat}
+            </th>
+            <th className="px-2 py-1.5 text-right font-medium" title={HEAD[vintageKey(vintage)].essTitle}>
+              {HEAD[vintageKey(vintage)].ess}
+            </th>
             <th className="px-2 py-1.5 text-right font-medium">tail-ess</th>
             <th className="px-2 py-1.5 text-right font-medium">mcse</th>
             <th className="px-2 py-1.5 text-right font-medium">sep</th>
@@ -497,8 +531,15 @@ function ParamTable({
                     {p.name}
                   </span>
                 </td>
-                <td className={cn('px-2 py-1.5 text-right', rhatClass(p.rhat))}>
-                  {fmtRhat(p.rhat)}
+                <td
+                  className={cn('px-2 py-1.5 text-right', rhatClass(p.rhat))}
+                  title={p.rhat == null && p.rhat_refused ? `camdl reported no R̂: ${p.rhat_refused.replace(/_/g, ' ')}` : undefined}
+                >
+                  {p.rhat == null && p.rhat_refused ? (
+                    <span className="text-neutral-400">{p.rhat_refused.replace(/_/g, ' ')}</span>
+                  ) : (
+                    fmtRhat(p.rhat)
+                  )}
                 </td>
                 <td className={cn('px-2 py-1.5 text-right', essClass(p.ess_bulk))}>
                   {fmtEss(p.ess_bulk)}
@@ -684,7 +725,11 @@ export function DiagnosticsTab({
         {data && hasContent && (
           <>
             <SectionLabel>per-parameter convergence</SectionLabel>
-            <ParamTable params={data.params} perChainCols={perChainCols} />
+            <ParamTable
+              params={data.params}
+              perChainCols={perChainCols}
+              vintage={data.stats_vintage ?? null}
+            />
 
             {data.map_loglik != null && (
               <div className="border-t border-neutral-100 px-3 py-2">

@@ -333,8 +333,24 @@ def read_chain_summary(seed_dir: Path) -> ChainSummary | None:
         if isinstance(epc_raw, dict) else {}
     )
     map_params = _fdict("map_params") or None
+    vintage = (
+        "rank_bulk"
+        if s.get("schema") or "rhat_bulk" in s or "rhat_classic" in s
+        else "classic"
+    )
+    refused_raw = s.get("rhat_not_reported") or {}
+    refused = (
+        {
+            str(k): (v if isinstance(v, str) else str((v or {}).get("type", v)))
+            for k, v in refused_raw.items()
+        }
+        if isinstance(refused_raw, dict) else {}
+    )
     return ChainSummary(
-        stage=str(s.get("stage", "")),
+        # camdl's current summaries name the method, not a stage.
+        stage=str(s.get("stage") or s.get("method") or ""),
+        stats_vintage=vintage,
+        rhat_refused=refused,
         n_chains=int(s.get("n_chains", 0) or 0),
         rhat=_fdict("rhat"),
         ess=ess,

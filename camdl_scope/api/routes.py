@@ -1744,6 +1744,7 @@ def get_diagnostics(
         ),
         logpost_label=meta.backend.logpost_label,
         ess_per_iter=ess_per_iter, ess_per_sec=ess_per_sec,
+        stats_vintage=(summ.stats_vintage if summ is not None else None),
     )
     if rs.max_iter() is None:
         return DiagnosticsResponse(
@@ -1787,6 +1788,7 @@ def get_diagnostics(
             mean=_fnum(pd.mean), sd=_fnum(pd.sd),
             sep=_finite_or_none(diag.chain_separation.get(p)),
             ess_per_chain=[_fnum(x) for x in epc],
+            rhat_refused=(summ.rhat_refused.get(p) if summ is not None else None),
         ))
 
     mixing = None

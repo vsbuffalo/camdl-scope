@@ -233,6 +233,8 @@ def _summary(rng: np.random.Generator) -> dict:
     ess = {p: round(float(rng.uniform(450, 950)), 0) for p in PARAM_NAMES}
     epc = {p: [round(e * 0.48, 0), round(e * 0.52, 0)] for p, e in ess.items()}
     return {
+        # camdl tags each summary with the contract its numbers follow (gh#728).
+        "schema": "camdl.fit-summary/v2",
         "stage": "posterior",
         "n_chains": N_CHAINS,
         "rhat": rhat,

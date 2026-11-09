@@ -867,6 +867,8 @@ class ParamDiagnostic(BaseModel):
     sd: float
     sep: float | None = None
     ess_per_chain: list[float] = []
+    #: camdl's reason this parameter has no R-hat (``non_finite_rhat``, …).
+    rhat_refused: str | None = None
 
 
 class ChainMixing(BaseModel):
@@ -965,6 +967,10 @@ class DiagnosticsResponse(BaseModel):
     # (``warmup_cutoff`` then is that iteration).
     warmup_pct: int | None = None
     warmup_cutoff: int
+    # Which R-hat / ESS camdl's numbers are (see ChainSummary.stats_vintage):
+    # "rank_bulk", "classic", or None when no camdl summary backs them (the
+    # live estimate, which is arviz's rank-normalized R-hat and bulk-ESS).
+    stats_vintage: str | None = None
     n_tail: int
     n_chains: int  # chains actually diagnosed (excludes any still warming up)
     n_chains_warming: int = 0  # chains dropped for lacking post-warm-up draws

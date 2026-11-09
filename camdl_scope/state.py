@@ -521,6 +521,16 @@ class ChainSummary:
     # on runs predating the field; ``wall_time_secs`` is None when unrecorded.
     thin: int = 1
     wall_time_secs: float | None = None
+    # Which statistics ``rhat`` and ``ess`` hold. camdl changed them under the
+    # same keys (camdl 4e418b17, 2026-08-22): "rank_bulk" is max(rank-normalized,
+    # folded) split-R-hat and bulk-ESS (Vehtari et al. 2021), never withheld for
+    # a high R-hat; "classic" is Gelman-Rubin R-hat and summed per-chain ESS,
+    # left blank when chains disagreed. Read from the summary's ``schema`` tag,
+    # else from the keys only the newer writer emits.
+    stats_vintage: str = "rank_bulk"
+    # camdl's reason a parameter has no R-hat (``rhat_not_reported``), e.g.
+    # ``non_finite_rhat``. Empty on summaries that predate the field.
+    rhat_refused: dict[str, str] = field(default_factory=dict)
 
     @property
     def per_chain_acceptance(self) -> list[float] | None:

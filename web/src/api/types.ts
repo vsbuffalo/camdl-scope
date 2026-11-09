@@ -727,6 +727,8 @@ export interface components {
             warmup_pct?: number | null;
             /** Warmup Cutoff */
             warmup_cutoff: number;
+            /** Stats Vintage */
+            stats_vintage?: string | null;
             /** N Tail */
             n_tail: number;
             /** N Chains */
@@ -1185,6 +1187,8 @@ export interface components {
              * @default []
              */
             ess_per_chain: number[];
+            /** Rhat Refused */
+            rhat_refused?: string | null;
         };
         /**
          * ParamFamily

@@ -809,3 +809,31 @@ def test_a_single_run_folder_keeps_the_folder_name_as_its_id(tmp_path):
     _seed_leaf(run, 4, "r0", 1_000)
     (m,) = ingest.discover_runs(tmp_path / "fits")
     assert m.run_id == "fit_r0-84761258" and m.seed == 4 and m.folder_default
+
+
+def _summary_with(tmp_path: Path, extra: dict) -> "ingest.ChainSummary":
+    seed = tmp_path / "seed_1"
+    seed.mkdir(exist_ok=True)
+    (seed / "pgas_summary.json").write_text(json.dumps(
+        {"n_chains": 2, "rhat": {"a": 1.01}, "ess": {"a": 400.0}, **extra}))
+    return ingest.read_chain_summary(seed)
+
+
+def test_summary_says_which_rhat_and_ess_it_holds(tmp_path):
+    """camdl changed what ``rhat``/``ess`` hold without changing the keys
+    (camdl-scope#7): rank-normalized R-hat and bulk-ESS since 2026-08-22,
+    classic R-hat and summed ESS before. The schema tag marks the newer
+    contract; untagged summaries from between the change and the tag carry
+    rhat_bulk/rhat_classic, which only the newer writer emits."""
+    assert _summary_with(tmp_path, {"schema": "camdl.fit-summary/v2"}).stats_vintage == "rank_bulk"
+    assert _summary_with(tmp_path, {"rhat_classic": {"a": 1.0}}).stats_vintage == "rank_bulk"
+    assert _summary_with(tmp_path, {}).stats_vintage == "classic"
+
+
+def test_summary_carries_camdls_reason_for_a_missing_rhat(tmp_path):
+    s = _summary_with(tmp_path, {
+        "schema": "camdl.fit-summary/v2", "method": "pgas",
+        "rhat_not_reported": {"b": "non_finite_rhat"},
+    })
+    assert s.rhat_refused == {"b": "non_finite_rhat"}
+    assert s.stage == "pgas"  # the method names the stage when no stage is written

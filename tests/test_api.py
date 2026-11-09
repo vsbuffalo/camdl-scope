@@ -751,3 +751,9 @@ def test_predictive_carries_the_fits_convergence(client):
     body = client.get(f"/api/runs/{RUN_DIR}/predictive/cases").json()
     assert body["rhat_max"] == pytest.approx(1.01)
     assert body["ess_min"] == pytest.approx(480)
+
+
+def test_diagnostics_say_which_rhat_and_ess_they_are(client):
+    """The table's R-hat / ESS head depends on it (camdl-scope#7)."""
+    body = client.get(f"/api/runs/{RUN_DIR}/diagnostics").json()
+    assert body["stats_vintage"] == "rank_bulk"
