@@ -14,7 +14,6 @@ for the unit suite.
 
 from __future__ import annotations
 
-import importlib
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -80,20 +79,41 @@ def test_missing_bundle_explains_itself_at_root(tmp_path, monkeypatch):
 
     monkeypatch.setenv("CAMDL_SCOPE_STORE", str(tmp_path))
     monkeypatch.setenv("CAMDL_SCOPE_WEB_DIST", str(tmp_path / "no-bundle-here"))
-    # The static mount is decided at import, so the module must be re-executed;
-    # the env override survives that (a patched global would not).
-    fresh = importlib.reload(app_mod)
-    try:
-        assert fresh._WEB_DIST is None
-        client = TestClient(fresh.app)
-        r = client.get("/")
-        assert r.status_code == 503
-        assert "api only" in r.text.lower()
-        # The API stays available — that distinction is the whole point.
-        assert client.get("/api/health").status_code == 200
-    finally:
-        monkeypatch.delenv("CAMDL_SCOPE_WEB_DIST", raising=False)
-        importlib.reload(app_mod)  # leave the module as the suite expects
+    client = TestClient(app_mod.app)
+    r = client.get("/")
+    assert r.status_code == 503
+    assert "api only" in r.text.lower()
+    # The API stays available — that distinction is the whole point.
+    assert client.get("/api/health").status_code == 200
+
+
+def test_bundle_is_found_per_request_not_at_import(tmp_path, monkeypatch):
+    """`vite build` empties web/dist before writing it. A server that looked
+    for the bundle once answered `/` with 404 during and after such a window
+    while /api stayed 200, and one started before the first build never served
+    the UI at all. Each request must see the bundle as it is now."""
+    import shutil
+
+    from fastapi.testclient import TestClient
+
+    import camdl_scope.api.app as app_mod
+
+    dist = tmp_path / "dist"
+    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(tmp_path))
+    monkeypatch.setenv("CAMDL_SCOPE_WEB_DIST", str(dist))
+    client = TestClient(app_mod.app)
+
+    assert client.get("/").status_code == 503  # started before any build
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html>built")
+    r = client.get("/")
+    assert r.status_code == 200 and "built" in r.text  # picked up, no restart
+    shutil.rmtree(dist)  # the rebuild window
+    assert client.get("/").status_code == 503
+    assert client.get("/api/health").status_code == 200
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html>rebuilt")
+    assert "rebuilt" in client.get("/").text
 
 
 def test_build_hook_packages_the_bundle_into_the_wheel():

@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Receive, Scope, Send
 
 _log = logging.getLogger("camdl_scope")
 
@@ -58,8 +59,6 @@ def _find_web_dist() -> Path | None:
             return p
     return None
 
-
-_WEB_DIST = _find_web_dist()
 
 #: Shown at ``/`` when there is no bundle, so the failure explains itself
 #: instead of surfacing as a bare 404 (or as "the server hangs").
@@ -130,41 +129,58 @@ from .routes import router  # noqa: E402  (import here: see ordering note above)
 app.include_router(router)
 
 
-# Serve the built SPA at the root when this install has one. A missing bundle is
-# normal in `make dev` (Vite serves the frontend and proxies /api here), but for
-# an installed `camdl-scope` it means the UI is simply absent — which used to
-# surface as an unexplained 404 at `/`. Say so, in the log and at `/`.
-if _WEB_DIST is not None:
-    app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="web")
-else:
-    _searched = ", ".join(str(p) for p in _web_candidates())
-    _log.warning(
-        "camdl-scope: no frontend bundle found (searched: %s) — serving the API "
-        "only; / will explain how to get the UI.",
-        _searched,
+# Serve the built SPA at the root. The bundle is looked up on every request,
+# not once at import: `vite build` empties web/dist before writing it, and a
+# bundle found at startup and then rebuilt (or one built after the server
+# started) must not leave `/` answering 404 while /api keeps working. When
+# there is no bundle at that moment, `/` says so with a 503 rather than 404ing.
+# A missing bundle is normal in `make dev` (Vite serves the frontend and proxies
+# /api here), so it is not a reason to refuse to start.
+
+
+def _no_bundle_response() -> HTMLResponse:
+    """Explain the missing UI rather than 404-ing at the root."""
+    return HTMLResponse(
+        "<!doctype html><meta charset=utf-8>"
+        "<title>camdl-scope — API only</title>"
+        '<body style="font:14px/1.6 system-ui,sans-serif;max-width:46rem;'
+        'margin:3rem auto;padding:0 1rem;color:#171717">'
+        f"<h1 style='font-size:1.1rem'>camdl-scope is running (API only)</h1>"
+        f"<p>{_NO_BUNDLE_MESSAGE}</p>"
+        "<p>The JSON API works: try "
+        "<a href='/api/health'><code>/api/health</code></a>.</p>"
+        "<p>If the frontend is being rebuilt, reload when the build finishes. "
+        "To get the browser UI, reinstall from a source checkout with the "
+        "frontend built:</p>"
+        "<pre style='background:#f5f5f5;padding:.75rem;border-radius:4px;"
+        "overflow-x:auto'>git clone https://github.com/vsbuffalo/camdl-scope\n"
+        "cd camdl-scope/web &amp;&amp; npm install &amp;&amp; npm run build\n"
+        "uv tool install --force --editable ..</pre>"
+        "<p style='color:#737373'>Installing from git builds the bundle "
+        "automatically when Node.js is available; a wheel built with "
+        "<code>CAMDL_SCOPE_SKIP_WEB_BUILD=1</code> has no UI by design.</p>"
+        "</body>",
+        status_code=503,
     )
 
-    @app.get("/", include_in_schema=False)
-    def _no_bundle() -> HTMLResponse:
-        """Explain the missing UI rather than 404-ing at the root."""
-        return HTMLResponse(
-            "<!doctype html><meta charset=utf-8>"
-            "<title>camdl-scope — API only</title>"
-            '<body style="font:14px/1.6 system-ui,sans-serif;max-width:46rem;'
-            'margin:3rem auto;padding:0 1rem;color:#171717">'
-            f"<h1 style='font-size:1.1rem'>camdl-scope is running (API only)</h1>"
-            f"<p>{_NO_BUNDLE_MESSAGE}</p>"
-            "<p>The JSON API works: try "
-            "<a href='/api/health'><code>/api/health</code></a>.</p>"
-            "<p>To get the browser UI, reinstall from a source checkout with the "
-            "frontend built:</p>"
-            "<pre style='background:#f5f5f5;padding:.75rem;border-radius:4px;"
-            "overflow-x:auto'>git clone https://github.com/vsbuffalo/camdl-scope\n"
-            "cd camdl-scope/web &amp;&amp; npm install &amp;&amp; npm run build\n"
-            "uv tool install --force --editable ..</pre>"
-            "<p style='color:#737373'>Installing from git builds the bundle "
-            "automatically when Node.js is available; a wheel built with "
-            "<code>CAMDL_SCOPE_SKIP_WEB_BUILD=1</code> has no UI by design.</p>"
-            "</body>",
-            status_code=503,
-        )
+
+class _LiveWeb:
+    """ASGI app serving whichever bundle :func:`_find_web_dist` finds now."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        dist = _find_web_dist()
+        if dist is None or scope["type"] != "http":
+            await _no_bundle_response()(scope, receive, send)
+            return
+        static = StaticFiles(directory=str(dist), html=True, check_dir=False)
+        await static(scope, receive, send)
+
+
+if _find_web_dist() is None:
+    _log.warning(
+        "camdl-scope: no frontend bundle found yet (searched: %s) — / will "
+        "explain until one is built; /api works now.",
+        ", ".join(str(p) for p in _web_candidates()),
+    )
+
+app.mount("/", _LiveWeb(), name="web")
