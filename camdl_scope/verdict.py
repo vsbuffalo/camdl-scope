@@ -435,10 +435,18 @@ def leaf_rows(folder: Path) -> list[LeafRow]:
                 rid = json.loads((sd / "run.json").read_text()).get("run_id")
             except (OSError, json.JSONDecodeError, AttributeError):
                 rid = None
+            verdict = leaf_verdict(sd, ask_camdl=False)
+            status = read_run_status(sd)
+            # camdl's end-of-run report is authoritative about a failure: a
+            # leaf that failed during init keeps ``status = "running"`` in its
+            # run.json (seen with camdl 0.1.0+0553b5a1) while events.jsonl
+            # records the failed method_report.
+            if verdict.kind == "failed":
+                status = "failed"
             rows.append(LeafRow(
                 leaf=f"{md.name}/{sd.name}", method=_method_of(sd),
                 run_id=rid if isinstance(rid, str) else None,
-                status=read_run_status(sd), verdict=leaf_verdict(sd, ask_camdl=False),
+                status=status, verdict=verdict,
             ))
     return rows
 

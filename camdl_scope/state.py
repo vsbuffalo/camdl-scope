@@ -89,7 +89,7 @@ DIAGNOSTIC_META: dict[str, tuple[str, str, str, tuple[float, float] | None]] = {
         "mean",
         "Average Metropolis acceptance of the parameter block. Far below "
         "target wastes proposals; far above means steps too small to explore.",
-        (0.6, 0.95),
+        None,
     ),
     "step_size": (
         "step size",
@@ -130,7 +130,7 @@ DIAGNOSTIC_META: dict[str, tuple[str, str, str, tuple[float, float] | None]] = {
         "accept",
         "mean",
         "Metropolis acceptance rate.",
-        (0.15, 0.50),
+        None,
     ),
 }
 

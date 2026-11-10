@@ -270,6 +270,10 @@ def _parse_band(message: str) -> str:
     return f"healthy {float(m.group(1)):g}–{float(m.group(2)):g}%"
 
 
+#: Trace columns that hold a Metropolis acceptance rate.
+ACCEPTANCE_COLUMNS = frozenset({"accepted", "accept_stat"})
+
+
 def camdl_acceptance_band(findings: list[Finding]) -> tuple[float, float] | None:
     """The healthy acceptance band camdl published, as fractions, or ``None``.
 
@@ -716,6 +720,10 @@ def _sampler_telemetry_panel(run: RunState, warmup: int) -> SamplerPanel | None:
         return None
     cols.sort(key=lambda c: (c not in DIAGNOSTIC_META, c))
 
+    # An acceptance column's band is camdl's, from its finding, or absent.
+    camdl_band = (
+        camdl_acceptance_band(run.summary.findings) if run.summary is not None else None
+    )
     columns: list[PanelColumn] = []
     for c in cols:
         meta = DIAGNOSTIC_META.get(c)
@@ -724,7 +732,7 @@ def _sampler_telemetry_panel(run: RunState, warmup: int) -> SamplerPanel | None:
                 key=c,
                 label=meta[0] if meta else c,
                 note=meta[2] if meta else None,
-                band=meta[3] if meta else None,
+                band=camdl_band if c in ACCEPTANCE_COLUMNS else (meta[3] if meta else None),
                 is_fraction=c in FRACTION_COLUMNS,
             )
         )
