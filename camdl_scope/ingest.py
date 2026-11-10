@@ -65,7 +65,8 @@ import time
 
 from .docs import ModelDocs
 from .schema import ObsSchema
-from .verdict import parse_number
+from . import fitmeta
+from .verdict import UnsupportedSchema, parse_number
 from .state import (
     AUX_COLUMNS,
     ITER_COL,
@@ -209,19 +210,15 @@ _SEVERITY_MAP = {
 }
 
 
-def _read_findings(
-    seed_dir: Path, *, chain_ids_are_one_based: bool = False
-) -> list[Finding]:
+def _read_findings(seed_dir: Path) -> list[Finding]:
     """Parse ``diagnostics.json`` — a list of typed, severity-tagged findings —
     or ``[]`` if absent/unreadable. Each entry's ``kind`` is an internally-tagged
     object ``{"type": ..., <payload>}``; we split the tag from the payload.
 
-    A payload ``chain_id`` is normalized to 1-based, so downstream code can
-    compare it with the ``chain_N/`` directory, the chain selector and camdl's
-    own finding message without knowing which camdl wrote the store. Older camdl
-    numbered this field from 0 while numbering everything else from 1; the
-    caller passes ``chain_ids_are_one_based=True`` once the store declares the
-    vintage that fixed it."""
+    A payload ``chain_id`` is kept as written. camdl counts chains from 0
+    everywhere (its message, ``chain_id`` here and in ``events.jsonl``,
+    ``chain_starts.tsv`` and the ``chain_N/`` directories), so it already names
+    a chain the way the directories do."""
     try:
         raw = json.loads((seed_dir / "diagnostics.json").read_text())
     except (OSError, json.JSONDecodeError):
@@ -239,9 +236,6 @@ def _read_findings(
             detail = {k: v for k, v in kind.items() if k != "type"}
         else:
             ktype, param, detail = str(kind or "unknown"), None, {}
-        cid = detail.get("chain_id")
-        if not chain_ids_are_one_based and type(cid) is int:
-            detail["chain_id"] = cid + 1
         out.append(
             Finding(
                 kind=ktype,
@@ -303,15 +297,7 @@ def read_chain_summary(seed_dir: Path) -> ChainSummary | None:
     MAP) with the typed findings list — camdl's own verdict, computed with its
     own thresholds, so the watcher and ``camdl fit summary`` agree."""
     found = _read_summary_json(seed_dir)
-    # camdl tags each summary with ``schema`` from the release that also made
-    # ``bad_init.chain_id`` 1-based, so the tag is the vintage marker: with it,
-    # take chain ids as written; without it, shift them into agreement with the
-    # ``chain_N/`` directories. A leaf that wrote findings but no summary is
-    # read as the older vintage, which is what every such leaf on disk is.
-    findings = _read_findings(
-        seed_dir,
-        chain_ids_are_one_based=isinstance(found, dict) and bool(found.get("schema")),
-    )
+    findings = _read_findings(seed_dir)
     if found is None:
         if not findings:
             return None
@@ -699,9 +685,9 @@ def _read_meta(run_dir: Path) -> dict:
 
 def _fit_toml_stem(meta: dict, run_dir: Path) -> str:
     """The config stem: ``fit.meta.json`` records the originating
-    ``fit_toml_path`` (e.g. ``natbc_dens_hierk_nc_pgas_long.toml``), the most
+    config path (``source_config``, or ``fit_toml_path`` in a version 1 record; e.g. ``natbc_dens_hierk_nc_pgas_long.toml``), the most
     reliable source. Fall back to the run-dir name prefix before the hash."""
-    ftp = meta.get("fit_toml_path", "")
+    ftp = fitmeta.config_ref(meta)
     if ftp:
         return Path(ftp).stem
     name = run_dir.name
@@ -749,7 +735,7 @@ def _mle_run_meta(run_dir: Path, mle_seed: Path) -> RunMeta:
     ``chain_paths`` is empty since there are no draws."""
     meta = _read_meta(run_dir)
     toml = _read_fit_toml(run_dir)
-    model_path = meta.get("model_path", "")
+    model_path = fitmeta.model_ref(meta)
     model = Path(model_path).stem if model_path else run_dir.name
 
     config = _read_algorithm_config(mle_seed)
@@ -894,7 +880,7 @@ def _posterior_run_meta(
     meta = _read_meta(run_dir)
     toml = _read_fit_toml(run_dir)
 
-    model_path = meta.get("model_path", "")
+    model_path = fitmeta.model_ref(meta)
     model = Path(model_path).stem if model_path else run_dir.name
     estimated = list(meta.get("estimated", []))
 
@@ -1279,19 +1265,18 @@ def _resolve_ir_for_param(
 def _model_file(run_dir: Path, meta_json: dict) -> Path:
     """The model ``.camdl`` to parse for IR priors: the leaf-archived copy
     (``model.camdl.original``, gh#353 — path-independent and always present on
-    recent fits) when available, else the recorded ``model_path`` resolved
-    against the project root. The raw ``model_path`` is stored *relative* (e.g.
-    ``fits/../models/m.camdl``), so reading it as-is fails from any other CWD —
-    which silently dropped every model-declared prior to Flat."""
+    recent fits) when available, else the live source the record names, resolved
+    by the rule of its ``schema_version`` (:mod:`camdl_scope.fitmeta`). Reading a
+    recorded relative path as-is fails from any other CWD, which silently
+    dropped every model-declared prior to Flat."""
     archived = run_dir / "model.camdl.original"
     if archived.is_file():
         return archived
-    mp = Path(meta_json.get("model_path", ""))
-    if not str(mp) or mp.is_absolute():
-        return mp
-    store = run_dir.parent
-    root = store.parent.parent if store.name == "fits" else store.parent
-    return root / mp
+    try:
+        live = fitmeta.source_model_path(meta_json, run_dir, run_dir.parent)
+    except UnsupportedSchema:
+        live = None
+    return live if live is not None else Path("")
 
 
 def extract_priors(meta: RunMeta) -> dict[str, PriorSpec]:
