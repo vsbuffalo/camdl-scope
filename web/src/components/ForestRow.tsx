@@ -2,26 +2,21 @@ import type { ParamPosterior } from '@/api/client'
 import { Description } from '@/components/Description'
 import { MarginalDensity } from '@/components/MarginalDensity'
 import { fmtEss, fmtRhat, fmtValue } from '@/lib/format'
+import { statusTextClass } from '@/lib/convergence'
 
-// Convergence signal thresholds — the P&L coding for the diagnostic columns.
-const RHAT_HIGH = 1.1 // > this reads red (elevated, suspect)
-const RHAT_OK = 1.05 // <= this reads muted green (healthy)
-const ESS_LOW = 100 // < this reads amber (thin effective sample)
 const DENSITY_HEIGHT = 66
 
-/** Two-sided color for R̂: healthy green / neutral / elevated red. */
-function rhatClass(rhat: number | null | undefined): string {
-  if (rhat == null) return 'text-neutral-400'
-  if (rhat > RHAT_HIGH) return 'text-red-600 font-medium'
-  if (rhat <= RHAT_OK) return 'text-emerald-600'
-  return 'text-neutral-500'
+/** R̂ colour is camdl's: the status the API read from its findings and
+ *  verdict (warn / error where camdl flagged this parameter, else neutral). The
+ *  number is shown either way; no bar is applied to it here. */
+function rhatClass(param: ParamPosterior): string {
+  if (param.rhat == null && param.rhat_text == null) return 'text-neutral-400'
+  return statusTextClass(param.rhat_status)
 }
 
-/** ESS color: amber when thin, muted neutral when healthy. */
-function essClass(ess: number | null | undefined): string {
-  if (ess == null) return 'text-neutral-400'
-  if (ess < ESS_LOW) return 'text-amber-600'
-  return 'text-neutral-400'
+/** A non-finite R̂ is shown as camdl spells it (inf, NaN), not as a blank. */
+function rhatText(param: ParamPosterior): string {
+  return param.rhat_text ?? fmtRhat(param.rhat)
 }
 
 /**
@@ -103,10 +98,10 @@ export function ForestRow({
             </div>
           </div>
           <div className="shrink-0 whitespace-nowrap text-right font-mono text-[11px] font-medium leading-tight tabular-nums sm:w-28">
-            <div className={rhatClass(param.rhat)}>
-              R&#x0302; {fmtRhat(param.rhat)}
+            <div className={rhatClass(param)}>
+              R&#x0302; {rhatText(param)}
             </div>
-            <div className={essClass(param.ess)}>ESS {fmtEss(param.ess)}</div>
+            <div className="text-neutral-400">ESS {fmtEss(param.ess)}</div>
           </div>
         </div>
       </div>

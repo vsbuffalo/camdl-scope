@@ -100,8 +100,14 @@ link to hand over; the chain-link button beside the run id copies it.
   by scenario.
 - **Traces** — per-parameter and log-posterior traces, all chains overlaid, with
   an axis-trimming warm-up control.
-- **Diagnostics** — camdl's authoritative end-of-stage verdict, or a synthesized
-  live one while sampling; per-chain mixing and a per-parameter R̂ / ESS table.
+- **Diagnostics** — camdl's verdict on the run, read from what camdl persisted
+  (`events.jsonl`, `diagnostics.json`) and never recomputed: the dashboard has
+  no convergence threshold of its own. A run camdl has not assessed (still
+  sampling, or written before camdl persisted its verdict) says so. Every
+  method leaf of the folder is listed with its own status and verdict, failed
+  and running ones included. Per-chain mixing and a per-parameter R̂ / ESS
+  table show the numbers; a number is coloured only where camdl flagged that
+  parameter, and a non-finite R̂ reads `inf` or `NaN`.
 - **Source** — the syntax-highlighted `.camdl` model and `fit.toml`.
 
 **Compare models** — select fits that carry a `prequential.json` and compare
@@ -121,7 +127,7 @@ root — the 'scope never generates anything.
 
 | Run this | Artifacts it writes | Tabs it lights up |
 |---|---|---|
-| `camdl fit run <fit.toml>` | `chain_*/trace.tsv`, `diagnostics.json`, `<stage>_summary.json`, `model.render.json`, `model.graph.json` | Posterior, Pair, Traces, Diagnostics, Model |
+| `camdl fit run <fit.toml>` | `chain_*/trace.tsv`, `diagnostics.json`, `events.jsonl`, `<stage>_summary.json`, `model.render.json`, `model.graph.json` | Posterior, Pair, Traces, Diagnostics, Model |
 | `camdl fit predict <run>` | `predict/<run_id12>/` holding `predictive/`, `observed/`, `predictive.json`, `quantities/` (`predict/<run_id12>-<opts8>/` under non-default options) | Predictive, Quantities |
 | `camdl simulate <model> --draws prior --fit <fit.toml> --obs-dir <run_dir>/prior_predictive` | `prior_predictive/<stream>.tsv` | Prior (the predictive-check plot) |
 

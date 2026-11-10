@@ -38,16 +38,16 @@ def test_pgas_reports_renewal_and_the_profile():
     assert {s.key for s in h.stats} >= {"trajectory_renewal", "as_accept", "as_opportunity"}
 
 
-def test_a_frozen_path_is_flagged():
+def test_a_frozen_path_reads_as_a_number_not_a_grade():
     n = 200
     rs = _run("pgas", {1: {"trajectory_renewal": np.full(n, 0.0005),
                            "as_opportunity": np.full(n, 90.0)}}, n)
     h = particles.particle_health(rs, 0)
     r = next(s for s in h.stats if s.key == "trajectory_renewal")
-    assert r.severity == "warn"
+    assert r.value < 0.001 and r.severity == "none"  # camdl's findings grade it
 
 
-def test_no_ancestry_draws_is_flagged_separately_from_a_bad_filter():
+def test_no_ancestry_draws_is_reported_separately_from_a_bad_filter():
     # camdl gh#718: low renewal with as_opportunity near zero is a SCHEDULE
     # with nowhere to renew — more particles will not help. The two causes must
     # not collapse into one warning.
@@ -56,7 +56,7 @@ def test_no_ancestry_draws_is_flagged_separately_from_a_bad_filter():
                            "as_opportunity": np.full(n, 0.0)}}, n)
     h = particles.particle_health(rs, 0)
     opp = next(s for s in h.stats if s.key == "as_opportunity")
-    assert opp.severity == "warn"
+    assert opp.value == 0.0 and opp.severity == "none"
 
 
 def test_per_chain_renewal_exposes_one_frozen_chain():
@@ -79,9 +79,9 @@ def test_pmmh_reports_the_longest_stall_not_just_acceptance():
     assert h.method == "pmmh"
     stall = next(s for s in h.stats if s.key == "longest_stall")
     assert stall.value == 100.0
-    assert stall.severity == "warn"
+    assert stall.severity == "none"
     rate = next(s for s in h.stats if s.key == "accepted")
-    assert rate.value == 0.5 and rate.severity == "ok"
+    assert rate.value == 0.5 and rate.severity == "none" and rate.band is None
 
 
 def test_pmmh_gets_no_pgas_fields():

@@ -772,6 +772,12 @@ export interface components {
             source: string;
             /** Logpost Label */
             logpost_label: string;
+            verdict: components["schemas"]["VerdictModel"];
+            /**
+             * Leaves
+             * @default []
+             */
+            leaves: components["schemas"]["LeafRowModel"][];
             /** Findings */
             findings: components["schemas"]["FindingGroup"][];
             /** Params */
@@ -974,6 +980,28 @@ export interface components {
              * @default none
              */
             severity: string;
+        };
+        /**
+         * LeafRowModel
+         * @description One method leaf of a problem folder (``leaf`` is its path under the
+         *     folder) with its own status and verdict. Every leaf is listed — completed,
+         *     running, failed — and ``is_open`` marks the one the dashboard is showing.
+         */
+        LeafRowModel: {
+            /** Leaf */
+            leaf: string;
+            /** Method */
+            method: string;
+            /** Run Id */
+            run_id?: string | null;
+            /** Status */
+            status: string;
+            verdict: components["schemas"]["VerdictModel"];
+            /**
+             * Is Open
+             * @default false
+             */
+            is_open: boolean;
         };
         /**
          * MleParam
@@ -1187,6 +1215,15 @@ export interface components {
              * @default []
              */
             ess_per_chain: number[];
+            /** Rhat Text */
+            rhat_text?: string | null;
+            /** Ess Text */
+            ess_text?: string | null;
+            /**
+             * Rhat Status
+             * @default neutral
+             */
+            rhat_status: string;
             /** Rhat Refused */
             rhat_refused?: string | null;
         };
@@ -1260,6 +1297,13 @@ export interface components {
             rhat?: number | null;
             /** Ess */
             ess?: number | null;
+            /** Rhat Text */
+            rhat_text?: string | null;
+            /**
+             * Rhat Status
+             * @default neutral
+             */
+            rhat_status: string;
             /**
              * Is Objective
              * @default false
@@ -1855,6 +1899,12 @@ export interface components {
             dimensions: components["schemas"]["DimensionInfo"][];
             /** Findings */
             findings: components["schemas"]["FindingGroup"][];
+            verdict: components["schemas"]["VerdictModel"];
+            /**
+             * Leaves
+             * @default []
+             */
+            leaves: components["schemas"]["LeafRowModel"][];
             /**
              * Predicts
              * @default []
@@ -2429,6 +2479,33 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * VerdictModel
+         * @description camdl's verdict on a method leaf, as camdl persisted it. ``kind`` is
+         *     camdl's tag (``converged``, ``not_converged``, ``unassessable``,
+         *     ``not_assessed``, ``not_applicable``, ``gate_pass``, ``gate_fail``) or the
+         *     state of a leaf with no report (``failed``, ``running``, ``not_recorded``,
+         *     ``unreadable``). ``status`` (``ok`` | ``warn`` | ``error`` | ``neutral``) is
+         *     the colour class of that kind and carries no threshold of ours; ``text`` is
+         *     the words to show. ``max_rhat`` is camdl's worst R̂ as text, because it can
+         *     be ``inf`` or ``NaN``.
+         */
+        VerdictModel: {
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /** Text */
+            text: string;
+            /** Max Rhat */
+            max_rhat?: string | null;
+            /** Param */
+            param?: string | null;
+            /** Band */
+            band?: string | null;
+            /** Error */
+            error?: string | null;
         };
     };
     responses: never;

@@ -174,36 +174,6 @@ def test_effective_rhat_ess_prefer_summary():
     assert ess is None and src2 == "camdl"  # camdl's "not estimable" preserved
 
 
-def test_derive_warnings_defers_rhat_to_camdl():
-    # With a summary present, the live R̂/ESS warnings are suppressed (the
-    # verdict strip owns them); watcher-only signals still surface.
-    rs = _load_run("natbc_dens_hierk_nc_pgas_long")
-    lo, hi = rs.min_iter(), rs.max_iter()
-    warmup = int(lo + 0.5 * (hi - lo))
-    diag = dmod.compute_diagnostics(rs, warmup)
-    cs = ChainSummary(stage="pgas", n_chains=len(rs.chains), rhat={}, ess={},
-                      ess_per_chain={}, findings=[])
-    ws_live = dmod.derive_warnings(diag, rs)
-    ws_camdl = dmod.derive_warnings(diag, rs, summary=cs)
-    rhat_live = [w for w in ws_live if "R̂" in w.message]
-    rhat_camdl = [w for w in ws_camdl if "R̂" in w.message]
-    assert len(rhat_camdl) == 0
-    assert len(rhat_camdl) <= len(rhat_live)
-
-
-def test_warnings_shape():
-    rs = _load_run("natbc_dens_hierk_nc_pgas_long")
-    lo, hi = rs.min_iter(), rs.max_iter()
-    warmup = int(lo + 0.5 * (hi - lo))
-    diag = dmod.compute_diagnostics(rs, warmup)
-    ws = dmod.derive_warnings(diag, rs)
-    assert isinstance(ws, list) and ws
-    # severities ordered error->warn->info
-    order = {"error": 0, "warn": 1, "info": 2}
-    sev = [order[w.severity.value] for w in ws]
-    assert sev == sorted(sev)
-
-
 # ---------------------------------------------------------------------------
 # Plateau-test memory guard (docs/dev/incidents/2026-08-17-plateau-test-oom.md)
 # ---------------------------------------------------------------------------

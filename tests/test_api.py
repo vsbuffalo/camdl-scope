@@ -428,7 +428,7 @@ def test_diagnostics_ess_per_iter_honors_thin_and_walltime(client, tmp_path):
     summary["thin"] = 10
     summ_path.write_text(_json.dumps(summary))
     (seed / "run.json").write_text(
-        _json.dumps({"kind": "fit_stage", "inputs": {"wall_time_seconds": 8.0}})
+        _json.dumps({"kind": "fit_method", "inputs": {"wall_time_seconds": 8.0}})
     )
     thinned = client.get(f"/api/runs/{RUN_DIR}/diagnostics").json()
 

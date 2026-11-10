@@ -613,7 +613,7 @@ def _method_leaf(
     (run_dir / "fit.toml.original").write_text(toml)
     if sweeps_ran is not None:
         (seed / "run.json").write_text(json.dumps({
-            "kind": "fit_stage",
+            "kind": "fit_method",
             "levels": [{"name": "fit"}, {"name": "method"}, {"name": "seed"}],
             "inputs": {"algorithm": {
                 "algorithm": "pgas", "backend": "chain_binomial",

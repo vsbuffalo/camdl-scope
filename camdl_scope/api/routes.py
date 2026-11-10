@@ -34,6 +34,7 @@ from .. import model_render as model_render_mod
 from .. import predictive
 from .. import sims as sims_mod
 from .. import storeinfo
+from .. import verdict as verdict_mod
 from .. import profiles as profiles_mod
 from .. import quantities as quantities_mod
 from ..assembly import RunOverview, build_run_overview, build_run_state
@@ -109,7 +110,9 @@ from .models import (
     TargetTermRow,
     CrossChainCompatModel,
     HealthStatRow,
+    LeafRowModel,
     ParticleHealthModel,
+    VerdictModel,
 )
 
 router = APIRouter(prefix="/api")
@@ -618,6 +621,8 @@ def _run_detail(meta: RunMeta, rs: RunState, predict: str | None = None) -> RunD
         streams=streams,
         dimensions=dimensions,
         findings=findings,
+        verdict=_verdict_model(meta),
+        leaves=_leaf_rows(meta),
         predicts=[
             PredictInfo(key=p.key, default=p.default, options=p.options) for p in pdirs
         ],
@@ -647,6 +652,7 @@ def _param_posterior(
     param: str,
     *,
     is_objective: bool = False,
+    verdict: verdict_mod.Verdict | None = None,
 ) -> ParamPosterior | None:
     """Project one coordinate onto the wire: pooled post-warmup quantiles
     (computed here), the resolved doc block + prior, and the effective R̂/ESS.
@@ -695,6 +701,8 @@ def _param_posterior(
         q95=q95,
         rhat=_finite_or_none(rhat_v),
         ess=_finite_or_none(ess_v),
+        rhat_text=_number_label(rhat_v),
+        rhat_status=("neutral" if is_objective else _rhat_status(param, summary, verdict)),
         is_objective=is_objective,
     )
 
@@ -1009,17 +1017,20 @@ def get_posterior(
     # subset, so once a chain is dropped we source R̂/ESS from the live arviz
     # estimate over the retained chains (the quantiles already pool from them).
     summ = None if filtered else rs.summary
+    verdict = verdict_mod.leaf_verdict(meta.posterior_dir)
     params = [
         pp
         for p in meta.estimated
-        if (pp := _param_posterior(meta, rs, diag, summ, cutoff, p)) is not None
+        if (pp := _param_posterior(meta, rs, diag, summ, cutoff, p, verdict=verdict))
+        is not None
     ]
     # The pooled objectives close the forest (Stan's lp__), flagged so the UI can
     # set them apart from the estimands.
     params += [
         pp
         for o in objectives
-        if (pp := _param_posterior(meta, rs, diag, summ, cutoff, o, is_objective=True))
+        if (pp := _param_posterior(meta, rs, diag, summ, cutoff, o, is_objective=True,
+                                   verdict=verdict))
         is not None
     ]
     return PosteriorResponse(
@@ -1545,51 +1556,52 @@ def get_traces(
 # Diagnostics tab
 # ---------------------------------------------------------------------------
 
-_SEV_RANK = {"error": 0, "warn": 1, "info": 2}
+def _verdict_model(meta: RunMeta) -> VerdictModel:
+    """camdl's verdict on the leaf this run entry shows, as persisted by camdl
+    (``events.jsonl``), or the reason there is none. Nothing is computed here."""
+    return _to_verdict_model(verdict_mod.leaf_verdict(meta.posterior_dir))
 
 
-def _warning_kind(message: str) -> str:
-    """Collapse a live warning message to a finding ``kind`` for grouping."""
-    if "ESS" in message:
-        return "ess_low"
-    if "separated" in message:
-        return "chain_separation"
-    if "plateaued" in message:
-        return "loglik_not_plateaued"
-    if "divergent" in message:
-        return "divergent"
-    if "Too few" in message:
-        return "insufficient_draws"
-    if "No warnings" in message:
-        return "ok"
-    if ">" in message:  # the R̂ = x > thresh message
-        return "rhat_high"
-    return "diagnostic"
+def _to_verdict_model(v: verdict_mod.Verdict) -> VerdictModel:
+    return VerdictModel(
+        kind=v.kind, status=v.status, text=v.text, param=v.param, band=v.band,
+        max_rhat=(None if v.max_rhat is None else verdict_mod.number_text(v.max_rhat)),
+        error=v.error,
+    )
 
 
-def _live_findings(diag: diag_mod.Diagnostics, rs: RunState) -> list[FindingGroup]:
-    """Synthesize the verdict for a still-sampling run (no authoritative stage
-    summary) from the watcher's *live* diagnostics — so a running fit with bad
-    R̂/ESS/plateau shows real warnings instead of a falsely-green "no findings".
-    Mirrors :func:`summarize_findings`' one-line-per-kind collapse."""
-    warnings = diag_mod.derive_warnings(diag, rs, summary=None)
-    real = [w for w in warnings if "No warnings" not in w.message]
-    use = real if real else warnings
-    by_kind: dict[str, list] = {}
-    for w in use:
-        by_kind.setdefault(_warning_kind(w.message), []).append(w)
-    groups: list[FindingGroup] = []
-    for kind, ws in by_kind.items():
-        sev = min((w.severity.value for w in ws), key=lambda s: _SEV_RANK.get(s, 3))
-        headline = ws[0].message + (f"  (+{len(ws) - 1} more)" if len(ws) > 1 else "")
-        groups.append(
-            FindingGroup(
-                kind=kind, severity=sev, headline=headline,
-                params=[w.param for w in ws if w.param],
-            )
+def _leaf_rows(meta: RunMeta) -> list[LeafRowModel]:
+    """Every method leaf of the run's problem folder, whichever the dashboard
+    has open: completed, running and failed, each with its own verdict."""
+    open_leaf = f"{meta.posterior_dir.parent.name}/{meta.posterior_dir.name}"
+    return [
+        LeafRowModel(
+            leaf=r.leaf, method=r.method, run_id=r.run_id, status=r.status,
+            verdict=_to_verdict_model(r.verdict), is_open=(r.leaf == open_leaf),
         )
-    groups.sort(key=lambda g: _SEV_RANK.get(g.severity, 3))
-    return groups
+        for r in verdict_mod.leaf_rows(meta.run_dir)
+    ]
+
+
+def _rhat_status(
+    param: str, summary: ChainSummary | None, verdict: verdict_mod.Verdict | None
+) -> str:
+    """The colour class of a parameter's R̂, from camdl's findings and verdict.
+    ``neutral`` whenever no camdl assessment describes the number on screen: a
+    live estimate, or a recompute over a chain subset (camdl's summary covers
+    all chains)."""
+    if summary is None:
+        return "neutral"
+    return verdict_mod.rhat_status(param, summary.findings, verdict)
+
+
+def _number_label(x: float | None) -> str | None:
+    """A non-finite number as camdl spells it (``NaN``, ``inf``, ``-inf``), for
+    the wire, where a JSON number cannot be one. ``None`` for a finite value or
+    no value."""
+    if x is None or np.isfinite(float(x)):
+        return None
+    return verdict_mod.number_text(float(x))
 
 
 @router.get(
@@ -1729,7 +1741,9 @@ def get_diagnostics(
     # the live estimate is the whole fix: dropping the dead chains used to
     # discard the `bad_init` errors that explain why they are missing.
     reported = rs.summary
+    verdict = verdict_mod.leaf_verdict(meta.posterior_dir)
     base = dict(
+        verdict=_to_verdict_model(verdict), leaves=_leaf_rows(meta),
         run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
         n_chains=len(rs.chains), n_chains_warming=warming,
         n_chains_dead=len(dead), dead_chain_ids=dead,
@@ -1767,10 +1781,10 @@ def get_diagnostics(
         base["ess_per_iter"] = _live_ess_per_iter(diag, len(rs.chains), meta.thin)
 
     # camdl's own findings whenever the stage wrote any — including when R̂/ESS
-    # fell back to live because chains were dropped. Only a run with no summary
-    # at all (still sampling) needs the synthesized verdict, and even then the
-    # strip must not read green.
-    findings = _camdl_findings(reported) or _live_findings(diag, rs)
+    # fell back to live because chains were dropped. A run with no summary yet
+    # (still sampling) has no camdl findings and gets none: the verdict says
+    # that camdl has not assessed it, and the live numbers below carry no status.
+    findings = _camdl_findings(reported)
 
     params_out: list[ParamDiagnostic] = []
     for p in meta.estimated:
@@ -1784,6 +1798,8 @@ def get_diagnostics(
         params_out.append(ParamDiagnostic(
             name=p, symbol=(block.symbol if block else None),
             rhat=_finite_or_none(rhat_v), ess_bulk=_finite_or_none(ess_v),
+            rhat_text=_number_label(rhat_v), ess_text=_number_label(ess_v),
+            rhat_status=_rhat_status(p, summ, verdict),
             ess_tail=_finite_or_none(pd.tail_ess), mcse=_finite_or_none(pd.mcse),
             mean=_fnum(pd.mean), sd=_fnum(pd.sd),
             sep=_finite_or_none(diag.chain_separation.get(p)),

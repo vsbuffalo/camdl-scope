@@ -18,12 +18,8 @@ import {
   usePersisted,
   usePersistedSet,
 } from '@/lib/use-persisted'
-import {
-  gradeConvergence,
-  gradeClasses,
-  isNoteworthy,
-  type Convergence,
-} from '@/lib/convergence'
+import { statusChipClasses } from '@/lib/convergence'
+import type { VerdictModel } from '@/api/client'
 import {
   buildByIndexProfile,
   LEVEL_PALETTE,
@@ -983,36 +979,39 @@ function LayerChecks({
 }
 
 /**
- * The convergence badge: the artifact's own R̂ / ESS channel, graded. Sits at
- * the top of the tab because an unconverged predictive is not a weaker result
- * but a meaningless one — the reader must see that before the ribbons. Quiet
- * chip when healthy; chip + explanatory line otherwise.
+ * The convergence badge: camdl's verdict on the fit this predict was made from,
+ * as camdl persisted it, with the predict artifact's own R̂ / ESS channel shown
+ * as numbers beside it. Sits at the top of the tab because an unconverged
+ * predictive is not a weaker result but a meaningless one. The chip's words and
+ * colour are camdl's; a run camdl has not assessed reads neutral.
  */
-function ConvergenceBadge({ conv }: { conv: Convergence }) {
-  const noteworthy = isNoteworthy(conv.grade)
+function ConvergenceBadge({
+  verdict,
+  rhat,
+  ess,
+}: {
+  verdict: VerdictModel | undefined
+  rhat: number | null | undefined
+  ess: number | null | undefined
+}) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
       <span
         className={cn(
           'rounded-sm border px-1.5 py-0.5 font-mono text-[10px] font-medium',
-          gradeClasses(conv.grade),
+          statusChipClasses(verdict?.status),
         )}
       >
-        {conv.label}
+        {verdict ? verdict.text : 'camdl verdict not loaded'}
       </span>
-      {conv.rhat != null && (
+      {rhat != null && (
         <span className="font-mono text-[10px] text-neutral-400">
-          R̂max {conv.rhat.toFixed(conv.rhat < 10 ? 3 : 1)}
+          R̂max {rhat.toFixed(rhat < 10 ? 3 : 1)}
         </span>
       )}
-      {conv.ess != null && (
+      {ess != null && (
         <span className="font-mono text-[10px] text-neutral-400">
-          ESSmin {Math.round(conv.ess).toLocaleString()}
-        </span>
-      )}
-      {noteworthy && (
-        <span className="basis-full text-[11px] leading-snug text-neutral-500">
-          {conv.detail}
+          ESSmin {Math.round(ess).toLocaleString()}
         </span>
       )}
     </div>
@@ -1105,14 +1104,6 @@ export function PredictiveTab({ runId }: { runId: string }) {
   const [windowMode, setWindowMode] = usePersisted<'data' | 'full'>(
     'predictive:window',
     'full',
-  )
-
-  // The artifact's convergence channel, graded — see lib/convergence. Shown at
-  // the top of the tab: an unconverged predictive pools incompatible
-  // posteriors, which the reader must know before interpreting any ribbon.
-  const convergence = useMemo(
-    () => gradeConvergence(data?.rhat_max, data?.ess_min),
-    [data?.rhat_max, data?.ess_min],
   )
 
   const scenarios = useMemo(() => data?.scenarios ?? [], [data])
@@ -1590,7 +1581,13 @@ export function PredictiveTab({ runId }: { runId: string }) {
           />
         )}
         {legendArms.length > 0 && <Legend arms={legendArms} />}
-        {data && <ConvergenceBadge conv={convergence} />}
+        {data && (
+          <ConvergenceBadge
+            verdict={run.data?.verdict}
+            rhat={data.rhat_max}
+            ess={data.ess_min}
+          />
+        )}
       </div>
 
       {isPending && (

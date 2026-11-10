@@ -65,6 +65,7 @@ import time
 
 from .docs import ModelDocs
 from .schema import ObsSchema
+from .verdict import parse_number
 from .state import (
     AUX_COLUMNS,
     ITER_COL,
@@ -320,12 +321,17 @@ def read_chain_summary(seed_dir: Path) -> ChainSummary | None:
 
     s = found
 
+    # camdl's number grammar: a number, "NaN", "inf", "-inf", or null for
+    # not computed (verdict.parse_number). A non-finite value is kept as the
+    # float it names; a null is absent, never a number.
     def _fdict(key: str) -> dict[str, float]:
         d = s.get(key) or {}
-        return {k: float(v) for k, v in d.items() if v is not None} if isinstance(d, dict) else {}
+        if not isinstance(d, dict):
+            return {}
+        return {k: x for k, v in d.items() if (x := parse_number(v)) is not None}
 
     ess_raw = s.get("ess") or {}
-    ess = {k: (float(v) if v is not None else None) for k, v in ess_raw.items()} \
+    ess = {k: parse_number(v) for k, v in ess_raw.items()} \
         if isinstance(ess_raw, dict) else {}
     epc_raw = s.get("ess_per_chain") or {}
     ess_per_chain = (
