@@ -360,3 +360,14 @@ def test_a_run_camdl_has_not_assessed_gets_no_local_findings(store):
     assert d["verdict"]["kind"] == "running"
     assert d["findings"] == []
     assert all(p["rhat_status"] == "neutral" for p in d["params"])
+
+
+def test_a_failed_report_overrides_a_run_json_still_saying_running(tmp_path):
+    """camdl 0.1.0+0553b5a1 leaves ``status = "running"`` in the run.json of a
+    leaf that failed at chain init, while events.jsonl records the failed
+    method_report. The leaf is listed as failed."""
+    leaf = tmp_path / "pmmh-11111111" / "seed_1-aaaaaaaa"
+    _write_events(leaf, {"event": "method_report", "outcome": "failed", "error": "boom"})
+    (leaf / "run.json").write_text(json.dumps({"run_id": "r", "status": "running"}))
+    [row] = V.leaf_rows(tmp_path)
+    assert row.status == "failed" and row.verdict.error == "boom"
