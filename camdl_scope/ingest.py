@@ -989,66 +989,6 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
                 live_stage_dir=(_live_stage_dir(run_dir) if i == 0 and not live_listed else None),
             ))
     return out
-    for run_dir in sorted(store.iterdir()):
-        if not run_dir.is_dir():
-            continue
-        picked = _pick_posterior_dir(run_dir, include_warming=include_warming)
-        if picked is None:
-            # No posterior draws — but the segment may hold an optimizer leaf,
-            # which has a point estimate instead of chains.
-            mle_seed = _mle_seed_dir(run_dir)
-            if mle_seed is not None:
-                out.append(_mle_run_meta(run_dir, mle_seed))
-            continue
-        pdir, seed_dir, chain_paths, _has_draws = picked
-        meta = _read_meta(run_dir)
-        toml = _read_fit_toml(run_dir)
-
-        model_path = meta.get("model_path", "")
-        model = Path(model_path).stem if model_path else run_dir.name
-        estimated = list(meta.get("estimated", []))
-
-        config = _read_algorithm_config(seed_dir)
-        algorithm, backend, settings = _resolve_method(toml, config, pdir.name)
-        # Each sampler budgets its run in its own unit: PGAS counts ``sweeps``,
-        # PMMH/MH/IF2 ``iterations``, NUTS ``samples`` drawn after ``warmup``.
-        # They are the same number to a progress bar — how many iterations this
-        # run is aiming for — so they collapse to one field.
-        target = (
-            settings.get("sweeps")
-            or settings.get("iterations")
-            or settings.get("samples")
-        )
-        burn_in = settings.get("burn_in")
-        if burn_in is None:
-            burn_in = settings.get("warmup")
-        thin = settings.get("thin")
-        ident = _read_leaf_identity(seed_dir)
-
-        out.append(
-            RunMeta(
-                run_id=run_dir.name,
-                run_dir=run_dir,
-                posterior_dir=seed_dir,
-                live_stage_dir=_live_stage_dir(run_dir),
-                chain_paths=chain_paths,
-                model=model,
-                algorithm=algorithm,
-                backend=backend,
-                estimated=estimated,
-                target_sweeps=int(target) if target is not None else None,
-                declared_burn_in=int(burn_in) if burn_in is not None else None,
-                thin=int(thin) if thin is not None else 1,
-                fit_toml_stem=_fit_toml_stem(meta, run_dir),
-                user_label=ident.label,
-                leaf_run_id=ident.run_id,
-                docs=ModelDocs.from_meta(meta),
-                schema=ObsSchema.from_meta(meta),
-                column_roles=read_column_roles(seed_dir),
-                algorithm_config=config,
-            )
-        )
-    return out
 
 
 # ----------------------------------------------------------------------------

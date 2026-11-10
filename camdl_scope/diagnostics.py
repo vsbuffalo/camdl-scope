@@ -270,6 +270,23 @@ def _parse_band(message: str) -> str:
     return f"healthy {float(m.group(1)):g}–{float(m.group(2)):g}%"
 
 
+def camdl_acceptance_band(findings: list[Finding]) -> tuple[float, float] | None:
+    """The healthy acceptance band camdl published, as fractions, or ``None``.
+
+    camdl states the band (``AcceptanceKernel::healthy_band``) only in the text
+    of an ``acceptance_rate_unhealthy`` finding (``…outside healthy range [15%,
+    50%] …``); no summary or events field carries it, and it is raised only when
+    some chain is outside it. So a leaf with no such finding has no band to draw,
+    and none is assumed."""
+    for f in findings:
+        if f.kind != "acceptance_rate_unhealthy":
+            continue
+        m = re.search(r"\[\s*([\d.]+)\s*%\s*,\s*([\d.]+)\s*%\s*\]", f.message)
+        if m:
+            return float(m.group(1)) / 100.0, float(m.group(2)) / 100.0
+    return None
+
+
 def _headline_rhat_high(fs: list[Finding]) -> tuple[str, list[str]]:
     by_param: dict[str, float] = {}
     for f in fs:
@@ -397,10 +414,11 @@ def per_chain_mixing(
     ``chain_ids`` is parallel to ``values`` — the consumer labels with these,
     never with the array position."""
     summ = run.summary
+    band = camdl_acceptance_band(summ.findings) if summ is not None else None
     if summ is not None:
         acc = summ.per_chain_acceptance
         if acc:
-            return "acceptance", acc, chain_ids_for(run, len(acc)), (0.15, 0.50)
+            return "acceptance", acc, chain_ids_for(run, len(acc)), band
 
     def _live(col: str) -> tuple[list[float], list[int]]:
         vals: list[float] = []
@@ -418,7 +436,7 @@ def per_chain_mixing(
 
     vals, ids = _live("accepted")
     if vals:
-        return "acceptance", vals, ids, (0.15, 0.50)
+        return "acceptance", vals, ids, band
     vals, ids = _live("trajectory_renewal")
     if vals:
         return "trajectory renewal", vals, ids, None
@@ -658,7 +676,7 @@ def _block_acceptance_panel(run: RunState) -> SamplerPanel | None:
     names = list(run.meta.estimated)[:width]
     if len(names) < width:
         names += [f"block{i}" for i in range(len(names), width)]
-    band = (0.15, 0.50)
+    band = camdl_acceptance_band(run.summary.findings)
     return SamplerPanel(
         id="block-acceptance",
         title="block acceptance",
