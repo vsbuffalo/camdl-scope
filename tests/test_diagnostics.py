@@ -125,7 +125,22 @@ def test_per_chain_mixing_prefers_camdl_acceptance():
     assert values == pytest.approx([0.99, 0.86])
     # camdl names chains chain_1…chain_n, so a summary's positional array maps
     # to 1-based ids — never c0, which names no chain.
-    assert band == (0.15, 0.50) and ids == [1, 2]
+    assert band is None and ids == [1, 2]  # no finding carries a band: none drawn
+
+
+def _band_finding(lo="15", hi="50"):
+    from camdl_scope.state import Finding, Severity
+    return Finding(
+        kind="acceptance_rate_unhealthy", severity=Severity.ERROR, param=None,
+        message=f"chain acceptance rate 99.0% is outside healthy range [{lo}%, {hi}%] (random-walk MH).",
+        detail={"rate": 0.99})
+
+
+def test_acceptance_band_is_the_one_camdl_published_in_its_finding():
+    cs = ChainSummary(stage="pgas", n_chains=2, rhat={}, ess={}, ess_per_chain={},
+                      acceptance_rates=[[0.99], [0.86]], findings=[_band_finding("60", "95")])
+    _l, _v, _i, band = dmod.per_chain_mixing(_run_with_summary(cs), warmup=0)
+    assert band == pytest.approx((0.60, 0.95))
 
 
 def test_per_chain_mixing_ids_come_from_the_run_not_the_position():
@@ -272,6 +287,10 @@ def test_block_acceptance_panel_shown_when_blocks_actually_differ():
     panel = {p.id: p for p in dmod.sampler_panels(rs, warmup=0)}["block-acceptance"]
     assert [c.key for c in panel.columns] == ["a", "b", "c"]
     assert panel.values[0] == pytest.approx([0.02, 0.45, 0.99])
+    assert all(c.band is None for c in panel.columns)  # camdl published none
+    cs.findings.append(_band_finding())
+    panel = {p.id: p for p in dmod.sampler_panels(rs, warmup=0)}["block-acceptance"]
+    assert all(c.band == pytest.approx((0.15, 0.50)) for c in panel.columns)
 
 
 def _run_with_param(values: np.ndarray, spec: PriorSpec) -> RunState:
