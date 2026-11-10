@@ -33,6 +33,7 @@ from .. import model_graph as model_graph_mod
 from .. import model_render as model_render_mod
 from .. import predictive
 from .. import sims as sims_mod
+from .. import fitmeta
 from .. import storeinfo
 from .. import verdict as verdict_mod
 from .. import profiles as profiles_mod
@@ -40,6 +41,7 @@ from .. import quantities as quantities_mod
 from ..assembly import RunOverview, build_run_overview, build_run_state
 from ..grouping import group_params
 from ..highlight import HIGHLIGHT_CSS, highlight_camdl, highlight_toml
+from ..verdict import UnsupportedSchema
 from ..state import (
     AUX_COLUMNS,
     ChainSummary,
@@ -1158,21 +1160,17 @@ def get_draws(
 # ---------------------------------------------------------------------------
 
 
-def _project_root(store: Path) -> Path:
-    """The camdl project root a fit's *relative* paths resolve against. The store
-    is ``<root>/results/fits``, so the project root is two levels up."""
-    return store.parent.parent if store.name == "fits" else store.parent
-
-
-def _read_model_source(run_dir: Path, store: Path, model_path: str) -> SourceFile:
+def _read_model_source(run_dir: Path, store: Path, meta_json: dict) -> SourceFile:
     """The model source, syntax-highlighted.
 
-    Prefer the copy archived in the fit run leaf (``model.camdl.original``,
-    gh#353): it's self-contained and path-independent, so it resolves from a
-    viewer launched anywhere. Older fits (and ``.ir.json`` models, which archive
-    no ``.camdl``) have no such copy — fall back to reading live from the
-    recorded ``model_path``, resolved relative to the project root (newer fits
-    store it relative; older ones absolute)."""
+    Prefer the copy archived in the fit folder (``model.camdl.original``,
+    gh#353): it is self-contained and path-independent, so it resolves from a
+    viewer launched anywhere. A fit run on an ``.ir.json`` archives no
+    ``.camdl``, and an older fit has no copy; both fall back to the live file the
+    record names, resolved by its ``schema_version`` (``source_model`` relative
+    to the fit folder in version 2, ``model_path`` relative to the project root
+    in version 1; see :mod:`camdl_scope.fitmeta`)."""
+    ref = fitmeta.model_ref(meta_json)
     archived = run_dir / "model.camdl.original"
     if archived.is_file():
         try:
@@ -1181,22 +1179,23 @@ def _read_model_source(run_dir: Path, store: Path, model_path: str) -> SourceFil
             pass
         else:
             return SourceFile(
-                path=model_path or "model.camdl", present=True, origin="leaf",
+                path=ref or "model.camdl", present=True, origin="leaf",
                 html=highlight_camdl(text), text=text,
             )
-    if not model_path:
+    try:
+        p = fitmeta.source_model_path(meta_json, run_dir, store)
+    except UnsupportedSchema as e:
+        return SourceFile(path=str(e), present=False, origin="live")
+    if p is None:
         return SourceFile(path=None, present=False, origin="live")
-    p = Path(model_path)
-    if not p.is_absolute():
-        p = _project_root(store) / p
     if not p.is_file():
-        return SourceFile(path=model_path, present=False, origin="live")
+        return SourceFile(path=ref, present=False, origin="live")
     try:
         text = p.read_text()
     except OSError:
-        return SourceFile(path=model_path, present=False, origin="live")
+        return SourceFile(path=ref, present=False, origin="live")
     return SourceFile(
-        path=model_path, present=True, origin="live",
+        path=ref, present=True, origin="live",
         html=highlight_camdl(text), text=text,
     )
 
@@ -1214,9 +1213,7 @@ def get_source(run_id: str) -> SourceResponse:
         meta_json = json.loads((meta.run_dir / "fit.meta.json").read_text())
     except (OSError, json.JSONDecodeError):
         meta_json = {}
-    model = _read_model_source(
-        meta.run_dir, store, str(meta_json.get("model_path", ""))
-    )
+    model = _read_model_source(meta.run_dir, store, meta_json)
 
     toml_path = meta.run_dir / "fit.toml.original"
     if toml_path.is_file():

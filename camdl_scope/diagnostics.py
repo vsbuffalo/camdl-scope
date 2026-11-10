@@ -24,9 +24,10 @@ from dataclasses import dataclass
 import arviz as az
 import numpy as np
 
-import re
+from pathlib import Path
 
 from . import ingest
+from .verdict import acceptance_band, band_from
 from .state import (
     DIAGNOSTIC_META,
     FRACTION_COLUMNS,
@@ -260,35 +261,15 @@ def _aux_tail_mean(run: RunState, warmup: int, col: str) -> float | None:
 # ---------------------------------------------------------------------------
 
 
-def _parse_band(message: str) -> str:
-    """Pull the healthy band out of an acceptance message
-    (``…outside healthy range [15%, 50%].``) -> ``"healthy 15–50%"``; ``""`` if
-    not present."""
-    m = re.search(r"\[\s*([\d.]+)\s*%?\s*,\s*([\d.]+)\s*%?\s*\]", message)
-    if not m:
-        return ""
-    return f"healthy {float(m.group(1)):g}–{float(m.group(2)):g}%"
-
-
 #: Trace columns that hold a Metropolis acceptance rate.
 ACCEPTANCE_COLUMNS = frozenset({"accepted", "accept_stat"})
 
 
-def camdl_acceptance_band(findings: list[Finding]) -> tuple[float, float] | None:
-    """The healthy acceptance band camdl published, as fractions, or ``None``.
-
-    camdl states the band (``AcceptanceKernel::healthy_band``) only in the text
-    of an ``acceptance_rate_unhealthy`` finding (``…outside healthy range [15%,
-    50%] …``); no summary or events field carries it, and it is raised only when
-    some chain is outside it. So a leaf with no such finding has no band to draw,
-    and none is assumed."""
-    for f in findings:
-        if f.kind != "acceptance_rate_unhealthy":
-            continue
-        m = re.search(r"\[\s*([\d.]+)\s*%\s*,\s*([\d.]+)\s*%\s*\]", f.message)
-        if m:
-            return float(m.group(1)) / 100.0, float(m.group(2)) / 100.0
-    return None
+def camdl_acceptance_band(run: RunState) -> tuple[float, float] | None:
+    """The healthy acceptance band camdl applied to the run's leaf (see
+    :func:`camdl_scope.verdict.acceptance_band`), or ``None``."""
+    findings = run.summary.findings if run.summary is not None else []
+    return acceptance_band(Path(run.meta.posterior_dir), findings)
 
 
 def _headline_rhat_high(fs: list[Finding]) -> tuple[str, list[str]]:
@@ -309,7 +290,8 @@ def _headline_rhat_high(fs: list[Finding]) -> tuple[str, list[str]]:
 
 def _headline_acceptance(fs: list[Finding]) -> tuple[str, list[str]]:
     rates = sorted({round(float(f.detail["rate"]), 4) for f in fs if "rate" in f.detail})
-    band = next((_parse_band(f.message) for f in fs if _parse_band(f.message)), "")
+    lo_hi = next((b for f in fs if (b := band_from(f.detail)) is not None), None)
+    band = f"healthy {lo_hi[0] * 100:g}–{lo_hi[1] * 100:g}%" if lo_hi else ""
     if rates:
         span = f"{rates[0]:.0%}" if len(rates) == 1 else f"{rates[0]:.0%}–{rates[-1]:.0%}"
         head = f"acceptance unhealthy: {len(rates)} chain rate(s) {span}"
@@ -336,11 +318,9 @@ def _headline_bad_init(fs: list[Finding]) -> tuple[str, list[str]]:
     would show the first message and hide the count, which is the number that
     matters — half a fit's chains can be missing while the run reports done.
     Lead with how many and which."""
-    # `Finding.detail["chain_id"]` is 1-based by the time it gets here — ingest
-    # normalizes it, because camdl numbered this one field from 0 until the
-    # release that also began tagging its summaries. Report it as read, so this
-    # line agrees with the dead-chain banner, the chain selector and the
-    # directory on disk whichever camdl wrote the store.
+    # `Finding.detail["chain_id"]` is camdl's own number, counted from 0 like
+    # the ``chain_N/`` directories, so this line agrees with the dead-chain
+    # banner and the chain selector.
     ids = sorted(
         {
             int(c)
@@ -395,16 +375,15 @@ def summarize_findings(findings: list[Finding]) -> list[FindingGroup]:
 def chain_ids_for(run: RunState, n: int) -> list[int]:
     """The chain ids behind ``n`` positionally-ordered per-chain values.
 
-    camdl names chains ``chain_1 … chain_n`` on disk, so ids are 1-based and a
-    positional array index is NOT a chain id — labelling a summary-derived
-    array by position produced a `c0` that names no chain and disagrees with
-    every other chain control in the app. Prefer the ids actually discovered in
-    the run; fall back to camdl's 1-based convention when the counts disagree
+    camdl names chains ``chain_0 … chain_{n-1}`` on disk. Prefer the ids
+    actually discovered in the run (a chain that never started has no trace
+    directory, so the positions of a summary-derived array are not simply
+    0..n-1); fall back to camdl's numbering from 0 when the counts disagree
     (a summary written for chains whose trace dirs are not all present yet)."""
     ids = sorted(run.chains)
     if len(ids) == n:
         return ids
-    return list(range(1, n + 1))
+    return list(range(n))
 
 
 def per_chain_mixing(
@@ -418,7 +397,7 @@ def per_chain_mixing(
     ``chain_ids`` is parallel to ``values`` — the consumer labels with these,
     never with the array position."""
     summ = run.summary
-    band = camdl_acceptance_band(summ.findings) if summ is not None else None
+    band = camdl_acceptance_band(run)
     if summ is not None:
         acc = summ.per_chain_acceptance
         if acc:
@@ -680,7 +659,7 @@ def _block_acceptance_panel(run: RunState) -> SamplerPanel | None:
     names = list(run.meta.estimated)[:width]
     if len(names) < width:
         names += [f"block{i}" for i in range(len(names), width)]
-    band = camdl_acceptance_band(run.summary.findings)
+    band = camdl_acceptance_band(run)
     return SamplerPanel(
         id="block-acceptance",
         title="block acceptance",
@@ -721,9 +700,7 @@ def _sampler_telemetry_panel(run: RunState, warmup: int) -> SamplerPanel | None:
     cols.sort(key=lambda c: (c not in DIAGNOSTIC_META, c))
 
     # An acceptance column's band is camdl's, from its finding, or absent.
-    camdl_band = (
-        camdl_acceptance_band(run.summary.findings) if run.summary is not None else None
-    )
+    camdl_band = camdl_acceptance_band(run)
     columns: list[PanelColumn] = []
     for c in cols:
         meta = DIAGNOSTIC_META.get(c)

@@ -11,6 +11,7 @@ import pytest
 
 import json
 
+from camdl_scope import diagnostics as diag_mod
 from camdl_scope import ingest
 from camdl_scope.state import ChainBuffer, PriorFamily, Severity
 
@@ -744,31 +745,30 @@ def test_summary_is_found_for_any_sampler(tmp_path: Path):
     assert cs.rhat == {"beta": 1.01} and cs.thin == 3
 
 
-def test_bad_init_chain_ids_are_reported_one_based(tmp_path: Path):
-    """camdl numbered ``bad_init.chain_id`` from 0 while numbering the
-    ``chain_N/`` directories, its own finding message and ``progress.json`` from
-    1; the release that tags summaries with ``schema`` makes them agree. Ingest
-    normalizes both vintages to 1-based, so nothing downstream has to know
-    which camdl wrote the store."""
-    def _leaf(dirname: str, summary: dict) -> Path:
-        seed = tmp_path / dirname / "seed_1-bbbb"
-        seed.mkdir(parents=True)
-        (seed / "pgas_summary.json").write_text(json.dumps(summary))
-        (seed / "diagnostics.json").write_text(json.dumps([
-            {"kind": {"type": "bad_init", "chain_id": 6, "reason": "non-finite"},
-             "message": "Chain 7 skipped", "severity": "error"},
-        ]))
-        return seed
+def test_bad_init_chain_ids_follow_camdl_and_the_directories(tmp_path: Path):
+    """camdl counts chains from 0 everywhere: its message, ``chain_id`` in
+    diagnostics.json, and the ``chain_N/`` directories. A leaf whose chains all
+    failed at init writes no ``*_summary.json``; its findings used to be shifted
+    by one ("Chain 0" in the message, chain 1 in the dashboard)."""
+    seed = tmp_path / "pmmh-bd1183f1" / "seed_1-06cbd6b3"
+    seed.mkdir(parents=True)
+    (seed / "diagnostics.json").write_text(json.dumps([
+        {"kind": {"type": "bad_init", "chain_id": 0, "reason": "no start scored"},
+         "severity": "error", "message": "Chain 0 starting parameters were pathological"},
+        {"kind": {"type": "bad_init", "chain_id": 1, "reason": "no start scored"},
+         "severity": "error", "message": "Chain 1 starting parameters were pathological"},
+    ]))
+    cs = ingest.read_chain_summary(seed)  # no summary file at all
+    assert cs is not None
+    assert [f.detail["chain_id"] for f in cs.findings] == [0, 1]
+    groups = diag_mod.summarize_findings(cs.findings)
+    assert "chains 0, 1" in groups[0].headline
 
-    untagged = ingest.read_chain_summary(_leaf("pgas-old", {"n_chains": 8}))
-    assert untagged is not None
-    assert untagged.findings[0].detail["chain_id"] == 7  # 0-based on disk
-
-    tagged = ingest.read_chain_summary(
-        _leaf("pgas-new", {"schema": "camdl.fit-summary/v1", "n_chains": 8})
-    )
-    assert tagged is not None
-    assert tagged.findings[0].detail["chain_id"] == 6  # already 1-based
+    # The same ids with a tagged summary present: unchanged.
+    (seed / "pmmh_summary.json").write_text(
+        json.dumps({"schema": "camdl.fit-summary/v2", "n_chains": 2}))
+    cs = ingest.read_chain_summary(seed)
+    assert [f.detail["chain_id"] for f in cs.findings] == [0, 1]
 
 
 def _seed_leaf(run: Path, n: int, label: str, mtime: float) -> Path:

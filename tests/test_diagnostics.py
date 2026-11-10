@@ -84,7 +84,8 @@ def test_summarize_findings_aggregates_repetition():
     # camdl repeats acceptance per param×chain; aggregation collapses to one line.
     findings = [
         _finding("acceptance_rate_unhealthy", Severity.ERROR,
-                 "rate 99% outside healthy range [15%, 50%].", param="R0", rate=0.99),
+                 "rate 99% outside healthy range [15%, 50%].", param="R0", rate=0.99,
+                 band_lo=0.15, band_hi=0.5),
         _finding("acceptance_rate_unhealthy", Severity.ERROR,
                  "rate 99% outside healthy range [15%, 50%].", param="k", rate=0.99),
         _finding("acceptance_rate_unhealthy", Severity.ERROR,
@@ -123,22 +124,23 @@ def test_per_chain_mixing_prefers_camdl_acceptance():
     label, values, ids, band = dmod.per_chain_mixing(_run_with_summary(cs), warmup=0)
     assert label == "acceptance"
     assert values == pytest.approx([0.99, 0.86])
-    # camdl names chains chain_1…chain_n, so a summary's positional array maps
-    # to 1-based ids — never c0, which names no chain.
-    assert band is None and ids == [1, 2]  # no finding carries a band: none drawn
+    # camdl counts chains from 0 (chain_0 …), so with no trace dirs to read the
+    # ids from, a summary's positional array maps to 0..n-1.
+    assert band is None and ids == [0, 1]  # no finding carries a band: none drawn
 
 
-def _band_finding(lo="15", hi="50"):
+def _band_finding(lo=0.15, hi=0.50, **extra):
     from camdl_scope.state import Finding, Severity
     return Finding(
         kind="acceptance_rate_unhealthy", severity=Severity.ERROR, param=None,
-        message=f"chain acceptance rate 99.0% is outside healthy range [{lo}%, {hi}%] (random-walk MH).",
-        detail={"rate": 0.99})
+        message="chain acceptance rate 99.0% is outside healthy range.",
+        detail={"rate": 0.99, **({"band_lo": lo, "band_hi": hi} if lo is not None else {}),
+                **extra})
 
 
-def test_acceptance_band_is_the_one_camdl_published_in_its_finding():
+def test_acceptance_band_is_the_one_camdl_published_in_its_finding_fields():
     cs = ChainSummary(stage="pgas", n_chains=2, rhat={}, ess={}, ess_per_chain={},
-                      acceptance_rates=[[0.99], [0.86]], findings=[_band_finding("60", "95")])
+                      acceptance_rates=[[0.99], [0.86]], findings=[_band_finding(0.60, 0.95)])
     _l, _v, _i, band = dmod.per_chain_mixing(_run_with_summary(cs), warmup=0)
     assert band == pytest.approx((0.60, 0.95))
 
@@ -330,3 +332,28 @@ def test_an_infinite_bound_is_not_a_bound():
     row = dmod.prior_posterior(_run_with_param(vals, spec), warmup=0)[0]
     assert row.bounds is None
     assert row.bound_pressure is None
+
+
+def _events_begin(leaf, acceptance):
+    import json as _json
+    leaf.mkdir(parents=True, exist_ok=True)
+    (leaf / "events.jsonl").write_text(_json.dumps(
+        {"schema": "camdl.events/v1", "seq": 0, "elapsed": 0.0, "event": "begin",
+         "method": "pmmh", "header": {}, "acceptance": acceptance}) + "\n")
+
+
+def test_acceptance_band_prefers_begin_then_finding_then_none(tmp_path):
+    from camdl_scope.verdict import acceptance_band
+    leaf = tmp_path / "pmmh-1" / "seed_1-a"
+    # nothing published: no band, and none assumed
+    assert acceptance_band(leaf, []) is None
+    # an older leaf with no begin band but a finding that carries one
+    assert acceptance_band(leaf, [_band_finding(0.1, 0.4)]) == (0.1, 0.4)
+    # a finding from a camdl that predates the fields
+    assert acceptance_band(leaf, [_band_finding(None)]) is None
+    # begin wins over the finding; a null acceptance falls through to it
+    _events_begin(leaf, {"kernel": "nuts", "band_lo": 0.6, "band_hi": 0.95})
+    assert acceptance_band(leaf, [_band_finding(0.1, 0.4)]) == (0.6, 0.95)
+    _events_begin(leaf, None)
+    assert acceptance_band(leaf, []) is None
+    assert acceptance_band(leaf, [_band_finding(0.1, 0.4)]) == (0.1, 0.4)

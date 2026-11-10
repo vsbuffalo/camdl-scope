@@ -296,11 +296,21 @@ def parse_fit_summary(text: str) -> FitSummary:
         status = str(row.get("status"))
         err = row.get("error")
         raw_v = row.get("verdict")
+        st = row.get("state")
+        state = st.get("state") if isinstance(st, dict) else None
         if raw_v is None:
-            kind = "failed" if status == "failed" else ("running" if status == "running"
-                                                        else "not_recorded")
-            v = Verdict(kind, "error" if kind == "failed" else "neutral",
-                        str(row.get("verdict_text") or kind), error=err)
+            if state == "failed" and isinstance(st.get("failure"), dict):
+                err = st["failure"].get("message") or err
+            if state == "interrupted":
+                v = Verdict("interrupted", "neutral",
+                            "interrupted: stopped without recording an outcome")
+            elif state == "failed_reason_unknown":
+                v = Verdict("failed", "error", "failed (camdl recorded no reason)")
+            else:
+                kind = "failed" if (status == "failed" or state == "failed") else (
+                    "running" if status == "running" else "not_recorded")
+                v = Verdict(kind, "error" if kind == "failed" else "neutral",
+                            str(row.get("verdict_text") or kind), error=err)
         else:
             base = verdict_from_report(raw_v, legacy_null=legacy)
             text = str(row.get("verdict_text") or base.text)
@@ -367,6 +377,22 @@ def read_run_status(leaf: Path) -> str:
     return s if s in ("completed", "running", "failed") else "unknown"
 
 
+def read_run_failure(leaf: Path) -> str | None:
+    """``failure.message`` from a leaf's ``run.json`` when it records
+    ``status: failed``: the error camdl stopped on, written before it exited.
+    ``None`` otherwise, including a ``failed`` record with no ``failure`` (a
+    camdl before the field, or a panic)."""
+    try:
+        rec = json.loads((leaf / "run.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(rec, dict) or rec.get("status") != "failed":
+        return None
+    f = rec.get("failure")
+    msg = f.get("message") if isinstance(f, dict) else None
+    return msg if isinstance(msg, str) and msg else None
+
+
 def leaf_verdict(leaf: Path, *, ask_camdl: bool = True) -> Verdict:
     """The verdict for one method leaf. Never raises: a camdl artifact this
     reader refuses becomes a visible ``unreadable`` verdict carrying the
@@ -375,6 +401,11 @@ def leaf_verdict(leaf: Path, *, ask_camdl: bool = True) -> Verdict:
     ``ask_camdl`` allows the ``camdl fit summary`` fallback for a leaf with no
     ``events.jsonl``. A listing of many leaves passes ``False`` so that opening
     a folder never starts one subprocess per old leaf."""
+    # camdl records a failure in run.json before it exits; that record is
+    # preferred over the events log's failed report.
+    failure = read_run_failure(leaf)
+    if failure is not None:
+        return Verdict("failed", "error", f"failed: {failure}", error=failure)
     try:
         ev = read_events(leaf)
         if ev is not None:
@@ -479,3 +510,44 @@ def rhat_status(param: str, findings: list, verdict: Verdict | None) -> Status:
             and verdict.status in ("warn", "error"):
         return verdict.status
     return worst
+
+
+# ---------------------------------------------------------------------------
+# The acceptance band camdl applies
+# ---------------------------------------------------------------------------
+
+
+def band_from(raw: Any) -> tuple[float, float] | None:
+    """``(band_lo, band_hi)`` from an object holding both, else ``None``."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        lo, hi = parse_number(raw.get("band_lo")), parse_number(raw.get("band_hi"))
+    except ValueError:
+        return None
+    return (lo, hi) if lo is not None and hi is not None else None
+
+
+def acceptance_band(leaf: Path, findings: list) -> tuple[float, float] | None:
+    """The healthy acceptance band camdl applied to this leaf, or ``None``.
+
+    camdl publishes it as values on the ``begin`` line of ``events.jsonl``
+    (``acceptance: {kernel, band_lo, band_hi}``, or ``null`` for a method with
+    no acceptance diagnostics) and on each ``acceptance_rate_unhealthy`` finding
+    (``band_lo``, ``band_hi``). Both are optional: a leaf written by an older
+    camdl carries neither, and then no band is drawn. Nothing is assumed."""
+    try:
+        ev = read_events(leaf)
+    except (UnsupportedSchema, ValueError, OSError):
+        ev = None
+    if ev is not None:
+        begin = next((e for e in ev.events if e.get("event") == "begin"), None)
+        band = band_from(begin.get("acceptance")) if begin else None
+        if band is not None:
+            return band
+    for f in findings:
+        if f.kind == "acceptance_rate_unhealthy":
+            band = band_from(f.detail)
+            if band is not None:
+                return band
+    return None

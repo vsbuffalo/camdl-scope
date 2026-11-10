@@ -371,3 +371,27 @@ def test_a_failed_report_overrides_a_run_json_still_saying_running(tmp_path):
     (leaf / "run.json").write_text(json.dumps({"run_id": "r", "status": "running"}))
     [row] = V.leaf_rows(tmp_path)
     assert row.status == "failed" and row.verdict.error == "boom"
+
+
+def test_run_json_failure_is_preferred_to_the_events_report(tmp_path):
+    leaf = tmp_path / "pmmh-11111111" / "seed_1-aaaaaaaa"
+    _write_events(leaf, {"event": "method_report", "outcome": "failed", "error": "from events"})
+    (leaf / "run.json").write_text(json.dumps({
+        "status": "failed", "failure": {"message": "from run.json", "operation": "pmmh"}}))
+    v = V.leaf_verdict(leaf)
+    assert v.kind == "failed" and v.error == "from run.json"
+    # a failed record with no failure falls back to the events report
+    (leaf / "run.json").write_text(json.dumps({"status": "failed"}))
+    assert V.leaf_verdict(leaf).error == "from events"
+
+
+def test_summary_leaf_state_is_read_when_there_is_no_verdict():
+    doc = json.loads(_summary_doc(5, 1.0))
+    doc["leaves"][1]["state"] = {"state": "failed",
+                                 "failure": {"message": "no chain scored", "operation": "pmmh"}}
+    doc["leaves"][1].pop("error")
+    doc["leaves"][2]["state"] = {"state": "interrupted", "pid": None}
+    doc["leaves"][2]["status"] = "running"
+    got = V.parse_fit_summary(json.dumps(doc)).leaves
+    assert got[1].verdict.error == "no chain scored" and got[1].verdict.kind == "failed"
+    assert got[2].verdict.kind == "interrupted" and got[2].verdict.status == "neutral"
