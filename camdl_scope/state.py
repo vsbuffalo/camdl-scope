@@ -447,13 +447,6 @@ class Severity(str, Enum):
     ERROR = "error"
 
 
-@dataclass(frozen=True)
-class Warning_:
-    severity: Severity
-    message: str
-    param: str | None = None
-
-
 # ---------------------------------------------------------------------------
 # camdl's authoritative end-of-stage telemetry (pgas_summary.json /
 # pmmh_summary.json + diagnostics.json). Present only once a stage finishes;

@@ -1,7 +1,11 @@
 """Diagnostics core — pure functions, arviz-backed.
 
-``compute_diagnostics(run, warmup) -> Diagnostics`` and
-``derive_warnings(diag, run) -> [Warning_]``.
+``compute_diagnostics(run, warmup) -> Diagnostics``.
+
+This module computes numbers and displays camdl's verdict; it does not judge. A
+severity, a status colour or a "converged" comes from what camdl persisted
+(:mod:`camdl_scope.verdict`, and the findings read in :mod:`camdl_scope.ingest`),
+never from a threshold here.
 
 We do NOT hand-roll R̂/ESS/MCSE — arviz owns those (rank-normalized split-R̂,
 bulk/tail-ESS, MCSE). We add the things arviz doesn't: acceptance rate, a
@@ -37,7 +41,6 @@ from .state import (
     PriorSpec,
     RunState,
     Severity,
-    Warning_,
 )
 
 _SEV_ORDER = {Severity.ERROR: 0, Severity.WARN: 1, Severity.INFO: 2}
@@ -250,52 +253,6 @@ def _aux_tail_mean(run: RunState, warmup: int, col: str) -> float | None:
     if not vals:
         return None
     return float(np.mean(vals))
-
-
-def derive_warnings(
-    diag: Diagnostics,
-    run: RunState,
-    rhat_thresh: float = 1.1,
-    bulk_ess_thresh: float = 400.0,
-    sep_thresh: float = 1.0,
-    summary: ChainSummary | None = None,
-) -> list[Warning_]:
-    """Translate diagnostics into a ranked list of warnings.
-
-    When ``summary`` (camdl's authoritative end-of-stage diagnostics) is present
-    its findings own the R̂/ESS verdict, so we drop the watcher's *live* R̂/ESS
-    warnings here to avoid double-reporting — they're shown via the verdict
-    strip. The watcher-only signals (plateau, chain separation) always stand."""
-    out: list[Warning_] = []
-
-    if diag.n_tail < 4:
-        out.append(Warning_(Severity.INFO, "Too few post-warmup draws for stable diagnostics."))
-        return out
-
-    if summary is None:
-        for p, d in diag.per_param.items():
-            if np.isfinite(d.rhat) and d.rhat > rhat_thresh:
-                out.append(Warning_(Severity.ERROR, f"R̂ = {d.rhat:.3f} > {rhat_thresh}", param=p))
-        for p, d in diag.per_param.items():
-            if np.isfinite(d.bulk_ess) and d.bulk_ess < bulk_ess_thresh:
-                sev = Severity.ERROR if d.bulk_ess < bulk_ess_thresh / 4 else Severity.WARN
-                out.append(Warning_(sev, f"bulk-ESS = {d.bulk_ess:.0f} < {bulk_ess_thresh:.0f}", param=p))
-    for p, s in diag.chain_separation.items():
-        if np.isfinite(s) and s > sep_thresh:
-            out.append(Warning_(Severity.WARN, f"chains separated (between/within = {s:.2f})", param=p))
-
-    if diag.plateaued is False:
-        sl = f" (slope {diag.plateau_slope:.3g})" if diag.plateau_slope is not None else ""
-        out.append(Warning_(Severity.WARN, f"log-likelihood not plateaued{sl}"))
-
-    if diag.n_divergent:
-        out.append(Warning_(Severity.ERROR, f"{diag.n_divergent} divergent transitions"))
-
-    if not out:
-        out.append(Warning_(Severity.INFO, "No warnings — diagnostics within thresholds."))
-    # Sort: error > warn > info.
-    out.sort(key=lambda w: _SEV_ORDER[w.severity])
-    return out
 
 
 # ---------------------------------------------------------------------------

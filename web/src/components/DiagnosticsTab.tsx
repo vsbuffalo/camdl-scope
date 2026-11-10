@@ -3,6 +3,7 @@ import * as Plot from '@observablehq/plot'
 import type {
   ChainMixing,
   DiagnosticsResponse,
+  LeafRowModel,
   ParamDiagnostic,
   SamplerPanel,
 } from '@/api/client'
@@ -17,14 +18,9 @@ import { TargetDecomposition } from '@/components/TargetDecomposition'
 import { CrossChainMatrix } from '@/components/CrossChainMatrix'
 import { ParticleHealth, fmtFraction } from '@/components/ParticleHealth'
 import { fmtEss, fmtRhat, fmtTick, fmtValue } from '@/lib/format'
+import { statusChipClasses, statusTextClass } from '@/lib/convergence'
 import { cn } from '@/lib/utils'
 
-
-// Convergence signal thresholds — the same P&L coding the Posterior forest uses,
-// so a number reads identically across tabs.
-const RHAT_HIGH = 1.1 // > this reads red (elevated, suspect)
-const RHAT_OK = 1.05 // <= this reads muted green (healthy)
-const ESS_LOW = 100 // < this reads amber (thin effective sample)
 
 // Mixing-bar palette: a bar within the healthy band is quiet neutral; one
 // outside it lights up red. The band itself is a faint emerald wash.
@@ -37,19 +33,16 @@ const AXIS = '#737373' // neutral-500 — tick labels
 const MONO = 'var(--font-mono)'
 const ROW_H = 24 // px per chain bar
 
-/** Two-sided color for R̂: healthy green / neutral / elevated red. */
-function rhatClass(rhat: number | null | undefined): string {
-  if (rhat == null) return 'text-neutral-400'
-  if (rhat > RHAT_HIGH) return 'text-red-600 font-medium'
-  if (rhat <= RHAT_OK) return 'text-emerald-600'
-  return 'text-neutral-500'
+/** R̂ colour is camdl's (findings and verdict, via the API's `rhat_status`);
+ *  ESS carries no status because camdl assigns none per parameter. Both
+ *  numbers are shown regardless. */
+function rhatClass(p: ParamDiagnostic): string {
+  if (p.rhat == null && p.rhat_text == null) return 'text-neutral-400'
+  return statusTextClass(p.rhat_status)
 }
 
-/** ESS color: amber when thin, muted neutral when healthy. */
 function essClass(ess: number | null | undefined): string {
-  if (ess == null) return 'text-neutral-400'
-  if (ess < ESS_LOW) return 'text-amber-600'
-  return 'text-neutral-400'
+  return ess == null ? 'text-neutral-300' : 'text-neutral-400'
 }
 
 /** Compact readout: ≥100 or 0 as integers, else 3 sig-figs (e.g. 0.290). */
@@ -312,6 +305,38 @@ function SamplerPanelTable({ panel }: { panel: SamplerPanel }) {
   )
 }
 
+/** Every method leaf of the problem folder, whichever is open: completed,
+ *  running and failed, each with camdl's verdict for it. Shown only when the
+ *  folder holds more than the open leaf, since one leaf is the verdict above. */
+function LeafTable({ leaves }: { leaves: LeafRowModel[] }) {
+  if (leaves.length <= 1) return null
+  return (
+    <table className="mt-2 w-full border-collapse font-mono text-[11px]">
+      <thead>
+        <tr className="text-left text-neutral-400">
+          <th className="py-0.5 pr-3 font-normal">method</th>
+          <th className="py-0.5 pr-3 font-normal">leaf</th>
+          <th className="py-0.5 pr-3 font-normal">status</th>
+          <th className="py-0.5 font-normal">camdl&apos;s verdict</th>
+        </tr>
+      </thead>
+      <tbody>
+        {leaves.map((l) => (
+          <tr key={l.leaf} className={l.is_open ? 'bg-neutral-50' : undefined}>
+            <td className="py-0.5 pr-3 text-neutral-700">{l.method}</td>
+            <td className="py-0.5 pr-3 text-neutral-400">
+              {l.leaf}
+              {l.is_open ? ' (open)' : ''}
+            </td>
+            <td className="py-0.5 pr-3 text-neutral-500">{l.status}</td>
+            <td className={statusTextClass(l.verdict.status)}>{l.verdict.text}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 /** The verdict header + the findings list (or the all-clear line). */
 function Verdict({ data }: { data: DiagnosticsResponse }) {
   const isCamdl = data.source === 'camdl'
@@ -321,7 +346,7 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
         <span className="font-mono text-[11px] text-neutral-500">
           {isCamdl
             ? `camdl · ${data.stage ?? '—'} verdict`
-            : 'live arviz estimate — no stage summary yet'}
+            : 'live arviz estimate — camdl has not assessed this run'}
         </span>
         <span
           className="font-mono text-[10px] uppercase tracking-wider text-neutral-400"
@@ -362,9 +387,23 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
         </p>
       )}
 
+      {/* camdl's verdict, as persisted: the sentence, never a grade of ours. */}
+      <p
+        className={cn(
+          'mt-1.5 inline-block rounded-sm border px-1.5 py-0.5 font-mono text-[11px] font-medium',
+          statusChipClasses(data.verdict.status),
+        )}
+      >
+        {data.verdict.text}
+      </p>
+
+      <LeafTable leaves={data.leaves} />
+
       <div className="mt-1.5 space-y-1">
         {data.findings.length === 0 ? (
-          <p className="text-xs text-emerald-600">no findings — within thresholds</p>
+          <p className="text-xs text-neutral-500">
+            camdl has reported no findings for this run yet
+          </p>
         ) : (
           data.findings.map((f, i) => (
             <p key={i} className={cn('text-xs', severityClass(f.severity))}>
@@ -532,13 +571,13 @@ function ParamTable({
                   </span>
                 </td>
                 <td
-                  className={cn('px-2 py-1.5 text-right', rhatClass(p.rhat))}
+                  className={cn('px-2 py-1.5 text-right', rhatClass(p))}
                   title={p.rhat == null && p.rhat_refused ? `camdl reported no R̂: ${p.rhat_refused.replace(/_/g, ' ')}` : undefined}
                 >
                   {p.rhat == null && p.rhat_refused ? (
                     <span className="text-neutral-400">{p.rhat_refused.replace(/_/g, ' ')}</span>
                   ) : (
-                    fmtRhat(p.rhat)
+                    (p.rhat_text ?? fmtRhat(p.rhat))
                   )}
                 </td>
                 <td className={cn('px-2 py-1.5 text-right', essClass(p.ess_bulk))}>
@@ -558,12 +597,7 @@ function ParamTable({
                   return (
                     <td
                       key={c.at}
-                      className={cn(
-                        'px-2 py-1.5 text-right',
-                        v != null && v < ESS_LOW
-                          ? 'text-red-600'
-                          : 'text-neutral-400',
-                      )}
+                      className="px-2 py-1.5 text-right text-neutral-400"
                     >
                       {v != null ? fmtEss(v) : '—'}
                     </td>

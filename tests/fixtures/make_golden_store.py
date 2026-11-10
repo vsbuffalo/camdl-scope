@@ -12,6 +12,11 @@ around:
     levels;
   * a two-chain posterior ``trace.tsv`` so the run is discoverable and has
     draws to summarize;
+  * ``events.jsonl`` (``camdl.events/v1``, run spec 10.11) with camdl's end-of-run
+    ``method_report``, so the viewer reads a verdict camdl persisted. It is
+    written to the spec's shape by this generator, not captured from a camdl
+    run: the verdict it carries is a fixed ``converged`` whose ``max_rhat`` is
+    the largest R-hat of the synthetic summary beside it;
   * ``predictive``/``observed`` TSVs for the ``cases`` stream, in the run's
     default-options predict directory ``predict/<run_id12>/``, plus one
     option-keyed predict ``predict/<run_id12>-<opts8>/`` (a longer horizon) so
@@ -257,7 +262,7 @@ KEYED_OPTIONS = {"horizon": 30, "n_draws": 200}
 
 RUN_JSON = {
     "format_version": 1,
-    "kind": "fit_stage",
+    "kind": "fit_method",
     "run_id": RUN_ID,
     "levels": [
         {"name": "fit", "label": "seir_patch_demo", "hash": "a1b2c3d4" * 8,
@@ -280,6 +285,32 @@ RUN_JSON = {
         "chain_starts_kind": "spread",
     },
 }
+
+
+def _events(summary: dict) -> str:
+    """The leaf's ``events.jsonl``: ``begin``, one ``progress`` per chain, then
+    the ``method_report`` camdl appends after the leaf commits. Written to the
+    shape of run spec 10.11; the verdict is the one a camdl that read this
+    summary's R-hat would record, fixed here rather than recomputed."""
+    rhat = summary["rhat"]
+    worst = max(rhat, key=rhat.get)
+    base = {"schema": "camdl.events/v1"}
+    lines = [
+        {**base, "seq": 0, "elapsed": 0.0, "event": "begin", "method": "pgas",
+         "header": {"config": "fit.toml", "method": "pgas", "model": "seir_patch_demo",
+                    "estimate": PARAM_NAMES, "fixed": [], "starts": "from_prior",
+                    "output": "seir_patch_demo-a1b2c3d4"}},
+        *[{**base, "seq": 1 + c, "elapsed": 1.0, "event": "progress", "chain": c + 1,
+           "step": N_SWEEPS, "of": N_SWEEPS, "loglik": None, "accept": None}
+          for c in range(N_CHAINS)],
+        {**base, "seq": 1 + N_CHAINS, "elapsed": 8.0, "event": "method_report",
+         "outcome": "completed",
+         "report": {"name": "pgas", "method": "pgas", "n_chains": N_CHAINS,
+                    "checks": [], "findings": [],
+                    "verdict": {"kind": "converged", "max_rhat": rhat[worst],
+                                "param": worst}}},
+    ]
+    return "".join(json.dumps(x) + "\n" for x in lines)
 
 
 def _predictive_observed(
@@ -332,8 +363,9 @@ def build(out: Path) -> Path:
         "state": "done", "updated_at": 1_700_000_000, "pid": 0,
     }) + "\n")
     (seed_dir / "run.json").write_text(json.dumps(RUN_JSON, indent=2) + "\n")
-    (seed_dir / "pgas_summary.json").write_text(
-        json.dumps(_summary(rng), indent=2) + "\n")
+    summary = _summary(rng)
+    (seed_dir / "pgas_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    (seed_dir / "events.jsonl").write_text(_events(summary))
     # camdl writes predict output per run, in the problem folder (gh#896).
     predict = run_dir / "predict"
     _predictive_observed(rng, predict / RUN_ID[:12], {}, 20)

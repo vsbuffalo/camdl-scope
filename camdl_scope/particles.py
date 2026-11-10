@@ -57,10 +57,13 @@ class HealthStat:
     #: which is how a rate is read out loud.
     unit: str
     note: str
-    #: Conventional healthy range, when one exists. Absent where no threshold
-    #: is defensible — an invented band is worse than none.
+    #: Conventional healthy range. Always absent: a band would be a threshold of
+    #: our own, and camdl's findings (``acceptance_rate_unhealthy``,
+    #: ``low_trajectory_renewal``, ``degenerate_ancestor_sampling``) say when a
+    #: value is unhealthy. These are numbers to read, not graded.
     band: tuple[float, float] | None = None
-    severity: str = "none"  # none | ok | warn
+    #: Always ``none``: no status is assigned here (kept for the wire shape).
+    severity: str = "none"
 
 
 @dataclass(frozen=True)
@@ -149,7 +152,6 @@ def _pgas(rs: RunState, cutoff: int, particles: int | None) -> ParticleHealth:
                 # reading the PROFILE rather than testing a scalar, so this
                 # carries no band on purpose.
                 band=None,
-                severity="warn" if r < 0.01 else "ok",
             )
         )
     a = _mean_or_none(as_accept)
@@ -166,7 +168,6 @@ def _pgas(rs: RunState, cutoff: int, particles: int | None) -> ParticleHealth:
                     "degenerate filter — the candidate ancestors are all worse "
                     "than the conditioned path."
                 ),
-                severity="warn" if a < 0.01 else "ok",
             )
         )
     o = _mean_or_none(as_opp)
@@ -184,7 +185,6 @@ def _pgas(rs: RunState, cutoff: int, particles: int | None) -> ParticleHealth:
                     "schedule leaves nowhere to renew, so more particles will "
                     "not help."
                 ),
-                severity="warn" if o < 1 else "ok",
             )
         )
     p = _mean_or_none(as_prop)
@@ -256,15 +256,10 @@ def _pmmh(rs: RunState, cutoff: int, particles: int | None) -> ParticleHealth:
                     "is necessary but not sufficient: a healthy average can "
                     "hide a single long stall."
                 ),
-                band=(0.10, 0.40),
-                severity="warn" if a < 0.05 else "ok",
             )
         )
     if stalls:
         worst = max(stalls.values())
-        n_tail = max(
-            (int((buf.iters >= cutoff).sum()) for buf in rs.chains.values()), default=0
-        )
         stats.append(
             HealthStat(
                 key="longest_stall",
@@ -277,9 +272,6 @@ def _pmmh(rs: RunState, cutoff: int, particles: int | None) -> ParticleHealth:
                     "and nothing can beat it; a stall covering a large share of "
                     "the chain means the estimator variance is too high, which "
                     "is fixed with more particles, not more iterations."
-                ),
-                severity=(
-                    "warn" if n_tail and worst > 0.10 * n_tail else "ok"
                 ),
             )
         )

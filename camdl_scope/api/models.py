@@ -19,6 +19,38 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class VerdictModel(BaseModel):
+    """camdl's verdict on a method leaf, as camdl persisted it. ``kind`` is
+    camdl's tag (``converged``, ``not_converged``, ``unassessable``,
+    ``not_assessed``, ``not_applicable``, ``gate_pass``, ``gate_fail``) or the
+    state of a leaf with no report (``failed``, ``running``, ``not_recorded``,
+    ``unreadable``). ``status`` (``ok`` | ``warn`` | ``error`` | ``neutral``) is
+    the colour class of that kind and carries no threshold of ours; ``text`` is
+    the words to show. ``max_rhat`` is camdl's worst R̂ as text, because it can
+    be ``inf`` or ``NaN``."""
+
+    kind: str
+    status: str
+    text: str
+    max_rhat: str | None = None
+    param: str | None = None
+    band: str | None = None
+    error: str | None = None
+
+
+class LeafRowModel(BaseModel):
+    """One method leaf of a problem folder (``leaf`` is its path under the
+    folder) with its own status and verdict. Every leaf is listed — completed,
+    running, failed — and ``is_open`` marks the one the dashboard is showing."""
+
+    leaf: str
+    method: str
+    run_id: str | None = None
+    status: str
+    verdict: VerdictModel
+    is_open: bool = False
+
+
 class ParamPosterior(BaseModel):
     """One estimated coordinate, doc-labelled and summarized — the unit a forest
     plot draws: a point (``q50``) with an interval (``q05``…``q95``), a human
@@ -43,6 +75,13 @@ class ParamPosterior(BaseModel):
     q95: float
     rhat: float | None = None
     ess: float | None = None
+    #: ``NaN`` / ``inf`` / ``-inf`` when camdl's R̂ is non-finite (``rhat`` is
+    #: then null); null otherwise.
+    rhat_text: str | None = None
+    #: Colour class of R̂ from camdl's findings and verdict: ``warn`` / ``error``
+    #: where camdl flagged this parameter, else ``neutral`` (camdl raised
+    #: nothing, which is not a certification).
+    rhat_status: str = "neutral"
     # True for a pooled objective (log_posterior / log_likelihood) appended after
     # the estimated params — a fit summary, not an estimand, with no prior/docs.
     is_objective: bool = False
@@ -293,6 +332,9 @@ class RunDetail(BaseModel):
     streams: list[StreamInfo]
     dimensions: list[DimensionInfo]
     findings: list[FindingGroup]
+    # camdl's verdict on this leaf, and every method leaf of its folder.
+    verdict: VerdictModel
+    leaves: list[LeafRowModel] = []
     # Every predict of this run, the default-options one first; empty when it
     # was never predicted. ``predict`` is the key of the one the fields below
     # (streams, quantities, calendar) were read from.
@@ -867,6 +909,11 @@ class ParamDiagnostic(BaseModel):
     sd: float
     sep: float | None = None
     ess_per_chain: list[float] = []
+    #: ``NaN`` / ``inf`` / ``-inf`` where the value is non-finite (the number
+    #: field is then null); null otherwise. See :attr:`ParamPosterior.rhat_text`.
+    rhat_text: str | None = None
+    ess_text: str | None = None
+    rhat_status: str = "neutral"
     #: camdl's reason this parameter has no R-hat (``non_finite_rhat``, …).
     rhat_refused: str | None = None
 
@@ -1004,6 +1051,9 @@ class DiagnosticsResponse(BaseModel):
     stage: str | None = None
     source: str
     logpost_label: str
+    #: camdl's verdict on the open leaf, and every method leaf of its folder.
+    verdict: VerdictModel
+    leaves: list[LeafRowModel] = []
     findings: list[FindingGroup]
     params: list[ParamDiagnostic]
     mixing: ChainMixing | None = None
