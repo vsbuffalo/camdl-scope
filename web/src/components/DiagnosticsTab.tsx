@@ -9,6 +9,7 @@ import type {
 } from '@/api/client'
 import { useDiagnostics } from '@/api/queries'
 import { ChainSelect } from '@/components/ChainSelect'
+import { ChainLoglikTable } from '@/components/ChainLoglikTable'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { includedChains, type ChainControls } from '@/lib/chains'
 import { WarmupControl } from '@/components/WarmupControl'
@@ -340,13 +341,22 @@ function LeafTable({ leaves }: { leaves: LeafRowModel[] }) {
 /** The verdict header + the findings list (or the all-clear line). */
 function Verdict({ data }: { data: DiagnosticsResponse }) {
   const isCamdl = data.source === 'camdl'
+  // camdl can give a verdict while giving no R̂ (a frozen chain makes it
+  // undefined), so the numbers below are then the live estimate under camdl's
+  // verdict. A leaf with no report (running, failed, not recorded) has no
+  // verdict to speak of.
+  const hasCamdlVerdict = !['running', 'failed', 'not_recorded', 'unreadable'].includes(
+    data.verdict.kind,
+  )
   return (
     <div className="border-b border-neutral-100 px-3 py-2.5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span className="font-mono text-[11px] text-neutral-500">
           {isCamdl
             ? `camdl · ${data.stage ?? '—'} verdict`
-            : 'live arviz estimate — camdl has not assessed this run'}
+            : hasCamdlVerdict
+              ? 'camdl verdict; the numbers below are a live arviz estimate (camdl reported no R̂)'
+              : 'live arviz estimate — camdl has not assessed this run'}
         </span>
         <span
           className="font-mono text-[10px] uppercase tracking-wider text-neutral-400"
@@ -411,6 +421,18 @@ function Verdict({ data }: { data: DiagnosticsResponse }) {
                 [{f.kind}]
               </span>
               {f.headline}
+              {/* camdl's own sentence for each chain it raised this finding
+                  for, one line per chain. */}
+              {f.chain_messages.length > 0 && (
+                <span className="mt-0.5 block space-y-0.5 pl-3 text-[11px] leading-snug">
+                  {f.chain_messages.map((m) => (
+                    <span key={m.chain} className="block">
+                      <span className="font-mono text-neutral-500">c{m.chain}</span>{' '}
+                      {m.message}
+                    </span>
+                  ))}
+                </span>
+              )}
             </p>
           ))
         )}
@@ -518,8 +540,11 @@ function ParamTable({
   params,
   perChainCols,
   vintage,
+  frozen,
 }: {
   params: ParamDiagnostic[]
+  /** Chains camdl recorded as taking no step after burn-in. */
+  frozen: Set<number>
   /** Which R̂ / ESS the numbers are: camdl's current rank-normalized R̂ and
    *  bulk-ESS, its older classic R̂ and summed ESS (same JSON keys), or `null`
    *  for the live arviz estimate, which is rank-normalized / bulk. */
@@ -546,8 +571,16 @@ function ParamTable({
             <th className="px-2 py-1.5 text-right font-medium">mcse</th>
             <th className="px-2 py-1.5 text-right font-medium">sep</th>
             {perChainCols.map((c) => (
-              <th key={c.at} className="px-2 py-1.5 text-right font-medium">
+              <th
+                key={c.at}
+                className={cn(
+                  'px-2 py-1.5 text-right font-medium',
+                  frozen.has(c.id) && 'text-red-600',
+                )}
+                title={frozen.has(c.id) ? 'camdl: this chain took no step after burn-in' : undefined}
+              >
                 c{c.id}
+                {frozen.has(c.id) && ' frozen'}
               </th>
             ))}
           </tr>
@@ -625,6 +658,7 @@ export function DiagnosticsTab({
   onResetChains,
   onSetExcludedChains,
   deadChainIds,
+  frozenChainIds,
   warmupPct,
   onWarmupPct,
   warmupDeclaredPct,
@@ -679,6 +713,7 @@ export function DiagnosticsTab({
             onReset={onResetChains}
             onSetExcluded={onSetExcludedChains}
             deadIds={deadChainIds}
+            frozenIds={frozenChainIds}
           />
         )}
 
@@ -737,6 +772,17 @@ export function DiagnosticsTab({
           <SamplerPanelTable key={panel.id} panel={panel} />
         ))}
 
+        {data && (
+          <>
+            <SectionLabel>per-chain log-likelihood · camdl&apos;s comparison</SectionLabel>
+            <ChainLoglikTable
+              record={data.chain_logliks}
+              error={data.chain_logliks_error}
+              frozenChains={data.frozen_chains}
+            />
+          </>
+        )}
+
         {data?.particle_health && (
           <>
             <SectionLabel>particle health</SectionLabel>
@@ -763,6 +809,7 @@ export function DiagnosticsTab({
               params={data.params}
               perChainCols={perChainCols}
               vintage={data.stats_vintage ?? null}
+              frozen={new Set(data.frozen_chains ?? [])}
             />
 
             {data.map_loglik != null && (

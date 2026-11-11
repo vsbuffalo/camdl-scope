@@ -97,6 +97,7 @@ export function PosteriorTab({
   onResetChains,
   onSetExcludedChains,
   deadChainIds,
+  frozenChainIds,
   warmupPct,
   onWarmupPct,
   warmupDeclaredPct,
@@ -139,6 +140,7 @@ export function PosteriorTab({
           onReset={onResetChains}
           onSetExcluded={onSetExcludedChains}
           deadIds={deadChainIds}
+          frozenIds={frozenChainIds}
         />
       )}
 

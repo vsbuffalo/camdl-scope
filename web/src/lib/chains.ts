@@ -24,6 +24,10 @@ export interface ChainControls {
    *  it travels with the rest of the chain state rather than being refetched
    *  per tab. */
   deadChainIds: number[]
+  /** Chains camdl recorded as taking no step after burn-in: they contribute a
+   *  single repeated parameter vector to every pooled number. Marked in the
+   *  chain list; still selectable, since excluding one is the reader's call. */
+  frozenChainIds: number[]
   /** The run's warm-up percentage, shared by every tab that summarises draws —
    *  a property of the fit, not of the view looking at it. */
   warmupPct: WarmupSetting

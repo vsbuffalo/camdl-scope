@@ -28,6 +28,7 @@ export function PairTab({
   onResetChains,
   onSetExcludedChains,
   deadChainIds,
+  frozenChainIds,
   warmupPct,
   onWarmupPct,
   warmupDeclaredPct,
@@ -161,6 +162,7 @@ export function PairTab({
           onReset={onResetChains}
           onSetExcluded={onSetExcludedChains}
           deadIds={deadChainIds}
+          frozenIds={frozenChainIds}
         />
       )}
 

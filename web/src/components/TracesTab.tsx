@@ -158,6 +158,7 @@ export function TracesTab({
   onResetChains,
   onSetExcludedChains,
   deadChainIds,
+  frozenChainIds,
   warmupPct,
   onWarmupPct,
   warmupDeclaredPct,
@@ -224,6 +225,7 @@ export function TracesTab({
           onReset={onResetChains}
           onSetExcluded={onSetExcludedChains}
           deadIds={deadChainIds}
+          frozenIds={frozenChainIds}
         />
       )}
 

@@ -4,6 +4,7 @@ import type { MleRestart } from '@/api/client'
 import { useMle } from '@/api/queries'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
+import { ChainLoglikTable } from '@/components/ChainLoglikTable'
 import { fmtValue } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -139,6 +140,16 @@ export function RestartsTab({ runId }: { runId: string }) {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            <div className="border-t border-neutral-100">
+              <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+                per-start log-likelihood · camdl&apos;s comparison
+              </div>
+              <ChainLoglikTable
+                record={data.chain_logliks}
+                error={data.chain_logliks_error}
+              />
             </div>
           </>
         )}

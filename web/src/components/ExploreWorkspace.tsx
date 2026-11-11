@@ -149,6 +149,7 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
     onResetChains,
     onSetExcludedChains,
     deadChainIds: detail.data?.dead_chain_ids ?? [],
+    frozenChainIds: detail.data?.frozen_chain_ids ?? [],
     warmupPct,
     onWarmupPct,
     warmupDeclaredPct: detail.data?.declared_warmup_pct ?? null,

@@ -561,6 +561,64 @@ export interface components {
             days_per_unit: number;
         };
         /**
+         * ChainLoglikModel
+         * @description camdl's recorded comparison of each chain's mean log-likelihood with the
+         *     others'. ``column`` is what the means are of; ``column_absent`` is camdl
+         *     saying the traces carried none.
+         */
+        ChainLoglikModel: {
+            /** Column */
+            column: string;
+            /**
+             * Column Absent
+             * @default false
+             */
+            column_absent: boolean;
+            /** Family Alpha */
+            family_alpha?: number | null;
+            /** Min Ess */
+            min_ess?: number | null;
+            /** Chains */
+            chains: components["schemas"]["ChainLoglikRow"][];
+        };
+        /**
+         * ChainLoglikRow
+         * @description One chain of camdl's per-chain log-likelihood comparison. Numbers are
+         *     text, to camdl's non-finite grammar (``NaN``, ``inf``); ``status`` is
+         *     ``assessed`` (``diff`` in nats, chain minus the others, ``se``, ``z``,
+         *     ``cutoff``, camdl's ``flagged``) or ``not_assessed`` (``reason``, and
+         *     ``ess`` for too few effective draws).
+         */
+        ChainLoglikRow: {
+            /** Chain */
+            chain: number;
+            /** Mean */
+            mean?: string | null;
+            /** Status */
+            status: string;
+            /** Diff */
+            diff?: string | null;
+            /** Se */
+            se?: string | null;
+            /** Z */
+            z?: string | null;
+            /** Cutoff */
+            cutoff?: string | null;
+            /** Flagged */
+            flagged?: boolean | null;
+            /** Reason */
+            reason?: string | null;
+            /** Ess */
+            ess?: string | null;
+        };
+        /** ChainMessage */
+        ChainMessage: {
+            /** Chain */
+            chain: number;
+            /** Message */
+            message: string;
+        };
+        /**
          * ChainMixing
          * @description Per-chain mixing metric — MH/PMMH acceptance rate or PGAS trajectory
          *     renewal — with an optional healthy band ``(lo, hi)``.
@@ -748,6 +806,11 @@ export interface components {
              * @default []
              */
             dead_chain_ids: number[];
+            /** Frozen Chains */
+            frozen_chains?: number[] | null;
+            chain_logliks?: components["schemas"]["ChainLoglikModel"] | null;
+            /** Chain Logliks Error */
+            chain_logliks_error?: string | null;
             /**
              * Ess Unreportable
              * @default []
@@ -872,6 +935,11 @@ export interface components {
             headline: string;
             /** Params */
             params: string[];
+            /**
+             * Chain Messages
+             * @default []
+             */
+            chain_messages: components["schemas"]["ChainMessage"][];
         };
         /**
          * GraphCoupling
@@ -1055,6 +1123,9 @@ export interface components {
             params: components["schemas"]["MleParam"][];
             /** Restarts */
             restarts: components["schemas"]["MleRestart"][];
+            chain_logliks?: components["schemas"]["ChainLoglikModel"] | null;
+            /** Chain Logliks Error */
+            chain_logliks_error?: string | null;
         };
         /**
          * MleRestart
@@ -1882,6 +1953,11 @@ export interface components {
              * @default []
              */
             dead_chain_ids: number[];
+            /**
+             * Frozen Chain Ids
+             * @default []
+             */
+            frozen_chain_ids: number[];
             /** Max Iter */
             max_iter?: number | null;
             /** Target Sweeps */
@@ -2484,7 +2560,7 @@ export interface components {
          * VerdictModel
          * @description camdl's verdict on a method leaf, as camdl persisted it. ``kind`` is
          *     camdl's tag (``converged``, ``not_converged``, ``unassessable``,
-         *     ``not_assessed``, ``not_applicable``, ``gate_pass``, ``gate_fail``) or the
+         *     ``not_assessed``, ``not_applicable``, ``chains_frozen``, ``gate_pass``, ``gate_fail``) or the
          *     state of a leaf with no report (``failed``, ``running``, ``not_recorded``,
          *     ``unreadable``). ``status`` (``ok`` | ``warn`` | ``error`` | ``neutral``) is
          *     the colour class of that kind and carries no threshold of ours; ``text`` is
@@ -2506,6 +2582,11 @@ export interface components {
             band?: string | null;
             /** Error */
             error?: string | null;
+            /**
+             * Chains
+             * @default []
+             */
+            chains: number[];
         };
     };
     responses: never;
