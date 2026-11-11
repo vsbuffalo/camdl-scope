@@ -84,16 +84,18 @@ def parse_number(raw: Any) -> float | None:
     raise ValueError(f"expected a number, 'NaN', 'inf', '-inf' or null, got {raw!r}")
 
 
-def number_text(v: float | None, *, legacy_null: bool = False, digits: int = 3) -> str:
-    """A number for display. Non-finite values are named, a missing one is
-    ``not computed`` (``unknown`` for a v4 null, which cannot say which)."""
+def number_text(v: float | None, *, legacy_null: bool = False, decimals: int = 3) -> str:
+    """An R-hat for display, to camdl's three decimals: R-hat is read against
+    thresholds like 1.05, so 1.0022 must show as 1.002, not round to 1.
+    Non-finite values are named, a missing one is ``not computed``
+    (``unknown`` for a v4 null, which cannot say which)."""
     if v is None:
         return UNKNOWN if legacy_null else NOT_COMPUTED
     if math.isnan(v):
         return "NaN"
     if math.isinf(v):
         return "inf" if v > 0 else "-inf"
-    return f"{v:.{digits}g}"
+    return f"{v:.{decimals}f}"
 
 
 # ---------------------------------------------------------------------------

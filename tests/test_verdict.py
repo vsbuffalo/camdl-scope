@@ -61,7 +61,8 @@ def test_missing_and_non_finite_values_read_differently():
     assert V.number_text(None) == "not computed"
     # A v4 null cannot say which of the three it was, nor that it was absent.
     assert V.number_text(None, legacy_null=True) == "unknown"
-    assert V.number_text(1.0123456) == "1.01"
+    assert V.number_text(1.0123456) == "1.012"
+    assert V.number_text(1.0022154450301082) == "1.002"  # not "1"
 
 
 # ---------------------------------------------------------------------------
