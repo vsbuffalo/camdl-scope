@@ -23,6 +23,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 
 from .. import compare as compare_mod
+from .. import chainrecord as chainrecord_mod
 from .. import crosschain as crosschain_mod
 from .. import decomposition as decomp_mod
 from .. import particles as particles_mod
@@ -54,6 +55,9 @@ from ..state import (
 )
 from .models import (
     Calendar,
+    ChainLoglikModel,
+    ChainLoglikRow,
+    ChainMessage,
     ChainMixing,
     PanelColumn,
     PriorPosteriorResponse,
@@ -188,6 +192,36 @@ def _select_chains(rs: RunState, chains: str | None) -> bool:
     return False
 
 
+def _chain_loglik_model(
+    leaf: Path,
+) -> tuple[ChainLoglikModel | None, str | None]:
+    """camdl's persisted per-chain log-likelihood comparison for a leaf, as
+    display text: ``(record, None)``, ``(None, None)`` when the leaf does not
+    record one, or ``(None, why)`` when it does and this reader refused it."""
+    try:
+        rec = chainrecord_mod.read_chain_logliks(leaf)
+    except ValueError as e:
+        return None, f"camdl's chain log-likelihood record was not read: {e}"
+    if rec is None:
+        return None, None
+
+    def t(v: float | None) -> str | None:
+        return None if v is None else verdict_mod.number_text(v, decimals=2)
+
+    return ChainLoglikModel(
+        column=rec.column, column_absent=rec.column_absent,
+        family_alpha=rec.family_alpha, min_ess=rec.min_ess,
+        chains=[
+            ChainLoglikRow(
+                chain=c.chain, mean=t(c.mean), status=c.status, diff=t(c.diff),
+                se=t(c.se), z=t(c.z), cutoff=t(c.cutoff), flagged=c.flagged,
+                reason=c.reason, ess=t(c.ess),
+            )
+            for c in rec.chains
+        ],
+    ), None
+
+
 def _camdl_findings(summary: ChainSummary | None) -> list[FindingGroup]:
     """camdl's stage findings, aggregated for display. Empty only when the
     stage wrote no summary (a run still sampling). A summary with no findings
@@ -206,6 +240,7 @@ def _camdl_findings(summary: ChainSummary | None) -> list[FindingGroup]:
         FindingGroup(
             kind=g.kind, severity=g.severity.value,
             headline=g.headline, params=list(g.params),
+            chain_messages=[ChainMessage(chain=c, message=m) for c, m in g.chain_messages],
         )
         for g in diag_mod.summarize_findings(summary.findings)
     ]
@@ -614,6 +649,7 @@ def _run_detail(meta: RunMeta, rs: RunState, predict: str | None = None) -> RunD
         fit_kind=meta.fit_kind,
         n_chains=len(rs.chains),
         dead_chain_ids=dead,
+        frozen_chain_ids=chainrecord_mod.read_frozen_chains(meta.posterior_dir) or [],
         max_iter=rs.max_iter(),
         target_sweeps=meta.target_sweeps,
         declared_burn_in=meta.declared_burn_in,
@@ -974,6 +1010,7 @@ def get_mle(run_id: str) -> MleResponse:
             restart_lo=_finite_or_none(p.restart_lo),
             restart_hi=_finite_or_none(p.restart_hi),
         ))
+    logliks, logliks_err = _chain_loglik_model(meta.posterior_dir)
     restarts = [
         MleRestart(chain=r.chain, loglik=_fnum(r.loglik), status=r.status, n_evals=r.n_evals)
         for r in fit.restarts
@@ -984,6 +1021,7 @@ def get_mle(run_id: str) -> MleResponse:
         loglik=_finite_or_none(fit.loglik),
         n_restarts=fit.n_restarts, n_converged=fit.n_converged,
         params=params, restarts=restarts,
+        chain_logliks=logliks, chain_logliks_error=logliks_err,
     )
 
 
@@ -1563,7 +1601,7 @@ def _to_verdict_model(v: verdict_mod.Verdict) -> VerdictModel:
     return VerdictModel(
         kind=v.kind, status=v.status, text=v.text, param=v.param, band=v.band,
         max_rhat=(None if v.max_rhat is None else verdict_mod.number_text(v.max_rhat)),
-        error=v.error,
+        error=v.error, chains=list(v.chains),
     )
 
 
@@ -1739,8 +1777,11 @@ def get_diagnostics(
     # discard the `bad_init` errors that explain why they are missing.
     reported = rs.summary
     verdict = verdict_mod.leaf_verdict(meta.posterior_dir)
+    loglik_model, loglik_err = _chain_loglik_model(meta.posterior_dir)
     base = dict(
         verdict=_to_verdict_model(verdict), leaves=_leaf_rows(meta),
+        frozen_chains=chainrecord_mod.read_frozen_chains(meta.posterior_dir),
+        chain_logliks=loglik_model, chain_logliks_error=loglik_err,
         run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
         n_chains=len(rs.chains), n_chains_warming=warming,
         n_chains_dead=len(dead), dead_chain_ids=dead,

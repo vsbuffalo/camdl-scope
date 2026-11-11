@@ -480,6 +480,9 @@ class FindingGroup:
     severity: Severity
     headline: str
     params: list[str] = field(default_factory=list)
+    #: ``(chain_id, camdl's message)`` per finding that names a chain, so a
+    #: per-chain finding can be shown in camdl's own words, one line each.
+    chain_messages: list[tuple[int, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

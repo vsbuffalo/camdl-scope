@@ -107,7 +107,14 @@ link to hand over; the chain-link button beside the run id copies it.
   method leaf of the folder is listed with its own status and verdict, failed
   and running ones included. Per-chain mixing and a per-parameter R̂ / ESS
   table show the numbers; a number is coloured only where camdl flagged that
-  parameter, and a non-finite R̂ reads `inf` or `NaN`.
+  parameter, and a non-finite R̂ reads `inf` or `NaN`. A chain camdl recorded as
+  taking no step after burn-in (`frozen_chains`, the `chains_frozen` verdict, one
+  `chain_frozen` finding per chain in camdl's words) is tagged *frozen* in the
+  chain list and the per-chain columns. camdl's per-chain log-likelihood
+  comparison (`chain_loglik_agreement`: mean, Δ against the other chains, Z,
+  cutoff, flagged or the reason a chain was not assessed) is a small table here
+  and on a point-estimate fit's restarts tab; a leaf written before camdl
+  recorded it reads *not recorded*.
 - **Source** — the syntax-highlighted `.camdl` model and `fit.toml`.
 
 **Compare models** — select fits that carry a `prequential.json` and compare

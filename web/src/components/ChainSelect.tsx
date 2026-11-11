@@ -19,6 +19,10 @@ interface ChainSelectProps {
    *  greyed and struck through: they are not a choice the reader has, and a
    *  finished fit can be missing half its chains while reporting `done`. */
   deadIds?: number[]
+  /** Chains camdl recorded as taking no step after burn-in: every retained draw
+   *  is one parameter vector. Tagged, not disabled: they are in the pooled
+   *  numbers until the reader drops them. */
+  frozenIds?: number[]
 }
 
 /**
@@ -42,6 +46,7 @@ export function ChainSelect({
   onReset,
   onSetExcluded,
   deadIds,
+  frozenIds,
 }: ChainSelectProps) {
   const [open, setOpen] = useState(false)
   // Static demo: chain filtering refetches with a `chains=` param a static host
@@ -50,6 +55,7 @@ export function ChainSelect({
   const includedCount = chainIds.length - excluded.size
   const anyExcluded = excluded.size > 0
   const dead = new Set(deadIds ?? [])
+  const frozen = new Set(frozenIds ?? [])
   // The chains a reader can actually choose between. A dead chain contributes
   // nothing whether it is "included" or not, so `all` simply clears the
   // exclusions rather than excluding the dead ones — doing the latter made the
@@ -84,6 +90,15 @@ export function ChainSelect({
         {dead.size > 0 && (
           <span className="font-mono text-[10px] text-neutral-400">
             {dead.size} dead (no draws)
+          </span>
+        )}
+
+        {frozen.size > 0 && (
+          <span
+            className="font-mono text-[10px] text-red-600"
+            title="camdl's record: every retained draw of these chains is one parameter vector"
+          >
+            {frozen.size} frozen (took no step after burn-in)
           </span>
         )}
 
@@ -136,7 +151,9 @@ export function ChainSelect({
                 title={
                   isDead
                     ? 'no draws — camdl skipped this chain at initialisation'
-                    : lockedOn
+                    : frozen.has(c)
+                      ? 'camdl: this chain took no step after burn-in; its draws are one parameter vector'
+                      : lockedOn
                       ? 'at least one chain must stay selected'
                       : undefined
                 }
@@ -166,6 +183,9 @@ export function ChainSelect({
                 >
                   c{c}
                 </span>
+                {frozen.has(c) && !isDead && (
+                  <span className="text-[10px] text-red-600">frozen</span>
+                )}
               </label>
             )
           })}

@@ -260,6 +260,7 @@ export function PriorTab({
   onResetChains,
   onSetExcludedChains,
   deadChainIds,
+  frozenChainIds,
   warmupPct,
   onWarmupPct,
   warmupDeclaredPct,
@@ -290,6 +291,7 @@ export function PriorTab({
               onReset={onResetChains}
               onSetExcluded={onSetExcludedChains}
               deadIds={deadChainIds}
+              frozenIds={frozenChainIds}
             />
           </div>
         )}

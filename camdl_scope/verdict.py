@@ -108,7 +108,7 @@ class Verdict:
     """What camdl concluded about one method leaf.
 
     ``kind`` is camdl's own tag for a completed run (``converged``,
-    ``not_converged``, ``unassessable``, ``not_assessed``, ``not_applicable``)
+    ``not_converged``, ``unassessable``, ``not_assessed``, ``not_applicable``, ``chains_frozen``)
     plus the states a leaf can be in without a report: ``failed`` (camdl
     recorded an error), ``running`` (no end-of-run report yet), ``not_recorded``
     (no persisted verdict and none obtainable) and ``unreadable`` (a camdl
@@ -125,6 +125,24 @@ class Verdict:
     band: str | None = None
     params: tuple[str, ...] = ()
     error: str | None = None
+    #: ``chains_frozen`` only: the chains camdl names as having taken no step
+    #: after burn-in.
+    chains: tuple[int, ...] = ()
+
+
+def frozen_chains_clause(chains: tuple[int, ...]) -> str:
+    """The sentence camdl writes for its ``chains_frozen`` verdict (camdl's
+    ``frozen_chains_clause``, which ``fit summary`` prints and which
+    ``--format json`` gives inside ``verdict_text``). ``events.jsonl`` carries
+    the verdict as structure only, so this reproduces camdl's wording for that
+    path; a summary row's own ``verdict_text`` is used verbatim where there is
+    one."""
+    names = [str(c) for c in chains]
+    if not names:
+        return "no chain took a step after burn-in"
+    if len(names) == 1:
+        return f"chain {names[0]} took no step after burn-in"
+    return f"chains {', '.join(names[:-1])} and {names[-1]} took no step after burn-in"
 
 
 def _status_of(kind: str, band: str | None) -> Status:
@@ -135,6 +153,9 @@ def _status_of(kind: str, band: str | None) -> Status:
         return "error" if band == "severe" else "warn"
     if kind == "unassessable":
         return "warn"
+    if kind == "chains_frozen":
+        # camdl raises one error-severity chain_frozen finding per chain.
+        return "error"
     return "neutral"
 
 
@@ -148,6 +169,7 @@ def verdict_from_report(raw: Any, *, legacy_null: bool = False) -> Verdict:
     param = raw.get("param")
     band = raw.get("band")
     params = tuple(str(p) for p in raw.get("params") or ())
+    frozen: tuple[int, ...] = ()
     shown = number_text(max_rhat, legacy_null=legacy_null)
     on = f" on {param}" if param else ""
     if kind == "converged":
@@ -160,13 +182,20 @@ def verdict_from_report(raw: Any, *, legacy_null: bool = False) -> Verdict:
         text = f"not assessed: {raw.get('reason', 'no reason recorded')}"
     elif kind == "not_applicable":
         text = "no convergence verdict for this method (no chains to compare)"
+    elif kind == "chains_frozen":
+        raw_chains = raw.get("chains")
+        if not isinstance(raw_chains, list) or not all(
+                isinstance(c, int) and not isinstance(c, bool) for c in raw_chains):
+            raise ValueError(f"a chains_frozen verdict lists integer chain ids, got {raw_chains!r}")
+        frozen = tuple(raw_chains)
+        text = f"not converged ({frozen_chains_clause(frozen)})"
     else:
         raise UnsupportedSchema(f"camdl wrote a verdict kind this reader does not know: {kind!r}")
     return Verdict(
         kind=kind, status=_status_of(kind, band if isinstance(band, str) else None),
         text=text, max_rhat=max_rhat,
         param=param if isinstance(param, str) else None,
-        band=band if isinstance(band, str) else None, params=params,
+        band=band if isinstance(band, str) else None, params=params, chains=frozen,
     )
 
 

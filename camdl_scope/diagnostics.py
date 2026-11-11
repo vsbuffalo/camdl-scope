@@ -341,7 +341,32 @@ def _headline_bad_init(fs: list[Finding]) -> tuple[str, list[str]]:
     )
 
 
+def _chain_ids(fs: list[Finding]) -> list[int]:
+    return sorted({int(c) for f in fs if (c := f.detail.get("chain_id")) is not None})
+
+
+def _headline_chain_frozen(fs: list[Finding]) -> tuple[str, list[str]]:
+    """One ``chain_frozen`` finding per chain; camdl's sentence for each is
+    carried alongside (:attr:`FindingGroup.chain_messages`), so the headline
+    only counts and names them."""
+    ids = _chain_ids(fs)
+    names = ", ".join(f"c{i}" for i in ids)
+    n = len(ids) or len(fs)
+    return f"{n} chain{'s' if n != 1 else ''} took no step after burn-in ({names})", []
+
+
+def _headline_chain_loglik_differs(fs: list[Finding]) -> tuple[str, list[str]]:
+    ids = _chain_ids(fs)
+    names = ", ".join(f"c{i}" for i in ids)
+    col = next((str(f.detail["column"]) for f in fs if f.detail.get("column")), "log-likelihood")
+    n = len(ids) or len(fs)
+    return (f"{n} chain{'s' if n != 1 else ''} with a different mean {col} from the "
+            f"others ({names})"), []
+
+
 _HEADLINERS = {
+    "chain_frozen": _headline_chain_frozen,
+    "chain_loglik_differs": _headline_chain_loglik_differs,
     "rhat_high": _headline_rhat_high,
     "acceptance_rate_unhealthy": _headline_acceptance,
     "max_tree_depth_hits": _headline_tree_depth,
@@ -367,7 +392,12 @@ def summarize_findings(findings: list[Finding]) -> list[FindingGroup]:
             headline = (msgs[0] if msgs else kind) + (
                 f"  (+{len(msgs) - 1} more)" if len(msgs) > 1 else "")
             params = [f.param for f in fs if f.param]
-        groups.append(FindingGroup(kind=kind, severity=sev, headline=headline, params=params))
+        chain_messages = sorted(
+            (int(c), f.message) for f in fs
+            if (c := f.detail.get("chain_id")) is not None and f.message
+        )
+        groups.append(FindingGroup(kind=kind, severity=sev, headline=headline,
+                                   params=params, chain_messages=chain_messages))
     groups.sort(key=lambda g: _SEV_ORDER[g.severity])
     return groups
 

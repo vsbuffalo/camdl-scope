@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class VerdictModel(BaseModel):
     """camdl's verdict on a method leaf, as camdl persisted it. ``kind`` is
     camdl's tag (``converged``, ``not_converged``, ``unassessable``,
-    ``not_assessed``, ``not_applicable``, ``gate_pass``, ``gate_fail``) or the
+    ``not_assessed``, ``not_applicable``, ``chains_frozen``, ``gate_pass``, ``gate_fail``) or the
     state of a leaf with no report (``failed``, ``running``, ``not_recorded``,
     ``unreadable``). ``status`` (``ok`` | ``warn`` | ``error`` | ``neutral``) is
     the colour class of that kind and carries no threshold of ours; ``text`` is
@@ -36,6 +36,9 @@ class VerdictModel(BaseModel):
     param: str | None = None
     band: str | None = None
     error: str | None = None
+    #: ``chains_frozen`` only: the chains camdl names as having taken no step
+    #: after burn-in.
+    chains: list[int] = []
 
 
 class LeafRowModel(BaseModel):
@@ -169,6 +172,11 @@ class DimensionInfo(BaseModel):
     levels: list[str]
 
 
+class ChainMessage(BaseModel):
+    chain: int
+    message: str
+
+
 class FindingGroup(BaseModel):
     """One ``kind`` of camdl diagnostic finding, collapsed to a single line."""
 
@@ -176,6 +184,9 @@ class FindingGroup(BaseModel):
     severity: str
     headline: str
     params: list[str]
+    #: camdl's own sentence per finding that names a chain (``chain_frozen``,
+    #: ``chain_loglik_differs``), ascending by chain id.
+    chain_messages: list[ChainMessage] = []
 
 
 class ProgressInfo(BaseModel):
@@ -320,6 +331,10 @@ class RunDetail(BaseModel):
     #: chain selector can mark them without fetching diagnostics — a dead chain
     #: is a fact about the run, not about a warm-up cutoff.
     dead_chain_ids: list[int] = []
+    #: Chains camdl recorded as taking no step after burn-in (``frozen_chains``
+    #: of the sampler summary). Empty both when none froze and when the leaf
+    #: predates the field; the diagnostics response tells the two apart.
+    frozen_chain_ids: list[int] = []
     max_iter: int | None = None
     target_sweeps: int | None = None
     # The warm-up the run declares (fit.toml ``burn_in``/``warmup``), as an
@@ -1003,6 +1018,37 @@ class SamplerPanel(BaseModel):
     values: list[list[float | None]]
 
 
+class ChainLoglikRow(BaseModel):
+    """One chain of camdl's per-chain log-likelihood comparison. Numbers are
+    text, to camdl's non-finite grammar (``NaN``, ``inf``); ``status`` is
+    ``assessed`` (``diff`` in nats, chain minus the others, ``se``, ``z``,
+    ``cutoff``, camdl's ``flagged``) or ``not_assessed`` (``reason``, and
+    ``ess`` for too few effective draws)."""
+
+    chain: int
+    mean: str | None = None
+    status: str
+    diff: str | None = None
+    se: str | None = None
+    z: str | None = None
+    cutoff: str | None = None
+    flagged: bool | None = None
+    reason: str | None = None
+    ess: str | None = None
+
+
+class ChainLoglikModel(BaseModel):
+    """camdl's recorded comparison of each chain's mean log-likelihood with the
+    others'. ``column`` is what the means are of; ``column_absent`` is camdl
+    saying the traces carried none."""
+
+    column: str
+    column_absent: bool = False
+    family_alpha: float | None = None
+    min_ess: float | None = None
+    chains: list[ChainLoglikRow]
+
+
 class DiagnosticsResponse(BaseModel):
     """The full convergence picture for a run: camdl's verdict (findings), a
     per-parameter R̂/ESS table, per-chain mixing, and the PMMH MAP if present.
@@ -1028,6 +1074,14 @@ class DiagnosticsResponse(BaseModel):
     # reports "done".
     n_chains_dead: int = 0
     dead_chain_ids: list[int] = []
+    # camdl's record of chains that took no step after burn-in: the chain ids,
+    # ``[]`` when camdl recorded that all moved, null when the leaf does not
+    # record it (written before the field).
+    frozen_chains: list[int] | None = None
+    # camdl's per-chain log-likelihood comparison; null when the leaf does not
+    # record one, ``chain_logliks_error`` when it does but this reader refused it.
+    chain_logliks: ChainLoglikModel | None = None
+    chain_logliks_error: str | None = None
     # Assessed parameters (finite R̂) with no ESS. Non-empty means the run's
     # efficiency is deliberately UNREPORTABLE rather than missing: the blank is
     # the diagnosis, and these are the parameters whose chains disagree.
@@ -1110,6 +1164,10 @@ class MleResponse(BaseModel):
     n_converged: int
     params: list[MleParam]
     restarts: list[MleRestart]
+    # IF2's comparison of each start's clean log-likelihood evaluation
+    # (fit_state.toml); null when not recorded.
+    chain_logliks: ChainLoglikModel | None = None
+    chain_logliks_error: str | None = None
 
 
 class ProfileSummary(BaseModel):
