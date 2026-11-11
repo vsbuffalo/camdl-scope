@@ -129,8 +129,8 @@ function MixingChart({ mixing }: { mixing: ChainMixing }) {
     if (!el || width <= 0) return
 
     const band = mixing.band
-    // Label by the chain id the API sends, not by array position: camdl's
-    // chains are 1-based and a mixing series may cover a subset (a chain still
+    // Label by the chain id the API sends, not by array position: camdl counts
+    // chains from 0 and a mixing series may cover a subset (a chain still
     // warming up contributes no value), so position names the wrong chain.
     const rows: MixRow[] = mixing.values.map((value, i) => ({
       chain: mixing.chains?.[i] ?? i + 1,
@@ -550,7 +550,7 @@ function ParamTable({
    *  for the live arviz estimate, which is rank-normalized / bulk. */
   vintage: string | null
   /** Per-chain ESS columns: `at` is the position in `ess_per_chain`, `id` the
-   *  chain it belongs to (camdl's 1-based name) — they are not the same. */
+   *  chain it belongs to (camdl's own number, from 0) — they are not the same. */
   perChainCols: { at: number; id: number }[]
 }) {
   return (
@@ -681,8 +681,8 @@ export function DiagnosticsTab({
   const perChainN = data
     ? data.params.reduce((m, p) => Math.max(m, p.ess_per_chain.length), 0)
     : 0
-  // Column position → chain id. The ids come from the API (camdl names chains
-  // 1-based), so these headers read the same as the chain selector's; the
+  // Column position → chain id. The ids come from the API (camdl numbers chains
+  // from 0), so these headers read the same as the chain selector's; the
   // fallback keeps a column labelled if an older response omits the ids.
   const perChainCols = Array.from({ length: perChainN }, (_, i) => ({
     at: i,

@@ -1855,8 +1855,8 @@ def get_diagnostics(
             band=((float(band[0]), float(band[1])) if band and len(band) == 2 else None),
         )
 
-    # Chain ids behind the positional per-chain ESS columns — camdl's 1-based
-    # names, so the table labels agree with the chain selector.
+    # Chain ids behind the positional per-chain ESS columns — camdl's own numbers
+    # (from 0), so the table labels agree with the chain selector.
     per_chain_n = max((len(p.ess_per_chain) for p in params_out), default=0)
     chain_ids_out = diag_mod.chain_ids_for(rs, per_chain_n) if per_chain_n else []
 

@@ -52,7 +52,7 @@ FILENAME = "cross_chain_compat.json"
 class CrossChainCompat:
     """One stage's cross-chain path-compatibility matrix, ready to draw."""
 
-    #: Chain ids, 1-based as camdl names ``chain_N/``. Authoritative for the
+    #: Chain ids, counted from 0 as camdl names ``chain_N/``. Authoritative for the
     #: count — see the module docstring.
     chains: list[int]
     #: Raw ``log p(x_j | θ_i)``, in the artifact's own order.
