@@ -133,7 +133,7 @@ function MixingChart({ mixing }: { mixing: ChainMixing }) {
     // chains from 0 and a mixing series may cover a subset (a chain still
     // warming up contributes no value), so position names the wrong chain.
     const rows: MixRow[] = mixing.values.map((value, i) => ({
-      chain: mixing.chains?.[i] ?? i + 1,
+      chain: mixing.chains?.[i] ?? i,
       value,
       out: band ? value < band[0] || value > band[1] : false,
     }))
@@ -686,7 +686,7 @@ export function DiagnosticsTab({
   // fallback keeps a column labelled if an older response omits the ids.
   const perChainCols = Array.from({ length: perChainN }, (_, i) => ({
     at: i,
-    id: data?.chain_ids?.[i] ?? i + 1,
+    id: data?.chain_ids?.[i] ?? i,
   }))
 
   return (
