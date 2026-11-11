@@ -492,9 +492,9 @@ class ChainSummary:
     R̂ and combined ``ess`` are per-param (ESS may be ``None`` when not
     estimable). ``ess_per_chain`` maps param -> a list in CHAIN ORDER: the
     index is an array position, NOT a chain id — camdl names chains
-    ``chain_1 … chain_n`` on disk, so position ``i`` is chain ``i + 1``. Label
-    via :func:`camdl_scope.diagnostics.chain_ids_for`; treating the position as
-    an id produced a ``c0`` that names no chain. ``acceptance_rates`` is normalized to
+    ``chain_0 … chain_{n-1}`` on disk. Label via
+    :func:`camdl_scope.diagnostics.chain_ids_for` rather than by position: a
+    chain that never started leaves a gap, so position and id can differ. ``acceptance_rates`` is normalized to
     ``[chain][*]``: PGAS keeps its per-parameter block-MH rates (constant within
     a chain); PMMH's per-chain scalar is wrapped as a singleton — reduce via
     :attr:`per_chain_acceptance`. ``map_*`` are PMMH-only (a concrete MAP point).

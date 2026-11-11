@@ -938,7 +938,7 @@ class ChainMixing(BaseModel):
     renewal — with an optional healthy band ``(lo, hi)``.
 
     ``chains`` carries the chain id of each value, parallel to ``values``.
-    camdl's chains are 1-based (``chain_1 …``) and a mixing series may cover a
+    camdl counts chains from 0 (``chain_0 …``) and a mixing series may cover a
     subset (chains still warming up contribute nothing), so a consumer must
     label from this list rather than from the array position."""
 
@@ -1007,7 +1007,7 @@ class SamplerPanel(BaseModel):
     acceptance and the per-chain telemetry (divergences, step size, tree depth,
     trajectory renewal …) are both "a value per chain per column, some outside
     a healthy band". A new sampler adds rows and columns, never a new response
-    type or a new component. ``rows`` are chain ids (1-based, as camdl names
+    type or a new component. ``rows`` are chain ids (counted from 0, as camdl names
     them); ``values[r][c]`` is null where a chain has no value for a column."""
 
     id: str
@@ -1087,7 +1087,7 @@ class DiagnosticsResponse(BaseModel):
     # the diagnosis, and these are the parameters whose chains disagree.
     ess_unreportable: list[str] = []
     # Chain ids for the positional per-chain columns (``ParamDiagnostic
-    # .ess_per_chain``), 1-based as camdl names them. Label from these, never
+    # .ess_per_chain``), counted from 0 as camdl names them. Label from these, never
     # from the array index.
     chain_ids: list[int] = []
     # Method-specific diagnostics (per-parameter block acceptance, sampler

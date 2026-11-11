@@ -101,9 +101,10 @@ function PosteriorTabs({ run }: { run: RunSummary }) {
   // Persisted per run and reloaded on a run switch, so a page reload (or coming
   // back to a run later) keeps the chains you dropped. `excluded` empty = all in.
   //
-  // Use the run's REAL chain ids (camdl numbers from 1) — synthesizing 0..n-1
-  // would mislabel the checkboxes and, worse, silently drop the top chain, since
-  // its id could never appear in the include-list sent to the backend.
+  // Use the run's REAL chain ids (camdl numbers from 0) — synthesizing ids
+  // would mislabel the checkboxes whenever a chain is missing from the run, and
+  // an id that is not a real chain could never match the include-list sent to
+  // the backend.
   const chainIds = useMemo(
     () => [...run.chain_ids].sort((a, b) => a - b),
     [run.chain_ids],
