@@ -110,7 +110,9 @@ def _capture_run(client: TestClient, out: Path, run_id: str, dropped: list[dict]
             _write(out, f"api/runs/{rid}/mle", mle)
             captured.append("mle")
     else:
-        for ep in ("posterior", "draws", "traces", "diagnostics"):
+        # prior-posterior feeds the Prior tab's prior->posterior contraction
+        # table; it shares the warm-up/chain lens, captured here at defaults.
+        for ep in ("posterior", "draws", "traces", "diagnostics", "prior-posterior"):
             payload = _get(client, f"/api/runs/{rid}/{ep}")
             if payload is not None:
                 _write(out, f"api/runs/{rid}/{ep}", payload)
