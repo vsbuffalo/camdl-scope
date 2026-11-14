@@ -8,6 +8,8 @@ __pycache__/
 web/node_modules/
 web/dist/
 web/dist-demo/
+# demo-bundle release tarballs (make demo-bundle)
+release/
 web/openapi.json
 # generated golden fixture store (regenerate: make fixture)
 tests/fixtures/golden-store/

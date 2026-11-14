@@ -1,0 +1,43 @@
+# Static-demo frontend as a release asset.
+#
+# On a pushed v<semver> tag: build web/ in demo mode (VITE_DEMO=1: the SPA reads
+# snap/api/... JSON instead of calling the backend) with relative asset paths
+# (--base ./), pack it with scripts/pack_demo_bundle.py, and attach
+#   camdl-scope-demo-<tag>.tar.gz  and  camdl-scope-demo-<tag>.tar.gz.sha256
+# to the GitHub release for the tag, creating the release if needed.
+# The tarball holds no snap/; consumers add make_demo_snapshot.py output.
+# Local equivalent: make demo-bundle TAG=<tag>
+name: demo-bundle
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build and pack the demo bundle
+        run: make demo-bundle TAG="$GITHUB_REF_NAME"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+          gh release upload "$TAG" --clobber \
+            "release/camdl-scope-demo-$TAG.tar.gz" \
+            "release/camdl-scope-demo-$TAG.tar.gz.sha256"

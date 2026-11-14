@@ -162,6 +162,52 @@ the artifact is:
 If a tab is empty, the fastest diagnosis is `ls` on the run directory (and its
 `predict/`): the table above says which name should be there.
 
+## Static demo bundle (release asset)
+
+Every `v<major>.<minor>.<patch>` release carries the frontend prebuilt for
+hosting on a static web server, with no backend:
+
+- `camdl-scope-demo-<tag>.tar.gz` — the SPA (`index.html`, `assets/`,
+  `favicon.svg`) built in demo mode (`VITE_DEMO=1`) with relative asset paths
+  (`--base ./`), so it works from any subdirectory. In demo mode the viewer
+  reads each API response from a pre-baked JSON file under `snap/` next to
+  `index.html` instead of calling the server, and hides the controls (warm-up,
+  chain subset, Compare) whose responses a snapshot cannot hold. The files sit
+  at the archive root, and there is no `snap/` in it: the bundle is only the
+  viewer, and you add the fits.
+- `camdl-scope-demo-<tag>.tar.gz.sha256` — its SHA-256, as `<hex>  <filename>`.
+
+The `demo-bundle` workflow (`.github/workflows/demo-bundle.yml`) builds both
+from the tagged commit with `npm ci` against `web/package-lock.json`; the
+archive's entries, mtimes and owners are normalised, so repacking the same
+build gives the same bytes. `make demo-bundle TAG=<tag>` builds the same
+files locally under `release/`.
+
+To host fits with it, write a snapshot of the runs you want to show, unpack
+the bundle, and put the snapshot's `snap/` beside `index.html`:
+
+```sh
+TAG=v0.1.0
+base=https://github.com/vsbuffalo/camdl-scope/releases/download/$TAG
+curl -fLO "$base/camdl-scope-demo-$TAG.tar.gz"
+curl -fLO "$base/camdl-scope-demo-$TAG.tar.gz.sha256"
+shasum -a 256 -c "camdl-scope-demo-$TAG.tar.gz.sha256"   # or sha256sum -c
+
+mkdir -p site/scope
+tar -xzf "camdl-scope-demo-$TAG.tar.gz" -C site/scope
+
+# from a camdl-scope checkout: freeze the API responses for chosen runs
+CAMDL_SCOPE_STORE=/path/to/results/fits \
+    uv run python -m scripts.make_demo_snapshot --out snapshot --posterior 4
+cp -R snapshot/snap site/scope/       # -> site/scope/index.html, site/scope/snap/api/...
+
+python3 -m http.server -d site/scope 8000
+```
+
+Pin a tag and check its hash rather than following the latest release: the
+snapshot's JSON must match the API shape that version of the frontend reads,
+so write the snapshot with the camdl-scope version whose bundle you host.
+
 ## Develop
 
 ```sh
