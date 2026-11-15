@@ -43,13 +43,17 @@ def _port_holder(port: int) -> str | None:
 def _port_is_free(host: str, port: int) -> bool:
     """Whether ``(host, port)`` can be bound right now.
 
-    A plain bind, deliberately without ``SO_REUSEADDR``: a listening socket
-    still refuses the address, which is exactly the condition we want to
-    detect. Racy in principle — uvicorn binds a moment later — but the race
-    loses nothing, since uvicorn's own failure remains the backstop."""
+    Binds the way uvicorn will, with ``SO_REUSEADDR``. A listening socket still
+    refuses the address, which is the condition to detect; connections in
+    TIME_WAIT do not. Without the option, macOS refuses the port for a minute
+    or so after a restart whenever a client (a phone, a browser tab) had it
+    open — even though uvicorn itself would bind it — so a viewer could not be
+    restarted on its own port. Racy in principle — uvicorn binds a moment later
+    — but the race loses nothing, since uvicorn's own failure is the backstop."""
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     try:
         with socket.socket(family, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, port))
         return True
     except OSError:

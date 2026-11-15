@@ -185,3 +185,23 @@ def test_a_free_port_is_reported_free():
         port = s.getsockname()[1]
     # Socket closed -> the port is bindable again.
     assert _port_is_free("127.0.0.1", port) is True
+
+
+def test_a_port_with_only_time_wait_connections_is_free():
+    """Restarting a viewer that a client had open left its connections in
+    TIME_WAIT, and the port check refused the port although nothing listened
+    (and uvicorn, which binds with SO_REUSEADDR, would have taken it)."""
+    from camdl_scope.cli import _port_is_free
+
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen()
+        port = srv.getsockname()[1]
+        cli = socket.create_connection(("127.0.0.1", port))
+        conn, _ = srv.accept()
+        conn.close()  # the server side closes first, so its end enters TIME_WAIT
+        cli.close()
+    assert _port_is_free("127.0.0.1", port) is True
