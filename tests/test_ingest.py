@@ -771,9 +771,10 @@ def test_bad_init_chain_ids_follow_camdl_and_the_directories(tmp_path: Path):
     assert [f.detail["chain_id"] for f in cs.findings] == [0, 1]
 
 
-def _seed_leaf(run: Path, n: int, label: str, mtime: float) -> Path:
+def _seed_leaf(run: Path, n: int, label: str, mtime: float,
+               method: str = "pmmh-83841c1b") -> Path:
     """A finished seed run: draws.tsv, a non-empty trace, its own label."""
-    seed = run / "pmmh-83841c1b" / f"seed_{n}-{n:08x}"
+    seed = run / method / f"seed_{n}-{n:08x}"
     (seed / "chain_1").mkdir(parents=True)
     (seed / "chain_1" / "trace.tsv").write_text("step\tR0\n0\t1.1\n10\t1.2\n")
     (seed / "draws.tsv").write_text("chain\tdraw\tR0\n1\t0\t1.2\n")
@@ -802,6 +803,27 @@ def test_each_seed_run_is_its_own_entry_lowest_seed_default(tmp_path):
     assert ingest.resolve_run(metas, "fit_synthetic-02e1fdff~seed_3-00000003").seed == 3
     # The folder's hash still reads from the folder, not the seed suffix.
     assert {m.hash for m in metas} == {"02e1fdff"}
+
+
+def test_runs_under_different_method_dirs_are_not_replicates(tmp_path):
+    """The measles guide's ``m0_mh`` folder: one plain run (seed 2) and one
+    warm-started from its posterior (seed 1, ``--starts from_posterior=...``).
+    The starts change camdl's method hash, so they sit in different method
+    dirs. Each method dir has its own default, and ``folder~method`` opens it."""
+    run = tmp_path / "fits" / "m0_mh-76aecea7"
+    _seed_leaf(run, 2, "m0_mh", 1_000, method="mh-92946094")
+    _seed_leaf(run, 1, "m0_mh_mode_a", 1_100, method="mh-97f0a52f")
+    _seed_leaf(run, 3, "m0_mh_mode_a-s3", 1_200, method="mh-97f0a52f")
+    metas = ingest.discover_runs(tmp_path / "fits")
+    got = {(m.method, m.seed): (m.folder_default, m.method_default) for m in metas}
+    assert got == {
+        ("mh-92946094", 2): (False, True),
+        ("mh-97f0a52f", 1): (True, True),
+        ("mh-97f0a52f", 3): (False, False),
+    }
+    assert ingest.resolve_run(metas, "m0_mh-76aecea7~mh-97f0a52f").seed == 1
+    assert ingest.resolve_run(metas, "m0_mh-76aecea7~mh-92946094").seed == 2
+    assert ingest.resolve_run(metas, "m0_mh-76aecea7~mh-00000000") is None
 
 
 def test_a_single_run_folder_keeps_the_folder_name_as_its_id(tmp_path):

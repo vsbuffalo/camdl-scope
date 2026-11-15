@@ -10,9 +10,10 @@
  * (`results/fits/fit_x-1344469c/pgas-79d6825a/seed_1-…`); `run.json` carries the
  * full 64-hex fit hash; the viewer's ticker copies the 8-hex run id. All three
  * resolve, along with a stem when the store holds only one fit of it. A problem
- * folder holding several runs (one per fit seed) opens its default run unless
- * the token names one: a leaf path, a seed run's id, camdl's run_id, or its
- * label.
+ * folder holding several runs opens its default run unless the token names
+ * one: a leaf path, a seed run's id, camdl's run_id, or its label. A method
+ * directory (`<folder>~<method>`, or a path ending there) names one sampler
+ * configuration and opens its default seed.
  *
  * What it will not do is guess. A token matching several runs resolves to
  * *nothing* and says so, because the failure that matters here is silently
@@ -45,6 +46,10 @@ export interface RunRef {
   folder: string
   /** Whether a bare folder name opens this run. */
   folder_default: boolean
+  /** The method directory, e.g. `pmmh-83841c1b`: one sampler configuration. */
+  method: string
+  /** Whether `<folder>~<method>` opens this run. */
+  method_default: boolean
   /** The run's directory under the folder, e.g. `pmmh-83841c1b/seed_6-48b478e8`. */
   leaf: string
   /** camdl's 64-hex run_id, from the run's run.json. */
@@ -79,6 +84,11 @@ function matchToken(token: string, runs: RunRef[]): RunResolution {
   if (exact) return { kind: 'ok', runId: exact.run_id }
   const folder = runs.find((r) => r.folder.toLowerCase() === t)
   if (folder) return { kind: 'ok', runId: defaultOf(folder.folder, runs)! }
+  // `<folder>~<method dir>`: one sampler configuration, opening its default seed.
+  const config = runs.find(
+    (r) => r.method_default && `${r.folder}~${r.method}`.toLowerCase() === t,
+  )
+  if (config) return { kind: 'ok', runId: config.run_id }
 
   // camdl's `@label` names one run.
   const byLabel = runs.filter((r) => r.label.toLowerCase() === t).map((r) => r.run_id)
@@ -130,6 +140,11 @@ export function resolveRunToken(token: string, runs: RunRef[]): RunResolution {
     const path = `/${segs.join('/')}/`
     const byLeaf = runs.filter((r) => path.includes(`/${r.folder}/${r.leaf}/`))
     if (byLeaf.length) return result(byLeaf.map((r) => r.run_id))
+    // A path that stops at the method directory opens that configuration.
+    const byMethod = runs.filter(
+      (r) => r.method_default && path.endsWith(`/${r.folder}/${r.method}/`),
+    )
+    if (byMethod.length) return result(byMethod.map((r) => r.run_id))
   }
   let ambiguous: RunResolution | null = null
   for (const seg of segs) {

@@ -325,6 +325,12 @@ class RunMeta:
     # ``run_id``; in a folder of several, each id is ``<folder>~<leaf>``.
     seed: int | None = None
     folder_default: bool = True
+    # Whether this is the run its method directory opens by default. A method
+    # directory is one sampler configuration of the problem (camdl hashes the
+    # sampler settings, starts included, into it), so its seed leaves are
+    # replicates of one another and leaves in different method directories are
+    # not. ``folder~method`` opens this run.
+    method_default: bool = True
     # The stage whose heartbeat is running *now*, when the run has one. A re-run
     # under new sampler settings adds a stage beside the finished one, and until
     # that stage writes rows we still read the finished stage's draws — so the
@@ -374,6 +380,12 @@ class RunMeta:
         stage we read. Status is a fact about the run, not about the stage whose
         draws happen to be the best ones to show."""
         return self.live_stage_dir or self.posterior_dir
+
+    @property
+    def method(self) -> str:
+        """The method directory holding this run's leaf, e.g. ``pmmh-35a17c58``:
+        one sampler configuration of the problem."""
+        return self.posterior_dir.parent.name
 
     @property
     def derived_label(self) -> str:

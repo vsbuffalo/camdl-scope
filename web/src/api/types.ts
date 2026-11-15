@@ -2044,6 +2044,14 @@ export interface components {
             leaf: string;
             /** Leaf Run Id */
             leaf_run_id: string | null;
+            /** Method */
+            method: string;
+            /** Method Default */
+            method_default: boolean;
+            /** User Label */
+            user_label: string | null;
+            /** Config Label */
+            config_label: string;
             /** Model */
             model: string;
             /** Algorithm */

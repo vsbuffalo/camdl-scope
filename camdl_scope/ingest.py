@@ -874,7 +874,7 @@ def _leaf_ids(run_dir: Path, leaves: list[_Leaf]) -> list[str]:
 
 def _posterior_run_meta(
     run_dir: Path, leaf: _Leaf, run_id: str, *, folder_default: bool,
-    live_stage_dir: Path | None,
+    method_default: bool, live_stage_dir: Path | None,
 ) -> RunMeta:
     pdir, seed_dir, chain_paths = leaf
     meta = _read_meta(run_dir)
@@ -919,6 +919,7 @@ def _posterior_run_meta(
         leaf_run_id=ident.run_id,
         seed=_leaf_seed(seed_dir),
         folder_default=folder_default,
+        method_default=method_default,
         docs=ModelDocs.from_meta(meta),
         schema=ObsSchema.from_meta(meta),
         column_roles=read_column_roles(seed_dir),
@@ -926,14 +927,31 @@ def _posterior_run_meta(
     )
 
 
+def _method_defaults(leaves: list[_Leaf]) -> list[bool]:
+    """Which leaf each method directory opens by default: the folder's default
+    when it is in that directory, else the lowest finished seed (``leaves``
+    past the first are in seed order), else the first listed."""
+    chosen: dict[Path, _Leaf] = {leaves[0].pdir: leaves[0]} if leaves else {}
+    for pdir in {lf.pdir for lf in leaves} - chosen.keys():
+        mine = [lf for lf in leaves if lf.pdir == pdir]
+        chosen[pdir] = next((lf for lf in mine if stage_completed(lf.seed_dir)), mine[0])
+    return [chosen[lf.pdir] is lf for lf in leaves]
+
+
 def resolve_run(metas: list[RunMeta], run_id: str) -> RunMeta | None:
-    """The entry ``run_id`` names: an exact entry id, or a problem folder's
-    name, which opens that folder's default run. A link written before a
-    folder held several runs keeps working, and opens what the folder now
-    defaults to."""
+    """The entry ``run_id`` names: an exact entry id; ``<folder>~<method dir>``,
+    which opens that sampler configuration's default seed; or a problem folder's
+    name, which opens that folder's default run. A link written before a folder
+    held several runs keeps working, and opens what the folder now defaults to."""
     exact = next((m for m in metas if m.run_id == run_id), None)
     if exact is not None:
         return exact
+    folder, sep, method = run_id.partition(LEAF_SEP)
+    if sep:
+        return next(
+            (m for m in metas if m.method_default and m.run_dir.name == folder
+             and m.method == method), None,
+        )
     return next(
         (m for m in metas if m.folder_default and m.run_dir.name == run_id), None
     )
@@ -969,9 +987,11 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
         # it, so the folder does not read as idle while it samples.
         live = _live_stage_dir(run_dir)
         live_listed = any(lf.seed_dir == live for lf in leaves)
-        for i, (leaf, rid) in enumerate(zip(leaves, _leaf_ids(run_dir, leaves))):
+        ids, method_defaults = _leaf_ids(run_dir, leaves), _method_defaults(leaves)
+        for i, (leaf, rid) in enumerate(zip(leaves, ids)):
             out.append(_posterior_run_meta(
                 run_dir, leaf, rid, folder_default=(i == 0),
+                method_default=method_defaults[i],
                 live_stage_dir=(_live_stage_dir(run_dir) if i == 0 and not live_listed else None),
             ))
     return out

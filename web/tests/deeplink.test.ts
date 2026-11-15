@@ -9,12 +9,15 @@ const seeds: RunRef[] = [1, 2, 3, 4, 5, 6].map((n) => ({
   run_id: `${SYN}~seed_${n}-0${n}aaaaaa`,
   folder: SYN,
   folder_default: n === 1,
+  method: 'pmmh-83841c1b',
+  method_default: n === 1,
   leaf: `pmmh-83841c1b/seed_${n}-0${n}aaaaaa`,
   leaf_run_id: `${n}${n}${n}${n}`.padEnd(64, 'c'),
   label: n === 1 ? 'synthetic' : `synthetic-s${n}`,
 }))
 const r0: RunRef = {
   run_id: 'fit_r0-84761258', folder: 'fit_r0-84761258', folder_default: true,
+  method: 'pmmh-83841c1b', method_default: true,
   leaf: 'pmmh-83841c1b/seed_4-8b49cfaa', leaf_run_id: 'f1c0c39d577c'.padEnd(64, '0'),
   label: 'r0',
 }
@@ -43,4 +46,16 @@ test('a seed run id, a label and a camdl run_id each name one run', () => {
 test('an ambiguous token is refused, never guessed', () => {
   assert.equal(resolveRunToken('fit_', runs).kind, 'ambiguous')
   assert.equal(resolveRunToken('nothing-like-this', runs).kind, 'none')
+})
+
+test('a method directory opens that configuration, not the folder default', () => {
+  const M = 'm0_mh-76aecea7'
+  const mk = (method: string, seed: number, label: string, folderDefault: boolean): RunRef => ({
+    run_id: `${M}~seed_${seed}-0000000${seed}`, folder: M, folder_default: folderDefault,
+    method, method_default: true, leaf: `${method}/seed_${seed}-0000000${seed}`, label,
+  })
+  const ms = [mk('mh-97f0a52f', 1, 'm0_mh_mode_a', true), mk('mh-92946094', 2, 'm0_mh', false)]
+  assert.deepEqual(resolveRunToken(`${M}~mh-92946094`, ms), ok(ms[1]!.run_id))
+  assert.deepEqual(resolveRunToken(`results/fits/${M}/mh-92946094`, ms), ok(ms[1]!.run_id))
+  assert.deepEqual(resolveRunToken(M, ms), ok(ms[0]!.run_id))
 })

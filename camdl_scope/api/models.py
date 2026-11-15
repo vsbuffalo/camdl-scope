@@ -221,6 +221,16 @@ class RunSummary(BaseModel):
     seed: int | None
     leaf: str
     leaf_run_id: str | None
+    # The method directory (``pmmh-35a17c58``): one sampler configuration of
+    # the problem. Runs sharing it are replicate seeds; runs in different method
+    # directories were sampled differently and are listed as separate fits.
+    # ``method_default`` marks the run ``<folder>~<method>`` opens.
+    method: str
+    method_default: bool
+    # camdl's own label for this run, when it has one, and the label derived
+    # from the config stem and algorithm. ``label`` is the first, else the second.
+    user_label: str | None
+    config_label: str
     model: str
     algorithm: str
     backend: str
