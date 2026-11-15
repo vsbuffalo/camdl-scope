@@ -91,6 +91,7 @@ function PredictivePanel({
   observed,
   dense,
   hiddenLayers,
+  obsPoints,
   obsLine,
   logY,
   toDate,
@@ -101,7 +102,11 @@ function PredictivePanel({
   observed: ObservedPoint[]
   dense: boolean
   hiddenLayers: ReadonlySet<PredLayer>
-  /** Join the observed dots with a faint line (off = dots only). */
+  /** Draw the observations as dots. */
+  obsPoints: boolean
+  /** Draw the observations as a line: faint when the dots are drawn too (it
+   *  only joins them), solid when it is the data's only mark. Both off hides
+   *  the data, and the y-axis rescales to the predictive alone. */
   obsLine: boolean
   /** Log y-axis. Domain spans the positive plotted values; zeros (legal in
    *  count streams) clamp to the axis floor rather than breaking the scale. */
@@ -133,6 +138,10 @@ function PredictivePanel({
     const obs = observed
       .filter((o) => o.value != null && Number.isFinite(o.value))
       .sort((a, b) => a.time - b.time)
+    // What the data contributes to the drawing. Hidden data still fixes the
+    // end-of-data boundary below; it just draws nothing and stops counting
+    // toward the y-domain.
+    const shownObs = obsPoints || obsLine ? obs : []
 
     // The forecast boundary: where this stratum's observations stop. In 'data'
     // mode ribbons are clipped here (auto x/y domains then rescale to the fit
@@ -218,32 +227,34 @@ function PredictivePanel({
     }
     if (obsLine) {
       marks.push(
-        Plot.line(obs, {
+        Plot.line(shownObs, {
           x: xOf,
           y: 'value',
           stroke: OBSERVED,
-          strokeWidth: 0.75,
-          strokeOpacity: 0.4,
+          strokeWidth: obsPoints ? 0.75 : 1.1,
+          strokeOpacity: obsPoints ? 0.4 : 0.9,
         }),
       )
     }
-    marks.push(
-      Plot.dot(obs, {
-        x: xOf,
-        y: 'value',
-        fill: OBSERVED,
-        r: 3,
-        stroke: 'white',
-        strokeWidth: 0.5,
-      }),
-      Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }),
-    )
-    for (const o of obs) see(o.value!)
+    if (obsPoints) {
+      marks.push(
+        Plot.dot(shownObs, {
+          x: xOf,
+          y: 'value',
+          fill: OBSERVED,
+          r: 3,
+          stroke: 'white',
+          strokeWidth: 0.5,
+        }),
+      )
+    }
+    marks.push(Plot.ruleY([0], { stroke: '#e5e5e5', strokeWidth: 0.5 }))
+    for (const o of shownObs) see(o.value!)
     // Last, so the crosshair and tip paint over the ribbons and the points.
     marks.push(
       ...bandTipMarks({
         series: tipSeries,
-        observed: obs,
+        observed: shownObs,
         xOf,
         fmtX: (t) => (toDate ? fmtModelDate(toDate, t) : fmtTick(t)),
         fmtY: (v) => fmtValue(v),
@@ -279,7 +290,7 @@ function PredictivePanel({
     return () => {
       node.remove()
     }
-  }, [series, observed, width, dense, hiddenLayers, obsLine, logY, toDate, windowMode])
+  }, [series, observed, width, dense, hiddenLayers, obsPoints, obsLine, logY, toDate, windowMode])
 
   const figRef = useRef<HTMLDivElement>(null)
 
@@ -920,14 +931,18 @@ function ArmChecks({
   )
 }
 
-/** Checkbox group toggling each predictive layer (median / 50% / 90%) plus the
- *  observed connecting line. Checked = shown; unchecking a predictive layer
- *  rescales the panel y-axis to what remains + observed. The observed *dots*
- *  are not a layer — they always draw; the toggle governs only the line
- *  joining them (which can falsely suggest continuity between reports). */
+/** Checkbox group toggling each predictive layer (median / 50% / 90%) and how
+ *  the observations draw — as dots, as a line, both, or (both off) not at all.
+ *  Checked = shown; unchecking a layer rescales the panel y-axis to what
+ *  remains. A long weekly series reads better as a line: at a few hundred
+ *  points the dots overlap into a band that hides the ribbon beneath. A line
+ *  does suggest continuity between reports, which is why the dots are the
+ *  default. */
 function LayerChecks({
   hidden,
   onToggle,
+  obsPoints,
+  onToggleObsPoints,
   obsLine,
   onToggleObsLine,
   logY,
@@ -935,6 +950,8 @@ function LayerChecks({
 }: {
   hidden: ReadonlySet<PredLayer>
   onToggle: (layer: PredLayer) => void
+  obsPoints: boolean
+  onToggleObsPoints: () => void
   obsLine: boolean
   onToggleObsLine: () => void
   logY: boolean
@@ -950,16 +967,31 @@ function LayerChecks({
         <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
           <input
             type="checkbox"
+            checked={obsPoints}
+            onChange={onToggleObsPoints}
+            className="size-3 accent-neutral-800"
+          />
+          <span
+            className="inline-block size-[7px] rounded-full"
+            style={{ background: obsPoints ? OBSERVED : '#a3a3a3' }}
+          />
+          <span className={obsPoints ? 'text-neutral-900' : 'text-neutral-500'}>
+            obs points
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
+          <input
+            type="checkbox"
             checked={obsLine}
             onChange={onToggleObsLine}
             className="size-3 accent-neutral-800"
           />
           <span
             className="inline-block h-[1.5px] w-3 rounded-full"
-            style={{ background: obsLine ? OBSERVED : '#a3a3a3', opacity: 0.5 }}
+            style={{ background: obsLine ? OBSERVED : '#a3a3a3' }}
           />
           <span className={obsLine ? 'text-neutral-900' : 'text-neutral-500'}>
-            connect observed
+            obs line
           </span>
         </label>
         <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs">
@@ -1093,12 +1125,14 @@ export function PredictiveTab({ runId }: { runId: string }) {
   //
   // `hiddenLayers` drops a layer entirely rather than hiding it, so the panel's
   // y-domain rescales to what remains — dropping the wild 90% band is how the
-  // data comes off the floor. `obsLine` joins the observed dots. `logY` puts
+  // data comes off the floor. `obsPoints` / `obsLine` draw the observations as
+  // dots and/or a line (neither: hidden). `logY` puts
   // the panels on a log axis. `windowMode` clips the ribbons to the observed
   // window (offered only when something extends past the data).
   const [hiddenLayers, setHiddenLayers] = usePersistedSet<PredLayer>(
     'predictive:hidden-layers',
   )
+  const [obsPoints, setObsPoints] = usePersisted('predictive:obs-points', true)
   const [obsLine, setObsLine] = usePersisted('predictive:obs-line', true)
   const [logY, setLogY] = usePersisted('predictive:log-y', false)
   const [windowMode, setWindowMode] = usePersisted<'data' | 'full'>(
@@ -1676,6 +1710,8 @@ export function PredictiveTab({ runId }: { runId: string }) {
                   onToggle={(layer) =>
                     setHiddenLayers(toggleInSet(hiddenLayers, layer))
                   }
+                  obsPoints={obsPoints}
+                  onToggleObsPoints={() => setObsPoints(!obsPoints)}
                   obsLine={obsLine}
                   onToggleObsLine={() => setObsLine(!obsLine)}
                   logY={logY}
@@ -1708,6 +1744,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
                     observed={s.obs}
                     dense={s.series.length <= 2}
                     hiddenLayers={hiddenLayers}
+                    obsPoints={obsPoints}
                     obsLine={obsLine}
                     logY={logY}
                     toDate={toDate}
