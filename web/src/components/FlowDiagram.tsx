@@ -6,7 +6,7 @@ import { Description } from '@/components/Description'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { estimateTexWidth, normalizeTex } from '@/lib/tex'
-import { token } from '@/lib/theme'
+import { ink, token } from '@/lib/theme'
 
 /**
  * The compartmental flow diagram (`model.graph.json`): a hand-rolled SVG
@@ -461,7 +461,7 @@ export function FlowDiagram({
               markerHeight="6"
               orient="auto-start-reverse"
             >
-              <path d="M 0 1 L 9 5 L 0 9 z" fill="#a78bca" />
+              <path d="M 0 1 L 9 5 L 0 9 z" fill={ink('flow-back')} />
             </marker>
           </defs>
 
@@ -508,7 +508,7 @@ export function FlowDiagram({
                 key={e.id}
                 d={g.d}
                 fill="none"
-                stroke={lit(e) ? '#c7b9e0' : '#eee9f5'}
+                stroke={lit(e) ? ink('flow-back-lit') : ink('flow-back-dim')}
                 strokeWidth={lit(e) && focus ? 2 : 1.25}
                 markerEnd="url(#arrow-back)"
               />
@@ -603,8 +603,8 @@ export function FlowDiagram({
                 width={NODE_W}
                 height={NODE_H}
                 rx={7}
-                fill={on ? '#eff6ff' : token('surface')}
-                stroke={dim ? '#c7d2e4' : '#1e3a8a'}
+                fill={on ? ink('flow-node-on') : token('surface')}
+                stroke={dim ? ink('flow-node-dim') : ink('flow-node')}
                 strokeWidth={on ? 2.25 : 1.25}
                 className="cursor-pointer"
                 onClick={() => setFocus(on ? null : n.id)}

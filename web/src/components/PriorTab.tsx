@@ -15,7 +15,7 @@ import { fmtValue } from '@/lib/format'
 import { loadJson, saveJson } from '@/lib/persist'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
-import { token } from '@/lib/theme'
+import { ink, token } from '@/lib/theme'
 
 // Contraction below this means the data barely moved the parameter: the
 // posterior is close to the prior restated, so any "estimate" is mostly an
@@ -230,7 +230,7 @@ function PriorPredictivePanel({
                 y: 'value',
                 fill: token('ink'),
                 r: 2.5,
-                stroke: 'white',
+                stroke: token('surface'),
                 strokeWidth: 0.5,
               }),
               Plot.ruleY([0], { stroke: token('line'), strokeWidth: 0.5 }),
@@ -251,7 +251,7 @@ function PriorPredictivePanel({
 
 /** Prior ink — distinct from the posterior arms so the two checks never read as
  *  the same object. */
-const PRIOR_INK = '#7c3aed'
+const PRIOR_INK = ink('mark-violet')
 
 export function PriorTab({
   runId,

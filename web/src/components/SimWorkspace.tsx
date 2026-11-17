@@ -18,11 +18,11 @@ import { dayToDate } from '@/lib/calendar'
 import { LEVEL_PALETTE } from '@/lib/byindex'
 import { loadJson, saveJson } from '@/lib/persist'
 import { cn } from '@/lib/utils'
-import { token } from '@/lib/theme'
+import { ink, token } from '@/lib/theme'
 
 const AXIS = token('muted')
 const MONO = 'var(--font-mono)'
-const ACCENT = '#2563eb' // band + single-member ink
+const ACCENT = ink('mark-blue') // band + single-member ink
 
 /** A member's line colour: a single member is the accent; a small sweep cycles
  *  the categorical palette (matching the legend). */

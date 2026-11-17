@@ -18,8 +18,27 @@
    (`--color-raised` and `--color-hairline` are both neutral-100) precisely
    because a panel fill and a divider are different decisions that happen to
    agree today, and a second theme will want to move them apart.
+
+   Two themes. Each role is `--palette-<role>: light-dark(<light>, <dark>)`,
+   one line per role so the two values sit side by side. The scheme comes from
+   `color-scheme` on <html>: `data-theme` when the viewer picked one, else the
+   OS. The dark column is not a mechanical inversion: a surface is near-black
+   rather than black, text steps are spaced for a dark ground, and the status
+   hues move to their lighter steps so "stronger" still means "more contrast".
+
+   How the pieces fit, and why there are two names per role:
+   - Tailwind's build (Lightning CSS) rewrites `light-dark()` into a fallback
+     that is resolved on whichever element *declares* the variable. So the
+     palette is declared on `:root` and again on `.theme-light`, which pins a
+     subtree to light (the off-screen copy PNG export captures).
+   - `@theme inline` makes a utility read the palette variable directly —
+     `.text-faint { color: var(--palette-faint) }` — rather than through a
+     `--color-faint` declared once on :root, which would freeze the root's
+     value for the whole page and defeat `.theme-light`.
+   - `token('faint')` in lib/theme.ts hands `var(--palette-faint)` to the
+     plotting code, so figures follow a theme switch without a re-render.
    --------------------------------------------------------------------------- */
-@theme {
+@theme inline {
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
     Arial, sans-serif;
@@ -27,81 +46,209 @@
     ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas,
     monospace;
 
+  --color-page: var(--palette-page);
+  --color-surface: var(--palette-surface);
+  --color-sunken: var(--palette-sunken);
+  --color-raised: var(--palette-raised);
+  --color-ink: var(--palette-ink);
+  --color-ink-dim: var(--palette-ink-dim);
+  --color-body: var(--palette-body);
+  --color-body-dim: var(--palette-body-dim);
+  --color-muted: var(--palette-muted);
+  --color-faint: var(--palette-faint);
+  --color-ghost: var(--palette-ghost);
+  --color-hairline: var(--palette-hairline);
+  --color-sunken-line: var(--palette-sunken-line);
+  --color-line: var(--palette-line);
+  --color-line-strong: var(--palette-line-strong);
+  --color-line-heavy: var(--palette-line-heavy);
+  --color-line-body: var(--palette-line-body);
+  --color-line-ink: var(--palette-line-ink);
+  --color-fill-faint: var(--palette-fill-faint);
+  --color-fill-soft: var(--palette-fill-soft);
+  --color-fill: var(--palette-fill);
+  --color-fill-strong: var(--palette-fill-strong);
+  --color-inverse: var(--palette-inverse);
+  --color-on-inverse: var(--palette-on-inverse);
+  --color-warn: var(--palette-warn);
+  --color-warn-strong: var(--palette-warn-strong);
+  --color-warn-deep: var(--palette-warn-deep);
+  --color-warn-vivid: var(--palette-warn-vivid);
+  --color-warn-surface: var(--palette-warn-surface);
+  --color-warn-line: var(--palette-warn-line);
+  --color-danger: var(--palette-danger);
+  --color-danger-strong: var(--palette-danger-strong);
+  --color-danger-deep: var(--palette-danger-deep);
+  --color-danger-vivid: var(--palette-danger-vivid);
+  --color-danger-surface: var(--palette-danger-surface);
+  --color-danger-line: var(--palette-danger-line);
+  --color-danger-line-strong: var(--palette-danger-line-strong);
+  --color-good: var(--palette-good);
+  --color-good-strong: var(--palette-good-strong);
+  --color-good-vivid: var(--palette-good-vivid);
+  --color-good-surface: var(--palette-good-surface);
+  --color-good-line: var(--palette-good-line);
+  --color-notice: var(--palette-notice);
+  --color-notice-solid: var(--palette-notice-solid);
+  --color-notice-vivid: var(--palette-notice-vivid);
+  --color-accent: var(--palette-accent);
+  --color-accent-deep: var(--palette-accent-deep);
+  --color-accent-ink: var(--palette-accent-ink);
+  --color-accent-vivid: var(--palette-accent-vivid);
+  --color-accent-surface: var(--palette-accent-surface);
+  --color-accent-line: var(--palette-accent-line);
+  --color-highlight: var(--palette-highlight);
+}
+
+:root,
+.theme-light {
   /* Surfaces — what sits behind content. */
-  --color-page: oklch(100% 0 0); /* the document background */
-  --color-surface: oklch(100% 0 0); /* cards, panels */
-  --color-sunken: oklch(98.5% 0 0); /* inset strips, table headers */
-  --color-raised: oklch(97% 0 0); /* chips, progress tracks */
+  --palette-page: light-dark(oklch(100% 0 0), oklch(14.5% 0 0)); /* the document background */
+  --palette-surface: light-dark(oklch(100% 0 0), oklch(14.5% 0 0)); /* cards, panels */
+  --palette-sunken: light-dark(oklch(98.5% 0 0), oklch(17.5% 0 0)); /* inset strips, table headers */
+  --palette-raised: light-dark(oklch(97% 0 0), oklch(21% 0 0)); /* chips, progress tracks */
 
   /* Text, strongest to weakest. The eye should land on `ink` and skim `faint`. */
-  --color-ink: oklch(20.5% 0 0); /* values, headings, emphasis */
-  --color-ink-dim: oklch(26.9% 0 0);
-  --color-body: oklch(37.1% 0 0); /* ordinary prose */
-  --color-body-dim: oklch(43.9% 0 0);
-  --color-muted: oklch(55.6% 0 0); /* captions, secondary prose */
-  --color-faint: oklch(70.8% 0 0); /* micro-labels, column headers */
-  --color-ghost: oklch(87% 0 0); /* placeholders, the em-dash for no value */
+  --palette-ink: light-dark(oklch(20.5% 0 0), oklch(94% 0 0)); /* values, headings, emphasis */
+  --palette-ink-dim: light-dark(oklch(26.9% 0 0), oklch(89% 0 0));
+  --palette-body: light-dark(oklch(37.1% 0 0), oklch(82% 0 0)); /* ordinary prose */
+  --palette-body-dim: light-dark(oklch(43.9% 0 0), oklch(74% 0 0));
+  --palette-muted: light-dark(oklch(55.6% 0 0), oklch(63% 0 0)); /* captions, secondary prose */
+  --palette-faint: light-dark(oklch(70.8% 0 0), oklch(52% 0 0)); /* micro-labels, column headers */
+  --palette-ghost: light-dark(oklch(87% 0 0), oklch(38% 0 0)); /* placeholders, the em-dash for no value */
 
   /* Rules and edges. `hairline` is the default divider and by far the commonest. */
-  --color-hairline: oklch(97% 0 0);
-  --color-sunken-line: oklch(98.5% 0 0);
-  --color-line: oklch(92.2% 0 0);
-  --color-line-strong: oklch(87% 0 0);
-  --color-line-heavy: oklch(70.8% 0 0);
-  --color-line-body: oklch(43.9% 0 0);
-  --color-line-ink: oklch(20.5% 0 0);
+  --palette-hairline: light-dark(oklch(97% 0 0), oklch(22% 0 0));
+  --palette-sunken-line: light-dark(oklch(98.5% 0 0), oklch(19% 0 0));
+  --palette-line: light-dark(oklch(92.2% 0 0), oklch(27% 0 0));
+  --palette-line-strong: light-dark(oklch(87% 0 0), oklch(34% 0 0));
+  --palette-line-heavy: light-dark(oklch(70.8% 0 0), oklch(46% 0 0));
+  --palette-line-body: light-dark(oklch(43.9% 0 0), oklch(70% 0 0));
+  --palette-line-ink: light-dark(oklch(20.5% 0 0), oklch(92% 0 0));
 
   /* Solid neutral fills — bars, dots, tracks. */
-  --color-fill-faint: oklch(92.2% 0 0);
-  --color-fill-soft: oklch(87% 0 0);
-  --color-fill: oklch(70.8% 0 0);
-  --color-fill-strong: oklch(55.6% 0 0);
+  --palette-fill-faint: light-dark(oklch(92.2% 0 0), oklch(27% 0 0));
+  --palette-fill-soft: light-dark(oklch(87% 0 0), oklch(34% 0 0));
+  --palette-fill: light-dark(oklch(70.8% 0 0), oklch(50% 0 0));
+  --palette-fill-strong: light-dark(oklch(55.6% 0 0), oklch(64% 0 0));
 
   /* Reversed out: a dark chip on a light page, and the text on it. */
-  --color-inverse: oklch(20.5% 0 0);
-  --color-on-inverse: oklch(100% 0 0);
+  --palette-inverse: light-dark(oklch(20.5% 0 0), oklch(92% 0 0));
+  --palette-on-inverse: light-dark(oklch(100% 0 0), oklch(14.5% 0 0));
 
   /* Warn (amber): a number worth a second look, not yet a failure. */
-  --color-warn: oklch(66.6% .179 58.318);
-  --color-warn-strong: oklch(55.5% .163 48.998);
-  --color-warn-deep: oklch(47.3% .137 46.201);
-  --color-warn-vivid: oklch(76.9% .188 70.08);
-  --color-warn-surface: oklch(98.7% .022 95.277);
-  --color-warn-line: oklch(92.4% .12 95.746);
+  --palette-warn: light-dark(oklch(66.6% .179 58.318), oklch(82.8% .189 84.429));
+  --palette-warn-strong: light-dark(oklch(55.5% .163 48.998), oklch(87.9% .169 91.605));
+  --palette-warn-deep: light-dark(oklch(47.3% .137 46.201), oklch(92.4% .12 95.746));
+  --palette-warn-vivid: light-dark(oklch(76.9% .188 70.08), oklch(76.9% .188 70.08));
+  --palette-warn-surface: light-dark(oklch(98.7% .022 95.277), oklch(23% .04 75));
+  --palette-warn-line: light-dark(oklch(92.4% .12 95.746), oklch(38% .08 75));
 
   /* Danger (red): a diagnostic that invalidates what is being read. */
-  --color-danger: oklch(57.7% .245 27.325);
-  --color-danger-strong: oklch(50.5% .213 27.518);
-  --color-danger-deep: oklch(44.4% .177 26.899);
-  --color-danger-vivid: oklch(63.7% .237 25.331);
-  --color-danger-surface: oklch(97.1% .013 17.38);
-  --color-danger-line: oklch(88.5% .062 18.334);
-  --color-danger-line-strong: oklch(80.8% .114 19.571);
+  --palette-danger: light-dark(oklch(57.7% .245 27.325), oklch(70.4% .191 22.216));
+  --palette-danger-strong: light-dark(oklch(50.5% .213 27.518), oklch(80.8% .114 19.571));
+  --palette-danger-deep: light-dark(oklch(44.4% .177 26.899), oklch(88.5% .062 18.334));
+  --palette-danger-vivid: light-dark(oklch(63.7% .237 25.331), oklch(63.7% .237 25.331));
+  --palette-danger-surface: light-dark(oklch(97.1% .013 17.38), oklch(23% .05 25));
+  --palette-danger-line: light-dark(oklch(88.5% .062 18.334), oklch(37% .09 25));
+  --palette-danger-line-strong: light-dark(oklch(80.8% .114 19.571), oklch(47% .13 25));
 
   /* Good (emerald): the likelihood is in charge, the chain is healthy. */
-  --color-good: oklch(59.6% .145 163.225);
-  --color-good-strong: oklch(50.8% .118 165.612);
-  --color-good-vivid: oklch(69.6% .17 162.48);
-  --color-good-surface: oklch(97.9% .021 166.113);
-  --color-good-line: oklch(90.5% .093 164.15);
+  --palette-good: light-dark(oklch(59.6% .145 163.225), oklch(76.5% .177 163.223));
+  --palette-good-strong: light-dark(oklch(50.8% .118 165.612), oklch(84.5% .143 164.978));
+  --palette-good-vivid: light-dark(oklch(69.6% .17 162.48), oklch(69.6% .17 162.48));
+  --palette-good-surface: light-dark(oklch(97.9% .021 166.113), oklch(23% .04 165));
+  --palette-good-line: light-dark(oklch(90.5% .093 164.15), oklch(38% .07 165));
 
   /* Notice (orange): the second warning hue, kept distinct from amber where
      two levels of concern appear in one view (store slack, particle health). */
-  --color-notice: oklch(55.3% .195 38.402);
-  --color-notice-solid: oklch(64.6% .222 41.116);
-  --color-notice-vivid: oklch(70.5% .213 47.604);
+  --palette-notice: light-dark(oklch(55.3% .195 38.402), oklch(75% .183 55.934));
+  --palette-notice-solid: light-dark(oklch(64.6% .222 41.116), oklch(70.5% .213 47.604));
+  --palette-notice-vivid: light-dark(oklch(70.5% .213 47.604), oklch(75% .183 55.934));
 
   /* Accent (blue): the app's own mark — brand, selection, and the first
      series in a categorical bar. */
-  --color-accent: oklch(48.8% .243 264.376);
-  --color-accent-deep: oklch(42.4% .199 265.638);
-  --color-accent-ink: oklch(37.9% .146 265.522);
-  --color-accent-vivid: oklch(62.3% .214 259.815);
-  --color-accent-surface: oklch(97% .014 254.604);
-  --color-accent-line: oklch(80.9% .105 251.813);
+  --palette-accent: light-dark(oklch(48.8% .243 264.376), oklch(70.7% .165 254.624));
+  --palette-accent-deep: light-dark(oklch(42.4% .199 265.638), oklch(80.9% .105 251.813));
+  --palette-accent-ink: light-dark(oklch(37.9% .146 265.522), oklch(80.9% .105 251.813));
+  --palette-accent-vivid: light-dark(oklch(62.3% .214 259.815), oklch(62.3% .214 259.815));
+  --palette-accent-surface: light-dark(oklch(97% .014 254.604), oklch(24% .05 260));
+  --palette-accent-line: light-dark(oklch(80.9% .105 251.813), oklch(45% .12 260));
 
   /* One-off emphasis in the flow diagram. */
-  --color-highlight: oklch(60.6% .25 292.717);
+  --palette-highlight: light-dark(oklch(60.6% .25 292.717), oklch(70.2% .183 293.541));
+
+  /* Default text colour, which Observable Plot's axes inherit as
+     `currentColor`. Black in light, as before this was a variable. */
+  --palette-fg: light-dark(#000000, oklch(87% 0 0));
+
+  /* Scrollbar track and thumb, for the handwritten rules below. */
+  --palette-scroll-thumb: light-dark(oklch(87% 0 0), oklch(34% 0 0));
+  --palette-scroll-thumb-hover: light-dark(oklch(70.8% 0 0), oklch(46% 0 0));
+
+  /* Data inks: colours that encode *data* (a chain, a scenario, an index
+     level, the MLE marker) rather than chrome. Each view still chooses its
+     own; they live here only so that a dark theme can retune their lightness.
+     The light value is the hex the view used before; the dark value is the
+     same hue at a lighter step (mostly Tailwind's 400), because a 600–800
+     step that reads well on white sinks into a near-black ground. Not in
+     @theme: no utility class uses them. */
+
+  /* Chains (lib/colors.ts), keyed by chain id. */
+  --chain-0: light-dark(#475569, #94a3b8); /* slate */
+  --chain-1: light-dark(#0f766e, #2dd4bf); /* teal */
+  --chain-2: light-dark(#b45309, #f59e0b); /* amber */
+  --chain-3: light-dark(#9f1239, #fb7185); /* rose */
+  --chain-4: light-dark(#4338ca, #818cf8); /* indigo */
+  --chain-5: light-dark(#15803d, #4ade80); /* green */
+  --chain-6: light-dark(#7e22ce, #c084fc); /* purple */
+  --chain-7: light-dark(#a16207, #fde047); /* yellow */
+
+  /* Scenario arms (lib/scenario.ts). */
+  --scenario-0: light-dark(#1d4ed8, #60a5fa); /* blue */
+  --scenario-1: light-dark(#b45309, #fbbf24); /* amber */
+  --scenario-2: light-dark(#047857, #34d399); /* emerald */
+  --scenario-3: light-dark(#be123c, #fb7185); /* rose */
+  --scenario-4: light-dark(#6d28d9, #a78bfa); /* violet */
+  --scenario-5: light-dark(#0e7490, #22d3ee); /* cyan */
+  --scenario-6: light-dark(#a16207, #fde047); /* yellow */
+  --scenario-7: light-dark(#9f1239, #f9a8d4); /* deep rose / pink */
+
+  /* Index levels (lib/byindex.ts). */
+  --level-0: light-dark(#2563eb, #60a5fa); /* blue */
+  --level-1: light-dark(#16a34a, #4ade80); /* green */
+  --level-2: light-dark(#dc2626, #f87171); /* red */
+  --level-3: light-dark(#9333ea, #c084fc); /* purple */
+  --level-4: light-dark(#ea580c, #fb923c); /* orange */
+  --level-5: light-dark(#0891b2, #22d3ee); /* cyan */
+  --level-6: light-dark(#ca8a04, #facc15); /* yellow */
+  --level-7: light-dark(#db2777, #f472b6); /* pink */
+  --level-8: light-dark(#4f46e5, #818cf8); /* indigo */
+  --level-9: light-dark(#65a30d, #a3e635); /* lime */
+
+  /* Single marks, named by hue because several views share one. */
+  --mark-red: light-dark(#dc2626, #f87171); /* MLE, best restart, out-of-band bar */
+  --mark-blue: light-dark(#2563eb, #60a5fa); /* simulation accent, selected cell */
+  --mark-blue-deep: light-dark(#1d4ed8, #60a5fa); /* profile curve */
+  --mark-green: light-dark(#16a34a, #4ade80); /* one-step-ahead prediction */
+  --mark-orange: light-dark(#ea580c, #fb923c); /* divergent transition */
+  --mark-violet: light-dark(#7c3aed, #a78bfa); /* prior density */
+  --mark-yellow: light-dark(#a16207, #facc15); /* profile CI threshold */
+  --mark-emerald: light-dark(#10b981, #10b981); /* healthy-band wash (drawn at low opacity) */
+  --mark-emerald-rule: light-dark(#34d399, #34d399); /* healthy-band edges */
+
+  /* Flow diagram: lavender reverse edges, and the focused compartment. */
+  --flow-back: light-dark(#a78bca, #8b74b0);
+  --flow-back-lit: light-dark(#c7b9e0, #7d6aa3);
+  --flow-back-dim: light-dark(#eee9f5, #2e2838);
+  --flow-node: light-dark(#1e3a8a, #93c5fd);
+  --flow-node-dim: light-dark(#c7d2e4, #334155);
+  --flow-node-on: light-dark(#eff6ff, #172554);
+
+  /* Cross-chain matrix: the diverging scale's two ends and its neutral middle. */
+  --xchain-hot: light-dark(#e34948, #e8605f);
+  --xchain-cold: light-dark(#2a78d6, #4a90e2);
+  --xchain-zero: light-dark(#f0efec, #262626);
 }
 
 :root {
@@ -111,10 +258,21 @@
      breakpoint; if that changes, change it here. */
   --app-header-h: 45px;
 
-  /* Scrollbar track and thumb. Not in @theme: these are consumed by the
-     handwritten rules below rather than by a utility class. */
-  --color-scroll-thumb: oklch(87% 0 0);
-  --color-scroll-thumb-hover: oklch(70.8% 0 0);
+  /* Follow the OS unless the viewer picked a theme (GlobalHeader's toggle sets
+     `data-theme`; the inline script in index.html applies it before paint). */
+  color-scheme: light dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+/* A subtree pinned to light whatever the page is doing: the off-screen copy
+   that PNG export captures. It works because it redeclares the palette above
+   (the `:root, .theme-light` selector) under its own colour scheme. */
+.theme-light {
+  color-scheme: light;
 }
 
 html {
@@ -127,7 +285,8 @@ html {
 
 body {
   margin: 0;
-  background: var(--color-page);
+  background: var(--palette-page);
+  color: var(--palette-fg);
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -138,6 +297,9 @@ svg[class^="plot-"] {
   display: block;
   max-width: 100%;
   height: auto;
+  /* Plot fills its tooltips with this and defaults it to white, which would
+     put a white box under light text in the dark theme. */
+  --plot-background: var(--palette-surface);
 }
 
 /* A persistently visible horizontal scrollbar for wide content (diagrams, math
@@ -148,7 +310,7 @@ svg[class^="plot-"] {
    overflows. */
 .scroll-x-visible {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-scroll-thumb) transparent;
+  scrollbar-color: var(--palette-scroll-thumb) transparent;
 }
 .scroll-x-visible::-webkit-scrollbar {
   height: 8px;
@@ -157,9 +319,9 @@ svg[class^="plot-"] {
   background: transparent;
 }
 .scroll-x-visible::-webkit-scrollbar-thumb {
-  background-color: var(--color-scroll-thumb);
+  background-color: var(--palette-scroll-thumb);
   border-radius: 4px;
 }
 .scroll-x-visible::-webkit-scrollbar-thumb:hover {
-  background-color: var(--color-scroll-thumb-hover);
+  background-color: var(--palette-scroll-thumb-hover);
 }

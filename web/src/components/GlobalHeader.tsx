@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { DEMO } from '@/lib/demo'
+import { setThemeChoice, useThemeChoice, type ThemeChoice } from '@/lib/theme'
 
 /** Top-level workspaces. Each owns its own selector + sub-navigation; the run
  *  dropdown belongs to `explore`, not this global chrome. Adding a future mode
@@ -74,8 +75,64 @@ export function GlobalHeader({
               )
             })}
           </nav>
+
+          <ThemeToggle />
         </div>
       </div>
     </header>
+  )
+}
+
+const THEME_OPTIONS: { value: ThemeChoice; label: string }[] = [
+  { value: 'light', label: 'light' },
+  { value: 'dark', label: 'dark' },
+  { value: 'system', label: 'system' },
+]
+
+/**
+ * Light / dark / follow-the-OS, in the nav's own register: muted mono words,
+ * the chosen one in ink. On a phone the three words do not fit beside the nav,
+ * so one word shows the current choice and a tap moves to the next.
+ */
+function ThemeToggle() {
+  const choice = useThemeChoice()
+  const i = THEME_OPTIONS.findIndex((o) => o.value === choice)
+  const here = THEME_OPTIONS[i]!
+  const next = THEME_OPTIONS[(i + 1) % THEME_OPTIONS.length]!
+  return (
+    <div className="ml-auto flex shrink-0 items-center font-mono text-[11px]">
+      <div
+        role="radiogroup"
+        aria-label="Colour theme"
+        className="hidden items-center gap-2 sm:flex"
+      >
+        {THEME_OPTIONS.map((o) => {
+          const on = o.value === choice
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => setThemeChoice(o.value)}
+              className={cn(
+                'transition-colors',
+                on ? 'text-ink' : 'text-faint hover:text-body-dim',
+              )}
+            >
+              {o.label}
+            </button>
+          )
+        })}
+      </div>
+      <button
+        type="button"
+        onClick={() => setThemeChoice(next.value)}
+        aria-label={`Colour theme: ${here.label}. Switch to ${next.label}.`}
+        className="text-faint transition-colors hover:text-body-dim sm:hidden"
+      >
+        {here.label}
+      </button>
+    </div>
   )
 }

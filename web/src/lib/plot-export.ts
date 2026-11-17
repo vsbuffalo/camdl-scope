@@ -1,11 +1,51 @@
 import { toBlob } from 'html-to-image'
+import { isDarkNow } from '@/lib/theme'
 
 /**
  * Background for an exported PNG. Deliberately fixed rather than themed: a
  * figure leaving this app goes into a manuscript, a slide, or an issue thread,
- * and it should not carry the appearance of whoever exported it.
+ * and it should not carry the appearance of whoever exported it. The figure's
+ * own colours follow suit — see `lightCopy`.
  */
 const EXPORT_BACKGROUND = '#ffffff'
+
+/** Text properties a figure inherits from the panels around it. A copy moved
+ *  out to the end of <body> would otherwise lose them and set its HTML labels
+ *  in the page default. */
+const INHERITED_TEXT = [
+  'font-family',
+  'font-size',
+  'font-weight',
+  'line-height',
+  'letter-spacing',
+  'font-feature-settings',
+] as const
+
+/**
+ * A light-theme copy of `node`, attached off-screen, for capture while the
+ * page is dark. Every colour in a figure is a `var(--…)` from index.css, and
+ * the `theme-light` class redeclares that palette under a light colour scheme,
+ * so the copy resolves the light values while the page on screen does not
+ * change. Capturing the on-screen node instead would put near-white axis text
+ * on the white export background. Call `remove()` on the result when done.
+ */
+function lightCopy(node: HTMLElement): { copy: HTMLElement; remove: () => void } {
+  const style = getComputedStyle(node)
+  const wrap = document.createElement('div')
+  wrap.setAttribute('aria-hidden', 'true')
+  wrap.style.position = 'fixed'
+  wrap.style.left = '-100000px'
+  wrap.style.top = '0'
+  wrap.style.width = `${node.getBoundingClientRect().width}px`
+  wrap.style.pointerEvents = 'none'
+  wrap.className = 'theme-light'
+  wrap.style.color = 'var(--palette-fg)'
+  for (const p of INHERITED_TEXT) wrap.style.setProperty(p, style.getPropertyValue(p))
+  const copy = node.cloneNode(true) as HTMLElement
+  wrap.appendChild(copy)
+  document.body.appendChild(wrap)
+  return { copy, remove: () => wrap.remove() }
+}
 
 /**
  * Ceiling on the rasterized image, in pixels of area.
@@ -51,10 +91,21 @@ export async function downloadNodePng(
   node: HTMLElement,
   name: string,
 ): Promise<ExportResult> {
-  const blob = await toBlob(node, {
+  const options = {
     pixelRatio: rasterScale(node),
     backgroundColor: EXPORT_BACKGROUND,
-  })
+  }
+  let blob: Blob | null
+  if (isDarkNow()) {
+    const { copy, remove } = lightCopy(node)
+    try {
+      blob = await toBlob(copy, options)
+    } finally {
+      remove()
+    }
+  } else {
+    blob = await toBlob(node, options)
+  }
   if (!blob) return 'failed'
 
   const filename = `${name}.png`

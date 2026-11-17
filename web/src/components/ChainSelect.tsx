@@ -131,7 +131,7 @@ export function ChainSelect({
       </div>
 
       {open && (
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 rounded-sm border border-line bg-[#fafafa] p-2.5">
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 rounded-sm border border-line bg-sunken p-2.5">
           {chainIds.map((c) => {
             const included = !excluded.has(c)
             const isDead = dead.has(c)

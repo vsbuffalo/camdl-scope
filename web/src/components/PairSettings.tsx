@@ -98,7 +98,7 @@ export function PairSettings({
       </div>
 
       {open && (
-        <div className="mt-2 rounded-sm border border-line bg-[#fafafa] p-2.5">
+        <div className="mt-2 rounded-sm border border-line bg-sunken p-2.5">
           {groups.scalars.length > 0 && (
             <div>
               <SectionLabel>scalars</SectionLabel>

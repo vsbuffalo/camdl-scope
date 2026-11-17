@@ -5,7 +5,7 @@ import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { fmtTick } from '@/lib/format'
 import { chainColor } from '@/lib/colors'
 import { cn } from '@/lib/utils'
-import { token } from '@/lib/theme'
+import { ink, token } from '@/lib/theme'
 
 // Cell sizing: square cells clamp between these so few params fill the width
 // while many params shrink toward MIN and the grid scrolls.
@@ -25,7 +25,7 @@ const SYMBOL = token('body-dim') // neutral-600 — in-cell symbol
 // clean draw is one dark grey and the divergent ones carry the only hue in the
 // cell — nothing else in the corner plot competes with it.
 const CLEAN_DOT = token('body-dim') // neutral-600
-const DIVERGENT_DOT = '#ea580c' // orange-600
+const DIVERGENT_DOT = ink('mark-orange') // orange-600
 
 type Domain = [number, number] | undefined
 

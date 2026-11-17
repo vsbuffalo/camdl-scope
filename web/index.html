@@ -4,7 +4,19 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      // Apply a stored theme choice before first paint, so a viewer who chose
+      // dark never sees a white flash. Mirrors applyChoice in src/lib/theme.ts
+      // (same storage key, same attribute); with no stored choice the OS
+      // setting decides through `color-scheme: light dark`.
+      try {
+        var t = localStorage.getItem('camdl-scope:theme')
+        if (t === 'light' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t)
+        }
+      } catch (e) {}
+    </script>
     <title>camdl-scope</title>
   </head>
   <body>

@@ -1,9 +1,12 @@
+import { ink, token } from '@/lib/theme'
+
 /**
  * Shared scenario ink — keeps the scenario overlay colors consistent across the
  * Quantities table/ribbons and the Predictive ribbons. `baseline` / `as_fitted`
- * are the dark *reference* arm; intervention scenarios get distinct hues.
+ * are the *reference* arm, drawn in the text ink (neutral-900 in light, near
+ * white in dark); intervention scenarios get distinct hues.
  */
-export const SCENARIO_REFERENCE = '#171717' // neutral-900
+export const SCENARIO_REFERENCE = token('ink')
 
 /** The names that mark a predict sidecar's *reference* arm — the as-fitted
  *  posterior predictive that scenarios overlay: camdl's `fitted` sentinel
@@ -22,10 +25,9 @@ export function referenceScenario(scenarios: readonly string[]): string | null {
   return null
 }
 
-const PALETTE = [
-  '#1d4ed8', '#b45309', '#047857', '#be123c',
-  '#6d28d9', '#0e7490', '#a16207', '#9f1239',
-] as const
+/** `--scenario-0` … `--scenario-7` in index.css. In light: blue-700, amber-700,
+ *  emerald-700, rose-700, violet-700, cyan-700, yellow-700, rose-800. */
+const PALETTE = Array.from({ length: 8 }, (_, i) => ink(`scenario-${i}`))
 
 /** Stable scenario→color, assigned in the given order. */
 export function buildScenarioColors(scenarios: string[]): Map<string, string> {

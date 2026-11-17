@@ -28,11 +28,11 @@ import {
 } from '@/lib/byindex'
 import { buildScenarioColors, referenceScenario, SCENARIO_REFERENCE } from '@/lib/scenario'
 import { cn } from '@/lib/utils'
-import { token } from '@/lib/theme'
+import { ink, token } from '@/lib/theme'
 
 // The one-step tracking check's ink. The fitted free-run draws in the dark
 // SCENARIO_REFERENCE; scenario overlays use the shared scenario palette.
-const ONE_STEP = '#16a34a'
+const ONE_STEP = ink('mark-green')
 
 const OBSERVED = token('ink') // neutral-900 — the data, distinct from every prediction
 const AXIS = token('muted')
@@ -244,7 +244,7 @@ function PredictivePanel({
           y: 'value',
           fill: OBSERVED,
           r: 3,
-          stroke: 'white',
+          stroke: token('surface'),
           strokeWidth: 0.5,
         }),
       )
@@ -464,7 +464,7 @@ function PredObsScatter({ points, r2Lines }: { points: ScatterPoint[]; r2Lines: 
           y: { label: '↑ predicted (median)', labelAnchor: 'center', domain, ticks: 6, tickFormat: (d: number) => fmtTick(d), grid: true },
           marks: [
             Plot.line([[domain[0], domain[0]], [domain[1], domain[1]]], { stroke: ONE_TO_ONE, strokeWidth: 1, strokeDasharray: '4,3' }),
-            Plot.dot(points, { x: 'obs', y: 'pred', fill: 'color', r: 3, fillOpacity: 0.6, stroke: 'white', strokeWidth: 0.4 }),
+            Plot.dot(points, { x: 'obs', y: 'pred', fill: 'color', r: 3, fillOpacity: 0.6, stroke: token('surface'), strokeWidth: 0.4 }),
             ...r2Lines
               .filter((a) => Number.isFinite(a.r2))
               .map((a, i) =>
@@ -562,7 +562,7 @@ function ResidualPlot({
             },
             marks: [
               Plot.ruleY([0], { stroke: ONE_TO_ONE, strokeWidth: 1, strokeDasharray: '4,3' }),
-              Plot.dot(jpts, { x: 'xi', y: 'resid', fill: 'color', r: 2.5, fillOpacity: 0.5, stroke: 'white', strokeWidth: 0.3 }),
+              Plot.dot(jpts, { x: 'xi', y: 'resid', fill: 'color', r: 2.5, fillOpacity: 0.5, stroke: token('surface'), strokeWidth: 0.3 }),
               // Per-level mean residual — a bold coloured segment at the level.
               Plot.link(means, {
                 x1: (d: { xi: number }) => d.xi - 0.32,
@@ -625,7 +625,7 @@ function ResidualPlot({
                 fill: 'color',
                 r: 3,
                 fillOpacity: isTime ? 0.35 : 0.55,
-                stroke: 'white',
+                stroke: token('surface'),
                 strokeWidth: 0.4,
               }),
               ...(maPts.length
@@ -693,7 +693,7 @@ function PitPlot({ pit }: { pit: number[] }) {
           y: { label: '↑ count', labelAnchor: 'center', grid: true },
           marks: [
             Plot.rectY(bars, { x1: 'x0', x2: 'x1', y: 'count', fill: NEUTRAL, fillOpacity: 0.72, inset: 0.5 }),
-            Plot.ruleY([expected], { stroke: '#dc2626', strokeWidth: 1.2, strokeDasharray: '4,3' }),
+            Plot.ruleY([expected], { stroke: ink('mark-red'), strokeWidth: 1.2, strokeDasharray: '4,3' }),
             Plot.ruleY([0], { stroke: AXIS, strokeWidth: 1 }),
           ],
         })
@@ -809,7 +809,7 @@ function IntervalReadout({ rows }: { rows: IntervalRow[] }) {
               }),
               Plot.dot(
                 rows.filter((r) => r.obs != null),
-                { x: 'obs', y: 'label', fill: OBSERVED, r: 3.5, stroke: 'white', strokeWidth: 0.6 },
+                { x: 'obs', y: 'label', fill: OBSERVED, r: 3.5, stroke: token('surface'), strokeWidth: 0.6 },
               ),
             ],
           })

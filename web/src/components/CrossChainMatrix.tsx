@@ -36,9 +36,9 @@ function cellColor(t: number): string {
   const a = Math.min(1, Math.abs(t))
   if (t >= 0) {
     // Positive: another chain's path scores BETTER. The alarming direction.
-    return `color-mix(in oklab, #e34948 ${Math.round(a * 88)}%, #f0efec)`
+    return `color-mix(in oklab, var(--xchain-hot) ${Math.round(a * 88)}%, var(--xchain-zero))`
   }
-  return `color-mix(in oklab, #2a78d6 ${Math.round(a * 72)}%, #f0efec)`
+  return `color-mix(in oklab, var(--xchain-cold) ${Math.round(a * 72)}%, var(--xchain-zero))`
 }
 
 function fmtCell(v: number): string {
@@ -154,7 +154,7 @@ export function CrossChainMatrix({ compat }: { compat: Compat }) {
                       )}
                       style={
                         diag
-                          ? { background: '#f0efec' }
+                          ? { background: 'var(--xchain-zero)' }
                           : { background: cellColor(v / scale) }
                       }
                     >

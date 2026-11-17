@@ -85,8 +85,8 @@ export function ByIndexPlot({
             ...lines.map((l) =>
               Plot.line(l.pts, { x: 'xi', y: 'y', stroke: l.color, strokeWidth: 1.5, strokeOpacity: 0.85 }),
             ),
-            Plot.dot(predPts, { x: 'xi', y: 'y', fill: 'color', r: 3.5, stroke: 'white', strokeWidth: 0.5 }),
-            Plot.dot(obsPts, { x: 'xi', y: 'y', stroke: 'color', fill: 'white', r: 3.5, strokeWidth: 1.5 }),
+            Plot.dot(predPts, { x: 'xi', y: 'y', fill: 'color', r: 3.5, stroke: token('surface'), strokeWidth: 0.5 }),
+            Plot.dot(obsPts, { x: 'xi', y: 'y', stroke: 'color', fill: token('surface'), r: 3.5, strokeWidth: 1.5 }),
           ],
         })
         el.replaceChildren(node)

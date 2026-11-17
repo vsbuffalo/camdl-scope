@@ -3,11 +3,11 @@ import * as Plot from '@observablehq/plot'
 import type { ProfileResponse } from '@/api/client'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { cn } from '@/lib/utils'
-import { token } from '@/lib/theme'
+import { ink, token } from '@/lib/theme'
 
 const AXIS = token('muted') // neutral-500 — tick labels
-const MLE = '#dc2626' // red-600 — the MLE cell outline
-const SELECTED = '#2563eb' // blue-600 — the clicked cell outline
+const MLE = ink('mark-red') // red-600 — the MLE cell outline
+const SELECTED = ink('mark-blue') // blue-600 — the clicked cell outline
 const FAILED = token('line') // neutral-200 — a failed/infeasible cell (sentinel loglik)
 const MONO = 'var(--font-mono)'
 

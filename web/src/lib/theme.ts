@@ -1,22 +1,28 @@
+import { useSyncExternalStore } from 'react'
+
 /**
- * The palette, readable from JavaScript.
+ * The palette, readable from JavaScript, and the viewer's theme choice.
  *
  * Utility classes cover markup, but Observable Plot and the hand-drawn SVG
  * diagrams take colours as strings, so they cannot go through a class. Those
- * call `token('muted')` and get whatever `--color-muted` currently resolves
- * to, which keeps one definition of the palette (`index.css`) rather than a
- * second one transcribed into the plotting code — where it had drifted:
- * the diagram's greys came from Tailwind's blue-tinted `gray` ramp while the
- * interface around it used `neutral`.
+ * call `token('muted')`, which is `var(--palette-muted)`: one definition of the
+ * palette (`index.css`) rather than a second one transcribed into the plotting
+ * code.
  *
- * Values are read from the document rather than imported, so a theme swap is a
- * change of custom properties and a re-render, with no plotting code involved.
- * `Figure` re-renders on `deps`, so a future theme toggle belongs in that list.
+ * A reference rather than a resolved value, so a theme switch needs no
+ * re-render. The browser re-resolves the variable (each role is a
+ * `light-dark()` pair) the moment `color-scheme` changes, including inside
+ * figures already drawn and in module-level constants such as
+ * `const AXIS = token('muted')`, which a resolved string would have frozen at
+ * import. Plot accepts `var(…)` as a constant colour (its `isColor` test lists
+ * it), and html-to-image inlines computed — that is, resolved — styles, so PNG
+ * export sees concrete colours.
  */
 
 /** Role names in `index.css`. Chrome only: a mark that encodes *data* — a
  *  chain's colour, a level's colour, a diverging scale — is a palette decision
- *  belonging to the view that draws it, not a theme token. */
+ *  belonging to the view that draws it, not a theme token. Those use the
+ *  `--chain-*`, `--scenario-*`, `--level-*` and `--mark-*` inks instead. */
 export type TokenName =
   | 'page'
   | 'surface'
@@ -50,67 +56,89 @@ export type TokenName =
   | 'accent-deep'
   | 'accent-ink'
 
-/** Fallbacks for a document that has not painted yet (and for any non-browser
- *  context). Same values as `index.css`; used only when the custom property
- *  reads back empty, which would otherwise hand Plot an empty string and draw
- *  the mark in black. */
-const FALLBACK: Record<TokenName, string> = {
-  page: '#ffffff',
-  surface: '#ffffff',
-  sunken: '#fafafa',
-  raised: '#f5f5f5',
-  ink: '#171717',
-  'ink-dim': '#262626',
-  body: '#404040',
-  'body-dim': '#525252',
-  muted: '#737373',
-  faint: '#a3a3a3',
-  ghost: '#d4d4d4',
-  hairline: '#f5f5f5',
-  line: '#e5e5e5',
-  'line-strong': '#d4d4d4',
-  'line-heavy': '#a3a3a3',
-  fill: '#a3a3a3',
-  'fill-soft': '#d4d4d4',
-  'fill-faint': '#e5e5e5',
-  'fill-strong': '#737373',
-  inverse: '#171717',
-  'on-inverse': '#ffffff',
-  warn: '#d97706',
-  'warn-strong': '#b45309',
-  danger: '#dc2626',
-  'danger-strong': '#b91c1c',
-  good: '#059669',
-  'good-strong': '#047857',
-  notice: '#c2410c',
-  accent: '#1d4ed8',
-  'accent-deep': '#1e40af',
-  'accent-ink': '#1e3a8a',
-}
-
-/** Resolved values, cleared by :func:`invalidateTheme`. Reading a custom
- *  property forces style resolution, and the plotting code asks for the same
- *  half-dozen colours inside per-mark loops, so the uncached version showed up
- *  as layout thrash on the wider trace grids. */
-let cache: Partial<Record<TokenName, string>> = {}
-
-/** The current value of a palette role, as a colour string Plot/SVG accepts. */
+/** A palette role as a colour string Plot/SVG/CSS accepts. */
 export function token(name: TokenName): string {
-  const hit = cache[name]
-  if (hit !== undefined) return hit
-  let value = ''
-  if (typeof document !== 'undefined') {
-    value = getComputedStyle(document.documentElement)
-      .getPropertyValue(`--color-${name}`)
-      .trim()
-  }
-  const resolved = value || FALLBACK[name]
-  cache[name] = resolved
-  return resolved
+  return `var(--palette-${name})`
 }
 
-/** Drop the cache after the palette changes. A theme toggle calls this before
- *  triggering the re-render that redraws the figures. */
-export function invalidateTheme(): void {
-  cache = {}
+/** A data ink from `index.css` (`--chain-3`, `--mark-red`, …) as a colour
+ *  string. Same reasoning as `token`: a reference, so it follows the theme. */
+export function ink(name: string): string {
+  return `var(--${name})`
+}
+
+// ---------------------------------------------------------------------------
+// The theme choice.
+//
+// `system` follows the OS (no `data-theme` on <html>, so `color-scheme: light
+// dark` decides); `light` / `dark` pin it. The choice is stored per browser.
+// index.html carries an inline copy of `applyChoice` that runs before first
+// paint, so a dark-theme viewer never sees a white flash; the storage key and
+// the attribute must stay in step with it.
+// ---------------------------------------------------------------------------
+
+export type ThemeChoice = 'light' | 'dark' | 'system'
+
+export const THEME_STORAGE_KEY = 'camdl-scope:theme'
+
+function isChoice(v: unknown): v is ThemeChoice {
+  return v === 'light' || v === 'dark' || v === 'system'
+}
+
+/** The stored choice, or `system` when there is none or storage is blocked
+ *  (a private window, or site data disabled). */
+function readChoice(): ThemeChoice {
+  try {
+    const v = window.localStorage.getItem(THEME_STORAGE_KEY)
+    return isChoice(v) ? v : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+function applyChoice(choice: ThemeChoice): void {
+  const root = document.documentElement
+  if (choice === 'system') root.removeAttribute('data-theme')
+  else root.setAttribute('data-theme', choice)
+}
+
+let current: ThemeChoice | null = null
+const listeners = new Set<() => void>()
+
+function getChoice(): ThemeChoice {
+  if (current === null) current = readChoice()
+  return current
+}
+
+/** Record and apply a theme choice. Persisting is best-effort: if storage
+ *  throws, the choice still holds for this page load. */
+export function setThemeChoice(choice: ThemeChoice): void {
+  current = choice
+  applyChoice(choice)
+  try {
+    if (choice === 'system') window.localStorage.removeItem(THEME_STORAGE_KEY)
+    else window.localStorage.setItem(THEME_STORAGE_KEY, choice)
+  } catch {
+    // Storage unavailable; the in-memory choice is enough for this session.
+  }
+  for (const l of listeners) l()
+}
+
+function subscribe(cb: () => void): () => void {
+  listeners.add(cb)
+  return () => listeners.delete(cb)
+}
+
+/** Whether the page is drawing its dark theme right now: the pinned choice,
+ *  or the OS preference under `system`. */
+export function isDarkNow(): boolean {
+  const pinned = document.documentElement.getAttribute('data-theme')
+  if (pinned === 'dark') return true
+  if (pinned === 'light') return false
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+}
+
+/** The current theme choice, re-rendering when it changes. */
+export function useThemeChoice(): ThemeChoice {
+  return useSyncExternalStore(subscribe, getChoice, () => 'system')
 }

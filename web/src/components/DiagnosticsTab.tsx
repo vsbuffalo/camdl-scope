@@ -21,15 +21,15 @@ import { ParticleHealth, fmtFraction } from '@/components/ParticleHealth'
 import { fmtEss, fmtRhat, fmtTick, fmtValue } from '@/lib/format'
 import { statusChipClasses, statusTextClass } from '@/lib/convergence'
 import { cn } from '@/lib/utils'
-import { token } from '@/lib/theme'
+import { ink, token } from '@/lib/theme'
 
 
 // Mixing-bar palette: a bar within the healthy band is quiet neutral; one
 // outside it lights up red. The band itself is a faint emerald wash.
 const BAR_IN = token('body-dim') // neutral-600 — within the healthy band
-const BAR_OUT = '#dc2626' // red-600 — outside the band
-const BAND_FILL = '#10b981' // emerald-500 — faint healthy-zone wash
-const BAND_RULE = '#34d399' // emerald-400 — band edges
+const BAR_OUT = ink('mark-red') // red-600 — outside the band
+const BAND_FILL = ink('mark-emerald') // emerald-500 — faint healthy-zone wash
+const BAND_RULE = ink('mark-emerald-rule') // emerald-400 — band edges
 const FRAME = token('line') // neutral-200 — hairline frame
 const AXIS = token('muted') // neutral-500 — tick labels
 const MONO = 'var(--font-mono)'

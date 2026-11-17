@@ -3,14 +3,14 @@ import * as Plot from '@observablehq/plot'
 import type { ProfileResponse } from '@/api/client'
 import { PlotDownloadButton } from '@/components/PlotDownloadButton'
 import { fmtTick } from '@/lib/format'
-import { token } from '@/lib/theme'
+import { ink, token } from '@/lib/theme'
 
 const FRAME = token('line') // neutral-200 — hairline frame
 const AXIS = token('muted') // neutral-500 — tick labels
-const LINE = '#1d4ed8' // blue-700 — the profile curve
-const MLE = '#dc2626' // red-600 — the MLE marker
-const THRESH = '#a16207' // yellow-700 — the CI loglik threshold
-const BAND = '#10b981' // emerald-500 — faint CI wash
+const LINE = ink('mark-blue-deep') // blue-700 — the profile curve
+const MLE = ink('mark-red') // red-600 — the MLE marker
+const THRESH = ink('mark-yellow') // yellow-700 — the CI loglik threshold
+const BAND = ink('mark-emerald') // emerald-500 — faint CI wash
 const MONO = 'var(--font-mono)'
 
 /**
@@ -85,7 +85,7 @@ export function ProfilePlot({ data }: { data: ProfileResponse }) {
         y: 'loglik',
         fill: LINE,
         r: 2.5,
-        stroke: 'white',
+        stroke: token('surface'),
         strokeWidth: 0.5,
       }),
       Plot.dot([{ value: mleValue, loglik: data.mle_loglik }], {
@@ -93,7 +93,7 @@ export function ProfilePlot({ data }: { data: ProfileResponse }) {
         y: 'loglik',
         fill: MLE,
         r: 4,
-        stroke: 'white',
+        stroke: token('surface'),
         strokeWidth: 0.75,
       }),
       Plot.frame({ stroke: FRAME, strokeWidth: 0.5 }),

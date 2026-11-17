@@ -7,10 +7,10 @@ import { Card } from '@/components/ui/card'
 import { ChainLoglikTable } from '@/components/ChainLoglikTable'
 import { fmtValue } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { token } from '@/lib/theme'
+import { ink, token } from '@/lib/theme'
 
 const FAILED = -1e99
-const BEST = '#dc2626' // red-600 — the best restart
+const BEST = ink('mark-red') // red-600 — the best restart
 const DOT = token('body-dim') // neutral-600 — a converged restart
 const AXIS = token('muted')
 const MONO = 'var(--font-mono)'
@@ -211,7 +211,7 @@ function RestartStrip({
           r: (d: { best: boolean }) => (d.best ? 5 : 3.5),
           fill: (d: { best: boolean }) => (d.best ? BEST : DOT),
           fillOpacity: 0.85,
-          stroke: 'white',
+          stroke: token('surface'),
           strokeWidth: 0.75,
         }),
       ],

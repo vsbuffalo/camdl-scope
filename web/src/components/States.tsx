@@ -22,7 +22,7 @@ export function MutedNotice({
       className={cn(
         'flex flex-col items-center justify-center gap-1 px-6 py-12 text-center',
         bordered &&
-          'rounded-none border border-dashed border-line bg-[#fafafa]',
+          'rounded-none border border-dashed border-line bg-sunken',
         className,
       )}
     >
