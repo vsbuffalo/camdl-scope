@@ -1158,12 +1158,22 @@ class MleRestart(BaseModel):
     loglik: float
     status: str
     n_evals: int
+    #: The optimizer stopped because this start's ``max_evals`` budget ran out,
+    #: so its optimum is where the budget ended, not a converged point.
+    hit_maxeval: bool = False
+    #: This start's optimum per estimated parameter (null: absent or non-finite).
+    values: dict[str, float | None] = {}
 
 
 class MleResponse(BaseModel):
     """An MLE ('scout') fit: the point estimate θ̂ (``params``, estimated order),
     the optimum ``loglik``, and the multi-start ``restarts`` — the MLE analogue of
-    convergence diagnostics (how many restarts found the mode vs failed)."""
+    convergence diagnostics (how many restarts found the mode vs failed).
+
+    While the optimizer runs (or after it stopped before writing
+    ``mle_params.toml``) the fit is ``provisional``: ``loglik`` and ``params``
+    are the best finished start's row, not camdl's reported optimum, and
+    ``restarts`` holds only the starts finished so far."""
 
     run_id: str
     label: str
@@ -1174,6 +1184,15 @@ class MleResponse(BaseModel):
     n_converged: int
     params: list[MleParam]
     restarts: list[MleRestart]
+    #: True until camdl writes the point estimate (``mle_params.toml``).
+    provisional: bool = False
+    #: Starts the run was configured with (run.json), when recorded. A hint:
+    #: ``starts = "single"`` collapses a run to one start.
+    n_expected: int | None = None
+    #: Finished starts that stopped at ``max_evals``, and whether all did (the
+    #: reported optimum is then where the best start's budget ran out).
+    n_maxeval: int = 0
+    all_maxeval: bool = False
     # IF2's comparison of each start's clean log-likelihood evaluation
     # (fit_state.toml); null when not recorded.
     chain_logliks: ChainLoglikModel | None = None

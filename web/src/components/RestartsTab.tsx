@@ -5,6 +5,8 @@ import { useMle } from '@/api/queries'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
 import { ChainLoglikTable } from '@/components/ChainLoglikTable'
+import { MleRunNotes } from '@/components/MleRunNotes'
+import { startsFinished } from '@/lib/mle'
 import { fmtValue } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ink, token } from '@/lib/theme'
@@ -21,9 +23,18 @@ const MONO = 'var(--font-mono)'
  * confidence the mode is real; a wide scatter (or mostly failures) means the
  * reported θ̂ may be one lucky — or unlucky — local optimum. Shows the converged
  * restarts on a log-likelihood axis (best in red) and the full restart table.
+ *
+ * While the optimizer runs, the table fills in as starts finish (camdl writes
+ * them in completion order; they are shown best first).
  */
-export function RestartsTab({ runId }: { runId: string }) {
-  const { data, isPending, isError } = useMle(runId)
+export function RestartsTab({
+  runId,
+  status,
+}: {
+  runId: string
+  status?: string
+}) {
+  const { data, isPending, isError } = useMle(runId, status)
   const converged = (data?.restarts ?? []).filter((r) => r.loglik > FAILED)
   const best = converged.length ? Math.max(...converged.map((r) => r.loglik)) : 0
 
@@ -41,8 +52,12 @@ export function RestartsTab({ runId }: { runId: string }) {
 
         {data && (
           <>
+            <MleRunNotes data={data} status={status} />
             <div className="border-b border-hairline px-3 py-2.5 font-mono text-[11px] text-muted">
-              {data.n_restarts} restarts ·{' '}
+              {data.provisional
+                ? startsFinished(data)
+                : `${data.n_restarts} restarts`}{' '}
+              ·{' '}
               <span
                 className={
                   data.n_converged < data.n_restarts
@@ -56,6 +71,12 @@ export function RestartsTab({ runId }: { runId: string }) {
                 <span className="text-faint">
                   {' '}
                   · {data.n_restarts - data.n_converged} failed
+                </span>
+              )}
+              {data.n_maxeval > 0 && (
+                <span className="text-warn">
+                  {' '}
+                  · {data.n_maxeval} at max_evals
                 </span>
               )}
               {converged.length > 1 && (
@@ -73,11 +94,18 @@ export function RestartsTab({ runId }: { runId: string }) {
               <div className="px-3 py-3">
                 <RestartStrip restarts={converged} best={best} />
                 <p className="mt-1 font-mono text-[10px] text-faint">
-                  each dot is a converged restart's optimum; the red one is the
-                  reported θ̂. Tightly clustered ⇒ the mode is reliable; scattered
-                  ⇒ multiple local optima.
+                  each dot is a converged restart's optimum; the red one is{' '}
+                  {data.provisional ? 'the best so far' : 'the reported θ̂'}.
+                  Tightly clustered ⇒ the mode is reliable; scattered ⇒
+                  multiple local optima.
                 </p>
               </div>
+            ) : data.n_restarts === 0 ? (
+              <MutedNotice
+                bordered={false}
+                title="No start has finished yet"
+                detail="Each start's optimum is added here as it finishes."
+              />
             ) : (
               <MutedNotice
                 bordered={false}
@@ -94,6 +122,14 @@ export function RestartsTab({ runId }: { runId: string }) {
                     <th className="px-3 py-1.5 text-right font-medium">logL</th>
                     <th className="px-3 py-1.5 text-left font-medium">status</th>
                     <th className="px-3 py-1.5 text-right font-medium">evals</th>
+                    {data.params.map((p) => (
+                      <th
+                        key={p.name}
+                        className="px-3 py-1.5 text-right font-medium normal-case"
+                      >
+                        {p.name}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -108,7 +144,10 @@ export function RestartsTab({ runId }: { runId: string }) {
                         <td className="px-3 py-1.5 text-left text-muted">
                           c{r.chain}
                           {isBest && (
-                            <span className="ml-1 text-danger" title="reported θ̂">
+                            <span
+                              className="ml-1 text-danger"
+                              title={data.provisional ? 'best so far' : 'reported θ̂'}
+                            >
                               ★
                             </span>
                           )}
@@ -128,14 +167,28 @@ export function RestartsTab({ runId }: { runId: string }) {
                         <td
                           className={cn(
                             'px-3 py-1.5 text-left',
-                            failed ? 'text-warn' : 'text-muted',
+                            failed || r.hit_maxeval ? 'text-warn' : 'text-muted',
                           )}
+                          title={
+                            r.hit_maxeval
+                              ? 'stopped because its evaluation budget ran out, not because it converged'
+                              : undefined
+                          }
                         >
                           {r.status}
+                          {r.hit_maxeval && ' ⚠'}
                         </td>
                         <td className="px-3 py-1.5 text-right text-faint">
                           {r.n_evals.toLocaleString()}
                         </td>
+                        {data.params.map((p) => (
+                          <td
+                            key={p.name}
+                            className="px-3 py-1.5 text-right text-body"
+                          >
+                            {fmtValue(r.values?.[p.name] ?? null)}
+                          </td>
+                        ))}
                       </tr>
                     )
                   })}

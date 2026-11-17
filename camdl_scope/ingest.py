@@ -66,6 +66,7 @@ import time
 from .docs import ModelDocs
 from .schema import ObsSchema
 from . import fitmeta
+from . import mle as mle_mod
 from .verdict import UnsupportedSchema, parse_number
 from .state import (
     AUX_COLUMNS,
@@ -464,19 +465,95 @@ def _method_seed_dirs(run_dir: Path) -> list[Path]:
     return out
 
 
-def _mle_seed_dir(run_dir: Path) -> Path | None:
-    """The first method leaf carrying ``mle_params.toml`` — camdl's marker for a
-    point estimate rather than a posterior — or ``None``.
+def is_point_estimate_algorithm(algorithm: str) -> bool:
+    """Whether ``algorithm`` produces a point estimate rather than draws: IF2 and
+    the NLopt optimizers (``nl-sbplx``, ``nl-bobyqa``, ``nl-lbfgs``, …).
 
-    Classified by that artifact, not by the directory name: an optimizer used to
-    live in a ``01-scout-<hash>`` / ``01-mle-<hash>`` stage, and now sits in an
-    ``if2-<hash>`` or ``nl-sbplx-<hash>`` method dir which may be a sibling of a
-    posterior leaf under one segment. A posterior leaf never writes
-    ``mle_params.toml``, so nothing has to be excluded by name."""
-    for seed_dir in _method_seed_dirs(run_dir):
-        if (seed_dir / "mle_params.toml").is_file():
-            return seed_dir
+    Needed only for a leaf that has not finished: once it has, ``mle_params.toml``
+    says so. camdl records the method's name in ``run.json`` but not which kind
+    of estimate it makes, so a running leaf can only be classified by name. The
+    ``nl-`` prefix is camdl's naming for every NLopt method, so a new one is
+    covered without a change here."""
+    return algorithm == "if2" or algorithm.startswith("nl-")
+
+
+def _read_run_json(seed_dir: Path) -> dict:
+    try:
+        rec = json.loads((seed_dir / "run.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return rec if isinstance(rec, dict) else {}
+
+
+def leaf_algorithm(seed_dir: Path) -> str:
+    """The method a leaf runs: ``run.json``'s ``inputs.method``, which camdl
+    writes when the leaf starts, else the method directory's name."""
+    inputs = _read_run_json(seed_dir).get("inputs")
+    if isinstance(inputs, dict):
+        method = inputs.get("method")
+        if isinstance(method, str) and method:
+            return method
+    return _method_dir_algorithm(seed_dir.parent.name)
+
+
+def read_expected_starts(seed_dir: Path) -> int | None:
+    """How many starts (chains) the leaf was configured with — ``run.json``'s
+    ``inputs.n_chains``, else ``inputs.algorithm.chains`` — or ``None``.
+
+    A hint, not a promise: ``starts = "single"`` collapses a run to one start."""
+    inputs = _read_run_json(seed_dir).get("inputs")
+    if not isinstance(inputs, dict):
+        return None
+    algo = inputs.get("algorithm")
+    for v in (inputs.get("n_chains"), algo.get("chains") if isinstance(algo, dict) else None):
+        if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+            return v
     return None
+
+
+def mle_finished(seed_dir: Path) -> bool:
+    """camdl wrote the leaf's point estimate (``mle_params.toml``), its last act."""
+    return (seed_dir / "mle_params.toml").is_file()
+
+
+def _mle_seed_dirs(run_dir: Path) -> list[Path]:
+    """Every point-estimate leaf of a segment worth an entry, in directory then
+    seed order: one that finished (``mle_params.toml``); or an optimizer leaf
+    that is running now (a fresh heartbeat) or stopped after some starts
+    finished (rows in its restart table — a run killed partway, whose finished
+    starts are still results).
+
+    A finished leaf is classified by that artifact, not by name, and a
+    posterior leaf never writes it. An unfinished one is classified by its
+    method name (:func:`is_point_estimate_algorithm`). An optimizer that died
+    before any start finished leaves a stale heartbeat and no rows, and stays
+    hidden like any abandoned stub."""
+    out: list[Path] = []
+    for seed_dir in _method_seed_dirs(run_dir):
+        if mle_finished(seed_dir):
+            out.append(seed_dir)
+        elif is_point_estimate_algorithm(leaf_algorithm(seed_dir)) and (
+            _heartbeat_live(seed_dir) or mle_mod.has_restart_rows(seed_dir)
+        ):
+            out.append(seed_dir)
+    return out
+
+
+def _heartbeat_live(seed_dir: Path) -> bool:
+    prog = read_progress(seed_dir)
+    return prog is not None and prog.state == "running" and progress_is_fresh(prog)
+
+
+def _heartbeat_only_seed_dirs(run_dir: Path, claimed: set[Path]) -> list[Path]:
+    """Leaves running now (a fresh ``running`` heartbeat) that wrote nothing any
+    other rule recognises yet — a sampler before its first trace file, say.
+    Listed so a run is visible from its first heartbeat; any method. A stale
+    heartbeat with no results is a dead stub and is not listed."""
+    return [
+        sd for sd in _method_seed_dirs(run_dir)
+        if sd not in claimed and _heartbeat_live(sd)
+        and not _seed_chain_paths(sd) and not stage_completed(sd)
+    ]
 
 
 #: A pre-split method dir, ``<ordinal>-<stage name>-<hash>``. The hash is the
@@ -729,8 +806,11 @@ def _read_leaf_identity(seed_dir: Path) -> LeafIdentity:
     )
 
 
-def _mle_run_meta(run_dir: Path, mle_seed: Path) -> RunMeta:
-    """A ``RunMeta`` for a pure MLE (optimization) run. ``posterior_dir`` is
+def _mle_run_meta(
+    run_dir: Path, mle_seed: Path, run_id: str, *, folder_default: bool = True,
+    method_default: bool = True,
+) -> RunMeta:
+    """A ``RunMeta`` for an optimizer leaf, finished or not. ``posterior_dir`` is
     reused to point at the optimizer's seed leaf (for status/progress);
     ``chain_paths`` is empty since there are no draws."""
     meta = _read_meta(run_dir)
@@ -743,7 +823,7 @@ def _mle_run_meta(run_dir: Path, mle_seed: Path) -> RunMeta:
     ident = _read_leaf_identity(mle_seed)
 
     return RunMeta(
-        run_id=run_dir.name,
+        run_id=run_id,
         run_dir=run_dir,
         posterior_dir=mle_seed,
         chain_paths={},
@@ -757,6 +837,9 @@ def _mle_run_meta(run_dir: Path, mle_seed: Path) -> RunMeta:
         fit_toml_stem=_fit_toml_stem(meta, run_dir),
         user_label=ident.label,
         leaf_run_id=ident.run_id,
+        seed=_leaf_seed(mle_seed),
+        folder_default=folder_default,
+        method_default=method_default,
         docs=ModelDocs.from_meta(meta),
         schema=ObsSchema.from_meta(meta),
         fit_kind="mle",
@@ -844,7 +927,7 @@ def _posterior_leaves(run_dir: Path, *, include_warming: bool) -> list[_Leaf]:
         ne = _nonempty(all_paths)
         if stage_completed(sd) and ne:
             others.append(_Leaf(sd.parent, sd, ne))
-        elif sd == live and (ne or include_warming):
+        elif sd == live and all_paths and (ne or include_warming):
             others.append(_Leaf(sd.parent, sd, ne or all_paths))
     if stage_completed(seed_dir) and seed_dir != live:
         replicates = [o for o in others if o.pdir == pdir and stage_completed(o.seed_dir)
@@ -958,14 +1041,20 @@ def resolve_run(metas: list[RunMeta], run_id: str) -> RunMeta | None:
 
 
 def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta]:
-    """Scan ``store`` for runs that have at least one non-empty chain trace —
-    one entry per run, so a problem folder holding several (fit seeds, re-runs
-    under changed settings) yields several, its default first.
+    """Scan ``store`` for runs — one entry per run, so a problem folder holding
+    several (fit seeds, re-runs under changed settings, a sampler beside an
+    optimizer) yields several, its default first.
 
-    With ``include_warming=True``, also surface runs whose latest posterior
-    stage has started but written no draws yet *and* whose sampler process is
-    still alive — i.e. live runs in burn-in. Killed-mid-burn-in stubs (same
-    empty files, dead PID) stay hidden.
+    A folder's entries are, in order: its posterior leaves with draws
+    (:func:`_posterior_leaves`); its optimizer leaves, finished or not
+    (:func:`_mle_seed_dirs`); and, with ``include_warming=True``, any other leaf
+    running now that has written nothing recognisable yet
+    (:func:`_heartbeat_only_seed_dirs`), which is listed as an optimizer or a
+    posterior by its method's name.
+
+    With ``include_warming=True``, posterior leaves whose sampler is live but
+    has written no draws (burn-in) are listed too. Killed-mid-burn-in stubs
+    (same empty files, stale heartbeat or dead PID) stay hidden.
     """
     store = Path(store)
     out: list[RunMeta] = []
@@ -974,25 +1063,44 @@ def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta
     for run_dir in sorted(store.iterdir()):
         if not run_dir.is_dir():
             continue
-        leaves = _posterior_leaves(run_dir, include_warming=include_warming)
-        if not leaves:
-            # No posterior draws — but the segment may hold an optimizer leaf,
-            # which has a point estimate instead of chains.
-            mle_seed = _mle_seed_dir(run_dir)
-            if mle_seed is not None:
-                out.append(_mle_run_meta(run_dir, mle_seed))
-            continue
-        # A live stage listed as its own entry speaks for itself; otherwise
-        # (a re-run still in burn-in, not surfaced) the default entry reports
-        # it, so the folder does not read as idle while it samples.
-        live = _live_stage_dir(run_dir)
-        live_listed = any(lf.seed_dir == live for lf in leaves)
-        ids, method_defaults = _leaf_ids(run_dir, leaves), _method_defaults(leaves)
-        for i, (leaf, rid) in enumerate(zip(leaves, ids)):
+        out.extend(_folder_entries(run_dir, include_warming=include_warming))
+    return out
+
+
+def _folder_entries(run_dir: Path, *, include_warming: bool) -> list[RunMeta]:
+    posterior = _posterior_leaves(run_dir, include_warming=include_warming)
+    mle_seeds = _mle_seed_dirs(run_dir)
+    claimed = {lf.seed_dir for lf in posterior} | set(mle_seeds)
+    pending = _heartbeat_only_seed_dirs(run_dir, claimed) if include_warming else []
+    # A pending leaf of an optimizer is an optimizer entry; any other method's
+    # is a posterior entry with no chains yet.
+    pending_mle = [sd for sd in pending if is_point_estimate_algorithm(leaf_algorithm(sd))]
+    pending_post = [_Leaf(sd.parent, sd, {}) for sd in pending if sd not in pending_mle]
+    mle_seeds = sorted(set(mle_seeds) | set(pending_mle), key=lambda sd: (sd.parent.name, _leaf_seed(sd) or 0, sd.name))
+
+    leaves = posterior + pending_post + [_Leaf(sd.parent, sd, {}) for sd in mle_seeds]
+    if not leaves:
+        return []
+    ids = _leaf_ids(run_dir, leaves)
+    method_defaults = _method_defaults(leaves)
+    mle_set = set(mle_seeds)
+    # A live stage listed as its own entry speaks for itself; otherwise (a
+    # re-run still in burn-in, not surfaced) the default entry reports it, so
+    # the folder does not read as idle while it samples.
+    live = _live_stage_dir(run_dir)
+    live_listed = any(lf.seed_dir == live for lf in leaves)
+    out: list[RunMeta] = []
+    for i, (leaf, rid) in enumerate(zip(leaves, ids)):
+        if leaf.seed_dir in mle_set:
+            out.append(_mle_run_meta(
+                run_dir, leaf.seed_dir, rid, folder_default=(i == 0),
+                method_default=method_defaults[i],
+            ))
+        else:
             out.append(_posterior_run_meta(
                 run_dir, leaf, rid, folder_default=(i == 0),
                 method_default=method_defaults[i],
-                live_stage_dir=(_live_stage_dir(run_dir) if i == 0 and not live_listed else None),
+                live_stage_dir=(live if i == 0 and not live_listed else None),
             ))
     return out
 

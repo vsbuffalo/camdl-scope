@@ -1,4 +1,6 @@
 import { useMle } from '@/api/queries'
+import { MleRunNotes } from '@/components/MleRunNotes'
+import { startsFinished } from '@/lib/mle'
 import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
 import { fmtValue } from '@/lib/format'
@@ -10,9 +12,18 @@ import { fmtValue } from '@/lib/format'
  * range of that coordinate across the restarts that converged: tight ⇒
  * well-determined, wide ⇒ sloppy/multimodal (a cheap identifiability read).
  * A bound-pinned estimate (θ̂ at an edge) is flagged.
+ *
+ * While the optimizer runs, the point shown is the best finished start's, and
+ * the header says so: it is provisional until camdl writes the estimate.
  */
-export function EstimateTab({ runId }: { runId: string }) {
-  const { data, isPending, isError } = useMle(runId)
+export function EstimateTab({
+  runId,
+  status,
+}: {
+  runId: string
+  status?: string
+}) {
+  const { data, isPending, isError } = useMle(runId, status)
 
   return (
     <div className="max-w-4xl">
@@ -27,11 +38,26 @@ export function EstimateTab({ runId }: { runId: string }) {
           />
         )}
 
-        {data && (
+        {data && data.provisional && data.n_restarts === 0 && (
           <>
+            <MleRunNotes data={data} status={status} />
+            <MutedNotice
+              bordered={false}
+              title="No estimate yet"
+              detail="The best finished start's point appears here as soon as the first start finishes."
+            />
+          </>
+        )}
+
+        {data && !(data.provisional && data.n_restarts === 0) && (
+          <>
+            <MleRunNotes data={data} status={status} />
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-hairline px-3 py-2.5">
               <span className="font-mono text-[11px] text-muted">
-                MLE point estimate ·{' '}
+                {data.provisional
+                  ? `Best of ${data.n_restarts} finished ${data.n_restarts === 1 ? 'start' : 'starts'} so far`
+                  : 'MLE point estimate'}{' '}
+                ·{' '}
                 <span className="text-ink-dim">
                   logL {fmtValue(data.loglik)}
                 </span>
@@ -43,7 +69,9 @@ export function EstimateTab({ runId }: { runId: string }) {
                     data.n_converged < data.n_restarts ? 'text-warn' : ''
                   }
                 >
-                  {data.n_converged}/{data.n_restarts} restarts converged
+                  {data.provisional
+                    ? startsFinished(data)
+                    : `${data.n_converged}/${data.n_restarts} restarts converged`}
                 </span>
               </span>
             </div>
@@ -56,7 +84,7 @@ export function EstimateTab({ runId }: { runId: string }) {
                       parameter
                     </th>
                     <th className="px-3 py-1.5 text-right font-medium">
-                      MLE θ&#x0302;
+                      {data.provisional ? 'best so far' : <>MLE θ&#x0302;</>}
                     </th>
                     <th className="px-3 py-1.5 text-right font-medium">
                       converged spread
@@ -94,7 +122,13 @@ export function EstimateTab({ runId }: { runId: string }) {
                             {p.name}
                           </span>
                         </td>
-                        <td className="px-3 py-1.5 text-right font-semibold text-ink">
+                        <td
+                          className={
+                            data.provisional
+                              ? 'px-3 py-1.5 text-right text-body'
+                              : 'px-3 py-1.5 text-right font-semibold text-ink'
+                          }
+                        >
                           {fmtValue(p.value)}
                           {atBound && (
                             <span

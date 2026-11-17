@@ -990,13 +990,18 @@ def get_run(run_id: str, predict: str | None = _PREDICT_Q) -> RunDetail:
 
 @router.get("/runs/{run_id}/mle", response_model=MleResponse)
 def get_mle(run_id: str) -> MleResponse:
-    """The point estimate + multi-start results of an MLE ('scout') fit. 404 for a
-    run that isn't an MLE fit, or one whose ``mle_params.toml`` is unreadable."""
+    """The point estimate + multi-start results of an MLE ('scout') fit — or,
+    while its optimizer runs, the starts finished so far and the best of them,
+    marked provisional. 404 for a run that isn't an MLE fit, or one whose
+    ``mle_params.toml`` is unreadable."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None or meta.fit_kind != "mle":
         raise HTTPException(status_code=404, detail=f"no MLE fit: {run_id}")
-    fit = mle_mod.read_mle(meta.posterior_dir, list(meta.estimated))
+    fit = mle_mod.read_mle(
+        meta.posterior_dir, list(meta.estimated),
+        n_expected=ingest.read_expected_starts(meta.posterior_dir),
+    )
     if fit is None:
         raise HTTPException(status_code=404, detail=f"unreadable MLE fit: {run_id}")
     priors = ingest.extract_priors(meta)  # for bounds — is θ̂ pinned at an edge?
@@ -1016,7 +1021,11 @@ def get_mle(run_id: str) -> MleResponse:
         ))
     logliks, logliks_err = _chain_loglik_model(meta.posterior_dir)
     restarts = [
-        MleRestart(chain=r.chain, loglik=_fnum(r.loglik), status=r.status, n_evals=r.n_evals)
+        MleRestart(
+            chain=r.chain, loglik=_fnum(r.loglik), status=r.status, n_evals=r.n_evals,
+            hit_maxeval=r.hit_maxeval,
+            values={k: _finite_or_none(v) for k, v in r.values.items()},
+        )
         for r in fit.restarts
     ]
     return MleResponse(
@@ -1025,6 +1034,8 @@ def get_mle(run_id: str) -> MleResponse:
         loglik=_finite_or_none(fit.loglik),
         n_restarts=fit.n_restarts, n_converged=fit.n_converged,
         params=params, restarts=restarts,
+        provisional=fit.provisional, n_expected=fit.n_expected,
+        n_maxeval=fit.n_maxeval, all_maxeval=fit.all_maxeval,
         chain_logliks=logliks, chain_logliks_error=logliks_err,
     )
 

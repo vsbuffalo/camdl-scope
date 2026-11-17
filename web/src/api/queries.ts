@@ -190,12 +190,23 @@ export function useQuantitySeries(
   })
 }
 
-/** An MLE fit's point estimate + multi-start restarts (a done fit; no polling). */
-export function useMle(runId: string | undefined) {
+/** An MLE fit's point estimate + multi-start restarts.
+ *
+ * While the optimizer runs, each start's result lands as it finishes, so the
+ * query polls. `status` (the run's, from the run list) is part of the key: when
+ * the run turns `done` the key changes and the finished estimate is fetched
+ * once, rather than the last provisional answer staying on screen. */
+export function useMle(runId: string | undefined, status?: string) {
+  const live = status === 'running' || status === 'warming'
   return useQuery({
-    queryKey: ['mle', runId ?? '∅'],
+    queryKey: ['mle', runId ?? '∅', status ?? ''],
     queryFn: () => getMle(runId as string),
     enabled: Boolean(runId),
+    refetchInterval: live ? 5_000 : false,
+    // Keep the provisional answer on screen across the status change, but never
+    // another run's.
+    placeholderData: (prev, prevQuery) =>
+      prevQuery?.queryKey[1] === (runId ?? '∅') ? prev : undefined,
   })
 }
 

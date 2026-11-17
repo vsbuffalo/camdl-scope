@@ -68,10 +68,10 @@ function MleTabs({ run }: { run: RunSummary }) {
         ))}
       </TabsList>
       <TabsContent value="estimate">
-        <EstimateTab runId={run.run_id} />
+        <EstimateTab runId={run.run_id} status={run.status} />
       </TabsContent>
       <TabsContent value="restarts">
-        <RestartsTab runId={run.run_id} />
+        <RestartsTab runId={run.run_id} status={run.status} />
       </TabsContent>
       {hasQuantities && (
         <TabsContent value="quantities">

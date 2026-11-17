@@ -6,7 +6,9 @@ serves a fast local web app: per-fit posterior summaries, a pair/corner plot, a
 posterior-predictive check, generated quantities, traces, a convergence verdict,
 and the syntax-highlighted model + fit config — plus a workspace for comparing
 models by prequential score. Concurrent runs are auto-discovered, and a run
-still sampling updates live.
+still sampling updates live. A run is listed from its first heartbeat; a
+multistart optimizer shows each start's result as that start finishes, with
+the best so far marked provisional until camdl writes the estimate.
 
 Read-only on the store — it never touches your fits.
 

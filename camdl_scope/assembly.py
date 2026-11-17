@@ -42,10 +42,14 @@ def classify_from(
     Takes primitives rather than a ``RunState`` because the run list must reach
     this verdict for every run on every poll, and assembling a RunState to get
     one boolean (``has_rows``) meant parsing every chain of every fit."""
-    # An MLE ('scout') fit has no chains; it's discovered only once its optimizer
-    # wrote the point estimate, so it's a completed fit.
+    # An optimizer's point estimate is its completion artifact. Until camdl
+    # writes it, the heartbeat decides like any other run's; with no heartbeat
+    # either (an older camdl), an unfinished optimizer leaf is not running.
     if meta.fit_kind == "mle":
-        return Status.DONE
+        if ingest.mle_finished(meta.posterior_dir):
+            return Status.DONE
+        if prog is None:
+            return Status.STALLED
     if prog is not None:
         if prog.state == "done":
             return Status.DONE
@@ -85,6 +89,25 @@ class RunOverview:
     progress: RunProgress | None
 
 
+#: The files that date an optimizer leaf: its point estimate, its restart table
+#: (appended as starts finish), its heartbeat (rewritten every few seconds while
+#: it runs) and its run record.
+_MLE_DATING = ("mle_params.toml", "chain_results.tsv", "chain_evaluations.tsv",
+               "progress.json", "run.json")
+
+
+def _mle_mtime(meta: RunMeta) -> float:
+    """When an optimizer leaf last wrote anything, so a running optimizer sorts
+    by real recency in the run list rather than to the bottom."""
+    out = 0.0
+    for name in _MLE_DATING:
+        try:
+            out = max(out, (meta.posterior_dir / name).stat().st_mtime)
+        except OSError:
+            continue
+    return out
+
+
 def build_run_overview(meta: RunMeta, now: float | None = None) -> RunOverview:
     """The cheap projection of a run, for the list.
 
@@ -102,10 +125,7 @@ def build_run_overview(meta: RunMeta, now: float | None = None) -> RunOverview:
         except OSError:
             pass
     if meta.fit_kind == "mle":
-        try:
-            max_mtime = (meta.posterior_dir / "mle_params.toml").stat().st_mtime
-        except OSError:
-            pass
+        max_mtime = _mle_mtime(meta)
     prog = ingest.read_progress(meta.status_dir)
     return RunOverview(
         status=classify_from(meta, prog, max_iter is not None, now or time.time()),
@@ -135,13 +155,9 @@ def build_run_state(meta: RunMeta) -> RunState:
             max_mtime = max(max_mtime, path.stat().st_mtime)
         except OSError:
             pass
-    # An MLE fit has no chains — date it by its point-estimate artifact so it
-    # sorts by real recency in the run list, not to the bottom on a 0 timestamp.
+    # An MLE fit has no chains; date it by its own files (see _mle_mtime).
     if meta.fit_kind == "mle":
-        try:
-            max_mtime = (meta.posterior_dir / "mle_params.toml").stat().st_mtime
-        except OSError:
-            pass
+        max_mtime = _mle_mtime(meta)
     rs.priors = ingest.extract_priors(meta)
     # Progress comes from the stage that is sampling; the summary from the stage
     # we read — camdl's R̂/ESS describe the draws on screen, not the new sampler.

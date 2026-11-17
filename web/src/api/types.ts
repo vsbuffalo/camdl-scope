@@ -84,8 +84,10 @@ export interface paths {
         };
         /**
          * Get Mle
-         * @description The point estimate + multi-start results of an MLE ('scout') fit. 404 for a
-         *     run that isn't an MLE fit, or one whose ``mle_params.toml`` is unreadable.
+         * @description The point estimate + multi-start results of an MLE ('scout') fit — or,
+         *     while its optimizer runs, the starts finished so far and the best of them,
+         *     marked provisional. 404 for a run that isn't an MLE fit, or one whose
+         *     ``mle_params.toml`` is unreadable.
          */
         get: operations["get_mle_api_runs__run_id__mle_get"];
         put?: never;
@@ -1103,6 +1105,11 @@ export interface components {
          * @description An MLE ('scout') fit: the point estimate θ̂ (``params``, estimated order),
          *     the optimum ``loglik``, and the multi-start ``restarts`` — the MLE analogue of
          *     convergence diagnostics (how many restarts found the mode vs failed).
+         *
+         *     While the optimizer runs (or after it stopped before writing
+         *     ``mle_params.toml``) the fit is ``provisional``: ``loglik`` and ``params``
+         *     are the best finished start's row, not camdl's reported optimum, and
+         *     ``restarts`` holds only the starts finished so far.
          */
         MleResponse: {
             /** Run Id */
@@ -1123,6 +1130,23 @@ export interface components {
             params: components["schemas"]["MleParam"][];
             /** Restarts */
             restarts: components["schemas"]["MleRestart"][];
+            /**
+             * Provisional
+             * @default false
+             */
+            provisional: boolean;
+            /** N Expected */
+            n_expected?: number | null;
+            /**
+             * N Maxeval
+             * @default 0
+             */
+            n_maxeval: number;
+            /**
+             * All Maxeval
+             * @default false
+             */
+            all_maxeval: boolean;
             chain_logliks?: components["schemas"]["ChainLoglikModel"] | null;
             /** Chain Logliks Error */
             chain_logliks_error?: string | null;
@@ -1141,6 +1165,18 @@ export interface components {
             status: string;
             /** N Evals */
             n_evals: number;
+            /**
+             * Hit Maxeval
+             * @default false
+             */
+            hit_maxeval: boolean;
+            /**
+             * Values
+             * @default {}
+             */
+            values: {
+                [key: string]: number | null;
+            };
         };
         /**
          * ModelGraph
