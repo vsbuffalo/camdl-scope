@@ -273,6 +273,19 @@ def test_param_colour_has_no_threshold_of_ours():
     assert V.rhat_status("a", [], worst) == "warn"
 
 
+def test_param_colour_reads_camdls_saved_band():
+    """camdl#1199: camdl saves each parameter's verdict by name; the colour is a
+    lookup, with no threshold of ours."""
+    assert V.rhat_status("a", [], None, "converged") == "ok"
+    assert V.rhat_status("a", [], None, "not_converged") == "warn"
+    assert V.rhat_status("a", [], None, "severe") == "error"
+    assert V.rhat_status("a", [], None, "not_assessed") == "neutral"
+    # A name camdl adds later is not guessed at.
+    assert V.rhat_status("a", [], None, "something_new") == "neutral"
+    # A finding is never softened by the band.
+    assert V.rhat_status("a", [_finding("a", Severity.ERROR)], None, "converged") == "error"
+
+
 # ---------------------------------------------------------------------------
 # Through the API
 # ---------------------------------------------------------------------------
@@ -396,3 +409,32 @@ def test_summary_leaf_state_is_read_when_there_is_no_verdict():
     got = V.parse_fit_summary(json.dumps(doc)).leaves
     assert got[1].verdict.error == "no chain scored" and got[1].verdict.kind == "failed"
     assert got[2].verdict.kind == "interrupted" and got[2].verdict.status == "neutral"
+
+
+def test_a_band_in_the_summary_colours_the_parameter(store):
+    p = _seed(store) / "pgas_summary.json"
+    s = json.loads(p.read_text())
+    s["rhat_band"] = {"beta": "converged"}
+    p.write_text(json.dumps(s))
+    post = _client().get(f"/api/runs/{RUN_DIR}/posterior").json()["params"]
+    by = {x["name"]: x["rhat_status"] for x in post if not x["is_objective"]}
+    assert by["beta"] == "ok"
+    assert all(v == "neutral" for k, v in by.items() if k != "beta")
+
+
+def test_a_band_in_the_method_report_colours_the_parameter(store):
+    """Without the summary map, the band is read from the end-of-run report's
+    per-parameter diagnostics, where camdl#1199 writes it."""
+    seed = _seed(store)
+    lines = (seed / "events.jsonl").read_text().splitlines()
+    out = []
+    for ln in lines:
+        ev = json.loads(ln)
+        if ev.get("event") == "method_report":
+            rep = ev["report"].setdefault("method_result", {})
+            rep.setdefault("diagnostics", {}).setdefault("per_param", {})["beta"] = {
+                "rhat": {"value": 1.2}, "rhat_band": "not_converged"}
+        out.append(json.dumps(ev))
+    (seed / "events.jsonl").write_text("\n".join(out) + "\n")
+    params = _client().get(f"/api/runs/{RUN_DIR}/diagnostics?warmup_pct=50").json()["params"]
+    assert next(x for x in params if x["name"] == "beta")["rhat_status"] == "warn"

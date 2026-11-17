@@ -539,6 +539,11 @@ class ChainSummary:
     # camdl's reason a parameter has no R-hat (``rhat_not_reported``), e.g.
     # ``non_finite_rhat``. Empty on summaries that predate the field.
     rhat_refused: dict[str, str] = field(default_factory=dict)
+    # camdl's convergence verdict for each parameter's R-hat (camdl#1199):
+    # ``converged`` | ``not_converged`` | ``severe`` | ``not_assessed``, the
+    # band behind the mark ``fit summary`` prints. Empty on leaves written
+    # before camdl saved it.
+    rhat_band: dict[str, str] = field(default_factory=dict)
 
     @property
     def per_chain_acceptance(self) -> list[float] | None:

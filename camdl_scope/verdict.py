@@ -522,23 +522,40 @@ def leaf_rows(folder: Path) -> list[LeafRow]:
 RHAT_FINDING = "rhat_high"
 
 
-def rhat_status(param: str, findings: list, verdict: Verdict | None) -> Status:
-    """The colour class of one parameter's R-hat cell, from camdl alone.
+#: camdl's per-parameter R-hat verdict (``RhatBand``, saved per camdl#1199)
+#: as a colour class. A name camdl adds later reads as ``neutral`` rather
+#: than being guessed at.
+_BAND_STATUS: dict[str, Status] = {
+    "converged": "ok",
+    "not_converged": "warn",
+    "severe": "error",
+    "not_assessed": "neutral",
+}
 
-    A parameter camdl raised an ``rhat_high`` finding for takes that finding's
-    severity. Otherwise the parameter the verdict names as the worst takes the
-    verdict's status. Every other parameter is ``neutral``: camdl raised nothing
-    for it, which is not the same as camdl having certified it. ``findings`` are
-    :class:`camdl_scope.state.Finding` objects."""
-    worst: Status = "neutral"
-    rank = {"neutral": 0, "ok": 0, "warn": 1, "error": 2}
+_RANK: dict[str, int] = {"neutral": 0, "ok": 1, "warn": 2, "error": 3}
+
+
+def rhat_status(
+    param: str, findings: list, verdict: Verdict | None, band: str | None = None,
+) -> Status:
+    """The colour class of one parameter's R-hat cell, from camdl alone: the
+    worst of camdl's saved verdict for it (``band``, e.g. ``converged``), the
+    severity of any ``rhat_high`` finding camdl raised for it, and, for the
+    parameter the verdict names as the worst, the verdict's status.
+
+    No threshold is applied here. A leaf written before camdl saved ``band``
+    is coloured only where camdl raised something; a parameter camdl said
+    nothing about is ``neutral``, which is not the same as certified.
+    ``findings`` are :class:`camdl_scope.state.Finding` objects."""
+    worst: Status = _BAND_STATUS.get(band or "", "neutral")
     for f in findings:
         if f.kind == RHAT_FINDING and f.param == param:
             s: Status = "error" if f.severity.value == "error" else "warn"
-            if rank[s] > rank[worst]:
+            if _RANK[s] > _RANK[worst]:
                 worst = s
-    if worst == "neutral" and verdict is not None and verdict.param == param \
-            and verdict.status in ("warn", "error"):
+    if verdict is not None and verdict.param == param \
+            and verdict.status in ("warn", "error") \
+            and _RANK[verdict.status] > _RANK[worst]:
         return verdict.status
     return worst
 

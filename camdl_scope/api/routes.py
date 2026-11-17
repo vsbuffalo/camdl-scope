@@ -1636,13 +1636,16 @@ def _leaf_rows(meta: RunMeta) -> list[LeafRowModel]:
 def _rhat_status(
     param: str, summary: ChainSummary | None, verdict: verdict_mod.Verdict | None
 ) -> str:
-    """The colour class of a parameter's R̂, from camdl's findings and verdict.
+    """The colour class of a parameter's R̂, from camdl's saved per-parameter
+    verdict, findings and verdict.
     ``neutral`` whenever no camdl assessment describes the number on screen: a
     live estimate, or a recompute over a chain subset (camdl's summary covers
     all chains)."""
     if summary is None:
         return "neutral"
-    return verdict_mod.rhat_status(param, summary.findings, verdict)
+    return verdict_mod.rhat_status(
+        param, summary.findings, verdict, summary.rhat_band.get(param),
+    )
 
 
 def _number_label(x: float | None) -> str | None:

@@ -67,7 +67,7 @@ from .docs import ModelDocs
 from .schema import ObsSchema
 from . import fitmeta
 from . import mle as mle_mod
-from .verdict import UnsupportedSchema, parse_number
+from .verdict import UnsupportedSchema, parse_number, read_events
 from .state import (
     AUX_COLUMNS,
     ITER_COL,
@@ -340,6 +340,7 @@ def read_chain_summary(seed_dir: Path) -> ChainSummary | None:
         if isinstance(refused_raw, dict) else {}
     )
     return ChainSummary(
+        rhat_band=_read_rhat_bands(s, seed_dir),
         # camdl's current summaries name the method, not a stage.
         stage=str(s.get("stage") or s.get("method") or ""),
         stats_vintage=vintage,
@@ -356,6 +357,30 @@ def read_chain_summary(seed_dir: Path) -> ChainSummary | None:
         thin=int(s.get("thin", 1) or 1),
         wall_time_secs=_read_wall_time_secs(seed_dir),
     )
+
+
+def _read_rhat_bands(summary: dict, seed_dir: Path) -> dict[str, str]:
+    """camdl's per-parameter R-hat verdict (camdl#1199): the summary's
+    ``rhat_band`` map, else ``method_result.diagnostics.per_param.<p>.rhat_band``
+    in the end-of-run report in ``events.jsonl``. Empty when camdl saved
+    neither (a leaf written before the field), or the report is unreadable."""
+    raw = summary.get("rhat_band")
+    if isinstance(raw, dict) and raw:
+        return {str(k): v for k, v in raw.items() if isinstance(v, str)}
+    try:
+        ev = read_events(seed_dir)
+    except (ValueError, UnsupportedSchema):
+        return {}
+    rep = ev.method_report if ev is not None else None
+    node: object = rep
+    for key in ("report", "method_result", "diagnostics", "per_param"):
+        node = node.get(key) if isinstance(node, dict) else None
+    if not isinstance(node, dict):
+        return {}
+    return {
+        str(p): d["rhat_band"] for p, d in node.items()
+        if isinstance(d, dict) and isinstance(d.get("rhat_band"), str)
+    }
 
 
 def _read_wall_time_secs(seed_dir: Path) -> float | None:
