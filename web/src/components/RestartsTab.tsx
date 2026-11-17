@@ -58,14 +58,16 @@ export function RestartsTab({
                 ? startsFinished(data)
                 : `${data.n_restarts} restarts`}{' '}
               ·{' '}
+              {/* A start that ran out of evaluations did not fail, but it did
+                  not converge either: count it apart. */}
               <span
                 className={
-                  data.n_converged < data.n_restarts
+                  data.n_converged - data.n_maxeval < data.n_restarts
                     ? 'text-warn'
                     : 'text-good'
                 }
               >
-                {data.n_converged} converged
+                {data.n_converged - data.n_maxeval} converged
               </span>
               {data.n_converged < data.n_restarts && (
                 <span className="text-faint">
@@ -133,9 +135,11 @@ export function RestartsTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {data.restarts.map((r) => {
+                  {data.restarts.map((r, i) => {
                     const failed = r.loglik <= FAILED
-                    const isBest = !failed && r.loglik === best
+                    // Rows arrive best first; starts that converged to the same
+                    // optimum tie, and only one of them is the point shown.
+                    const isBest = i === 0 && !failed
                     return (
                       <tr
                         key={r.chain}
@@ -196,15 +200,19 @@ export function RestartsTab({
               </table>
             </div>
 
-            <div className="border-t border-hairline">
-              <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-faint">
-                per-start log-likelihood · camdl&apos;s comparison
+            {/* camdl writes this comparison with the finished fit, so a
+                provisional fit has none yet — not an older leaf's absence. */}
+            {!data.provisional && (
+              <div className="border-t border-hairline">
+                <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-faint">
+                  per-start log-likelihood · camdl&apos;s comparison
+                </div>
+                <ChainLoglikTable
+                  record={data.chain_logliks}
+                  error={data.chain_logliks_error}
+                />
               </div>
-              <ChainLoglikTable
-                record={data.chain_logliks}
-                error={data.chain_logliks_error}
-              />
-            </div>
+            )}
           </>
         )}
       </Card>

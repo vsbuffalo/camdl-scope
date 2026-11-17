@@ -137,11 +137,19 @@ function ProgressBlurb({ run }: { run: RunSummary }) {
     run.max_iter != null && run.target_sweeps
       ? Math.min(100, Math.round((100 * run.max_iter) / run.target_sweeps))
       : null
-  const pct = live ? (p?.pct ?? sweepPct) : null
+  // An optimizer's heartbeat counts the evaluations of whichever start has got
+  // furthest, against max_evals (camdl gh#900) — not how far the run has got:
+  // starts that converge early never reach the budget, so a bar would sit low
+  // until the run ends. Say what the number is and draw no bar; the Estimate and
+  // Restarts tabs say how many starts have finished.
+  const optimizer = run.fit_kind === 'mle'
+  const pct = live && !optimizer ? (p?.pct ?? sweepPct) : null
 
   const counter =
     live && p?.step != null && p?.total != null
-      ? `${p.step.toLocaleString()}/${p.total.toLocaleString()}`
+      ? optimizer
+        ? `${p.step.toLocaleString()}/${p.total.toLocaleString()} evals (furthest start)`
+        : `${p.step.toLocaleString()}/${p.total.toLocaleString()}`
       : live && run.max_iter != null && run.target_sweeps
         ? `${run.max_iter.toLocaleString()}/${run.target_sweeps.toLocaleString()}`
         : null

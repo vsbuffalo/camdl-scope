@@ -66,12 +66,14 @@ export function EstimateTab({
                 {data.algorithm} / {data.backend} ·{' '}
                 <span
                   className={
-                    data.n_converged < data.n_restarts ? 'text-warn' : ''
+                    data.n_converged - data.n_maxeval < data.n_restarts
+                      ? 'text-warn'
+                      : ''
                   }
                 >
                   {data.provisional
                     ? startsFinished(data)
-                    : `${data.n_converged}/${data.n_restarts} restarts converged`}
+                    : `${data.n_converged - data.n_maxeval}/${data.n_restarts} restarts converged`}
                 </span>
               </span>
             </div>
