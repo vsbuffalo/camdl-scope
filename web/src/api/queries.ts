@@ -190,7 +190,7 @@ export function useQuantitySeries(
   })
 }
 
-/** An MLE fit's point estimate + multi-start restarts.
+/** An MLE fit's point estimate + the result of each start.
  *
  * While the optimizer runs, each start's result lands as it finishes, so the
  * query polls. `status` (the run's, from the run list) is part of the key: when

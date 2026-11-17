@@ -177,7 +177,7 @@ export function getDraws(
   )
 }
 
-/** An MLE ('scout') fit's point estimate + multi-start restarts. */
+/** An MLE ('scout') fit's point estimate + the result of each start. */
 export function getMle(runId: string): Promise<MleResponse> {
   return getJson<MleResponse>(`/api/runs/${encodeURIComponent(runId)}/mle`)
 }

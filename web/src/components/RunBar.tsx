@@ -141,7 +141,7 @@ function ProgressBlurb({ run }: { run: RunSummary }) {
   // furthest, against max_evals (camdl gh#900) — not how far the run has got:
   // starts that converge early never reach the budget, so a bar would sit low
   // until the run ends. Say what the number is and draw no bar; the Estimate and
-  // Restarts tabs say how many starts have finished.
+  // Starts tabs say how many starts have finished.
   const optimizer = run.fit_kind === 'mle'
   const pct = live && !optimizer ? (p?.pct ?? sweepPct) : null
 

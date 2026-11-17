@@ -6,7 +6,7 @@ import { RunBar } from '@/components/RunBar'
 import { PosteriorTab } from '@/components/PosteriorTab'
 import { PriorTab } from '@/components/PriorTab'
 import { EstimateTab } from '@/components/EstimateTab'
-import { RestartsTab } from '@/components/RestartsTab'
+import { StartsTab } from '@/components/StartsTab'
 import { PairTab } from '@/components/PairTab'
 import { PredictiveTab } from '@/components/PredictiveTab'
 import { QuantitiesTab } from '@/components/QuantitiesTab'
@@ -28,7 +28,7 @@ import type { WarmupSetting } from '@/lib/chains'
 /** The single-fit tab grid — the inner navigation level of the Explore
  *  workspace. Its tab set depends on the fit *kind*: a posterior (sampling) fit
  *  gets the forest/traces/diagnostics view; an MLE ('scout') fit gets the
- *  point-estimate + restarts view. Both reuse the Source (and Quantities) tabs. */
+ *  point-estimate + starts view. Both reuse the Source (and Quantities) tabs. */
 function ResultsTabs({ run }: { run: RunSummary }) {
   return run.fit_kind === 'mle' ? (
     <MleTabs run={run} />
@@ -37,20 +37,23 @@ function ResultsTabs({ run }: { run: RunSummary }) {
   )
 }
 
-/** MLE fit view: the point estimate and the multi-start restart diagnostic. */
+/** MLE fit view: the point estimate and the multi-start diagnostic. */
 function MleTabs({ run }: { run: RunSummary }) {
   const detail = useRun(run.run_id)
   const hasQuantities = (detail.data?.available_quantities?.length ?? 0) > 0
 
   const tabs = [
     { value: 'estimate', label: 'Estimate' },
-    { value: 'restarts', label: 'Restarts' },
+    { value: 'starts', label: 'Starts' },
     ...(hasQuantities ? [{ value: 'quantities', label: 'Quantities' }] : []),
     { value: 'source', label: 'Model' },
   ]
-  const [tab, setTab] = useState<string>(
-    () => readDeepLink().tab ?? loadJson('explore:mle-tab', 'estimate'),
-  )
+  // `restarts` is the tab's former name; links and saved choices made under it
+  // open the Starts tab.
+  const [tab, setTab] = useState<string>(() => {
+    const t = readDeepLink().tab ?? loadJson('explore:mle-tab', 'estimate')
+    return t === 'restarts' ? 'starts' : t
+  })
   const activeTab = tabs.some((t) => t.value === tab) ? tab : 'estimate'
   const onTab = (v: string) => {
     saveJson('explore:mle-tab', v)
@@ -70,8 +73,8 @@ function MleTabs({ run }: { run: RunSummary }) {
       <TabsContent value="estimate">
         <EstimateTab runId={run.run_id} status={run.status} />
       </TabsContent>
-      <TabsContent value="restarts">
-        <RestartsTab runId={run.run_id} status={run.status} />
+      <TabsContent value="starts">
+        <StartsTab runId={run.run_id} status={run.status} />
       </TabsContent>
       {hasQuantities && (
         <TabsContent value="quantities">

@@ -12,22 +12,24 @@ import { cn } from '@/lib/utils'
 import { ink, token } from '@/lib/theme'
 
 const FAILED = -1e99
-const BEST = ink('mark-red') // red-600 — the best restart
-const DOT = token('body-dim') // neutral-600 — a converged restart
+const BEST = ink('mark-red') // red-600 — the best start
+const DOT = token('body-dim') // neutral-600 — a converged start
 const AXIS = token('muted')
 const MONO = 'var(--font-mono)'
 
 /**
- * Multi-start diagnostics — the MLE analogue of R̂/ESS. An optimizer is only as
- * trustworthy as its restarts: many converging to the same log-likelihood is
- * confidence the mode is real; a wide scatter (or mostly failures) means the
- * reported θ̂ may be one lucky — or unlucky — local optimum. Shows the converged
- * restarts on a log-likelihood axis (best in red) and the full restart table.
+ * Multi-start diagnostics — the MLE analogue of R̂/ESS. The optimizer runs
+ * independent local searches from several starting points (camdl's `chains`,
+ * placed by its `starts` rule) and reports the best. It is only as trustworthy
+ * as its starts: many converging to the same log-likelihood is confidence the
+ * mode is real; a wide scatter (or mostly failures) means the reported θ̂ may be
+ * one lucky — or unlucky — local optimum. Shows the converged starts on a
+ * log-likelihood axis (best in red) and the full table of starts.
  *
  * While the optimizer runs, the table fills in as starts finish (camdl writes
  * them in completion order; they are shown best first).
  */
-export function RestartsTab({
+export function StartsTab({
   runId,
   status,
 }: {
@@ -45,7 +47,7 @@ export function RestartsTab({
         {isError && (
           <MutedNotice
             bordered={false}
-            title="Couldn't load the restarts"
+            title="Couldn't load the starts"
             detail="The backend returned an error for this MLE fit."
           />
         )}
@@ -56,7 +58,7 @@ export function RestartsTab({
             <div className="border-b border-hairline px-3 py-2.5 font-mono text-[11px] text-muted">
               {data.provisional
                 ? startsFinished(data)
-                : `${data.n_restarts} restarts`}{' '}
+                : `${data.n_restarts} starts`}{' '}
               ·{' '}
               {/* A start that ran out of evaluations did not fail, but it did
                   not converge either: count it apart. */}
@@ -94,9 +96,10 @@ export function RestartsTab({
 
             {converged.length > 0 ? (
               <div className="px-3 py-3">
-                <RestartStrip restarts={converged} best={best} />
+                <StartStrip starts={converged} best={best} />
                 <p className="mt-1 font-mono text-[10px] text-faint">
-                  each dot is a converged restart's optimum; the red one is{' '}
+                  each dot is where a start ended (failed starts are left out);
+                  the red one is{' '}
                   {data.provisional ? 'the best so far' : 'the reported θ̂'}.
                   Tightly clustered ⇒ the mode is reliable; scattered ⇒
                   multiple local optima.
@@ -111,8 +114,8 @@ export function RestartsTab({
             ) : (
               <MutedNotice
                 bordered={false}
-                title="No restart converged"
-                detail="Every restart hit the failure sentinel — the optimizer never found a feasible optimum. The reported estimate, if any, is not trustworthy."
+                title="No start converged"
+                detail="Every start hit the failure sentinel — the optimizer never found a feasible optimum. The reported estimate, if any, is not trustworthy."
               />
             )}
 
@@ -120,7 +123,7 @@ export function RestartsTab({
               <table className="w-full min-w-max border-collapse font-mono text-[11px] tabular-nums">
                 <thead>
                   <tr className="border-b border-line text-[9px] uppercase tracking-wider text-faint">
-                    <th className="px-3 py-1.5 text-left font-medium">restart</th>
+                    <th className="px-3 py-1.5 text-left font-medium">start</th>
                     <th className="px-3 py-1.5 text-right font-medium">logL</th>
                     <th className="px-3 py-1.5 text-left font-medium">status</th>
                     <th className="px-3 py-1.5 text-right font-medium">evals</th>
@@ -220,13 +223,13 @@ export function RestartsTab({
   )
 }
 
-/** A one-row strip of converged restart logliks — self-measuring so it draws on
+/** A one-row strip of converged starts' logliks — self-measuring so it draws on
  *  first paint (incl. headless capture). */
-function RestartStrip({
-  restarts,
+function StartStrip({
+  starts,
   best,
 }: {
-  restarts: MleRestart[]
+  starts: MleRestart[]
   best: number
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -247,7 +250,7 @@ function RestartStrip({
   useEffect(() => {
     const el = ref.current
     if (!el || width <= 0) return
-    const pts = restarts.map((r) => ({ loglik: r.loglik, best: r.loglik === best }))
+    const pts = starts.map((r) => ({ loglik: r.loglik, best: r.loglik === best }))
     const node = Plot.plot({
       width,
       height: 78,
@@ -281,7 +284,7 @@ function RestartStrip({
     return () => {
       node.remove()
     }
-  }, [restarts, best, width])
+  }, [starts, best, width])
 
-  return <div ref={ref} className="w-full min-w-0" role="img" aria-label="restart log-likelihoods" />
+  return <div ref={ref} className="w-full min-w-0" role="img" aria-label="log-likelihood of each start" />
 }

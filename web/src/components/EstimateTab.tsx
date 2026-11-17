@@ -9,7 +9,7 @@ import { fmtValue } from '@/lib/format'
  * The MLE point-estimate view: the optimized θ̂ per parameter, doc-labelled like
  * the posterior forest but showing a *point* — no marginal, since an
  * optimization fit has no distribution. The "converged spread" column is the
- * range of that coordinate across the restarts that converged: tight ⇒
+ * range of that coordinate across the starts that converged: tight ⇒
  * well-determined, wide ⇒ sloppy/multimodal (a cheap identifiability read).
  * A bound-pinned estimate (θ̂ at an edge) is flagged.
  *
@@ -73,7 +73,7 @@ export function EstimateTab({
                 >
                   {data.provisional
                     ? startsFinished(data)
-                    : `${data.n_converged - data.n_maxeval}/${data.n_restarts} restarts converged`}
+                    : `${data.n_converged - data.n_maxeval}/${data.n_restarts} starts converged`}
                 </span>
               </span>
             </div>
@@ -161,7 +161,7 @@ export function EstimateTab({
             {data.n_converged < data.n_restarts && (
               <p className="border-t border-hairline px-3 py-2 font-mono text-[10px] text-warn">
                 {data.n_restarts - data.n_converged} of {data.n_restarts}{' '}
-                restarts failed to converge — see the Restarts tab. A point
+                starts failed — see the Starts tab. A point
                 estimate from an unreliable optimization should be read with
                 care.
               </p>
