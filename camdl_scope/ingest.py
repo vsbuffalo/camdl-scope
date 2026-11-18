@@ -384,9 +384,18 @@ def _read_rhat_bands(summary: dict, seed_dir: Path) -> dict[str, str]:
 
 
 def _read_wall_time_secs(seed_dir: Path) -> float | None:
-    """Stage wall-clock from the stage leaf's ``run.json``
-    (``inputs.wall_time_seconds``) — the denominator for ESS/second. ``None`` on
-    older runs that predate the field or when ``run.json`` is absent/unreadable."""
+    """Stage wall-clock, the denominator for ESS/second. camdl records it per
+    execution in ``execution.json`` (``wall_time_seconds``, schema
+    ``camdl.execution/v1``), kept out of the leaf's result since one leaf can
+    have several executions; older leaves carry it in ``run.json``
+    (``inputs.wall_time_seconds``). ``None`` when neither records it."""
+    try:
+        rec = json.loads((seed_dir / "execution.json").read_text())
+        v = rec.get("wall_time_seconds") if isinstance(rec, dict) else None
+        if isinstance(v, (int, float)):
+            return float(v)
+    except (OSError, json.JSONDecodeError):
+        pass
     p = seed_dir / "run.json"
     try:
         rec = json.loads(p.read_text())

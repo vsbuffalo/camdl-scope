@@ -859,3 +859,17 @@ def test_summary_carries_camdls_reason_for_a_missing_rhat(tmp_path):
     })
     assert s.rhat_refused == {"b": "non_finite_rhat"}
     assert s.stage == "pgas"  # the method names the stage when no stage is written
+
+
+def test_wall_time_reads_execution_record_then_run_json(tmp_path: Path):
+    """camdl records wall time per execution in execution.json; older leaves
+    carry it in run.json's inputs. The execution record wins."""
+    seed = tmp_path / "seed_1"
+    seed.mkdir()
+    (seed / "run.json").write_text(json.dumps({"inputs": {"wall_time_seconds": 8.0}}))
+    assert ingest._read_wall_time_secs(seed) == 8.0
+    (seed / "execution.json").write_text(json.dumps(
+        {"schema": "camdl.execution/v1", "wall_time_seconds": 33.25}))
+    assert ingest._read_wall_time_secs(seed) == 33.25
+    (seed / "run.json").unlink()
+    assert ingest._read_wall_time_secs(seed) == 33.25
