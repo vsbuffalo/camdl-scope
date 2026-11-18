@@ -195,7 +195,7 @@ function ProfileCard({ baseId }: { baseId: string }) {
                   ) : (
                     <>
                       <Stat
-                        label={`MLE ${data.params.join(', ')}`}
+                        label={`${(data.n_estimate_points ?? 1) > 0 ? 'MLE' : 'best so far'} ${data.params.join(', ')}`}
                         value={data.mle_coords.map((v) => fmtValue(v)).join(', ')}
                       />
                       <Stat label="logL" value={fmtValue(data.mle_loglik)} />
@@ -205,15 +205,23 @@ function ProfileCard({ baseId }: { baseId: string }) {
                           value={`Δlogℓ ≥ −${data.ci_drop.toFixed(2)}`}
                         />
                       ) : (
-                        <Stat
-                          label={`${Math.round(data.ci_level * 100)}% CI`}
-                          value={`[${fmtValue(data.ci_lo)}, ${fmtValue(data.ci_hi)}]`}
-                          hint={
-                            data.ci_lo == null || data.ci_hi == null
-                              ? 'open — grid edge'
-                              : undefined
-                          }
-                        />
+                        (data.n_estimate_points ?? 2) < 2 ? (
+                          <Stat
+                            label={`${Math.round(data.ci_level * 100)}% CI`}
+                            value="—"
+                            hint="needs two complete grid values"
+                          />
+                        ) : (
+                          <Stat
+                            label={`${Math.round(data.ci_level * 100)}% CI`}
+                            value={`[${fmtValue(data.ci_lo)}, ${fmtValue(data.ci_hi)}]`}
+                            hint={
+                              data.ci_lo == null || data.ci_hi == null
+                                ? 'open — grid edge'
+                                : undefined
+                            }
+                          />
+                        )
                       )}
                     </>
                   )}

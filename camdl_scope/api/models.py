@@ -1276,6 +1276,10 @@ class ProfileResponse(BaseModel):
     #: heartbeat stopped while running: killed partway) | ``done`` | ``failed``
     #: | ``unknown`` (camdl kept no invocation record: an older profile).
     status: str = "unknown"
+    #: Cells the MLE and interval are computed from (the complete ones, when
+    #: there are any). An interval needs two; with fewer, ``ci_lo``/``ci_hi``
+    #: are null because nothing could be computed, not because the grid is open.
+    n_estimate_points: int = 0
     #: The grid is incomplete (some cell pending or partial): the MLE and the
     #: interval are computed from the complete cells and may still move.
     provisional: bool = False

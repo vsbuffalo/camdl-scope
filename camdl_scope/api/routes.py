@@ -2041,6 +2041,8 @@ def _profile_response(curve: profiles_mod.ProfileCurve) -> ProfileResponse:
         ci_level=profiles_mod.CI_LEVEL, ci_drop=curve.ci_drop,
         ci_lo=lo, ci_hi=hi,
         status=curve.status(), provisional=curve.provisional,
+        n_estimate_points=sum(
+            1 for p in curve.estimate_points if p.loglik > profiles_mod.SENTINEL_LOGLIK),
         n_starts_finished=prog[0] if prog else None,
         n_starts_expected=prog[1] if prog else None,
         heartbeat_at=float(max(beats)) if beats else None,

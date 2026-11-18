@@ -165,14 +165,15 @@ class ProfileCurve:
     @property
     def estimate_points(self) -> list[ProfilePoint]:
         """The cells the MLE and interval are computed from: the complete ones
-        when there are any, since a partial cell's log-likelihood is only a
-        lower bound; else every cell (and the result is provisional)."""
-        done = [p for p in self.points if p.complete]
-        return done or list(self.points)
+        only, since a partial cell's log-likelihood is a lower bound. An
+        interval needs two of them; none is drawn from partial cells."""
+        return [p for p in self.points if p.complete]
 
     @property
     def mle(self) -> ProfilePoint | None:
-        pts = self.estimate_points
+        """The best complete cell; while none is complete, the best cell so
+        far (a provisional answer, flagged by :attr:`provisional`)."""
+        pts = self.estimate_points or self.points
         return max(pts, key=lambda p: p.loglik) if pts else None
 
     def status(self, now: float | None = None) -> str:

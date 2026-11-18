@@ -68,6 +68,9 @@ export function ProfilePlot({ data }: { data: ProfileResponse }) {
       tip: `${data.params[0]}=${fmtTick(p.coords[0]!)}\n0 of ${p.n_expected} starts finished`,
     }))
     const hasMle = data.mle_loglik != null && data.mle_coords.length > 0
+    // An interval needs two values to bracket; with fewer, draw no band and no
+    // threshold rather than a band that reads as "the interval is everything".
+    const hasCi = hasMle && (data.n_estimate_points ?? 2) >= 2
     const mleValue = data.mle_coords[0] ?? 0
     const mleLL = data.mle_loglik ?? 0
     const param = data.params[0]!
@@ -87,7 +90,7 @@ export function ProfilePlot({ data }: { data: ProfileResponse }) {
     const bandHi = data.ci_hi ?? xHi
 
     const marks: Plot.Markish[] = [
-      ...(hasMle
+      ...(hasCi
         ? [
             Plot.rectX([{ x1: bandLo, x2: bandHi }], {
               x1: 'x1',
@@ -101,10 +104,10 @@ export function ProfilePlot({ data }: { data: ProfileResponse }) {
               strokeWidth: 0.75,
               strokeDasharray: '3,2',
             }),
-            // The MLE — vertical marker.
-            Plot.ruleX([mleValue], { stroke: MLE, strokeWidth: 0.75 }),
           ]
         : []),
+      // The MLE — vertical marker.
+      ...(hasMle ? [Plot.ruleX([mleValue], { stroke: MLE, strokeWidth: 0.75 })] : []),
       Plot.line(complete, {
         x: 'value',
         y: 'loglik',

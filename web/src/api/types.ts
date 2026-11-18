@@ -1745,6 +1745,11 @@ export interface components {
              */
             status: string;
             /**
+             * N Estimate Points
+             * @default 0
+             */
+            n_estimate_points: number;
+            /**
              * Provisional
              * @default false
              */

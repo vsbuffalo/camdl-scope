@@ -184,4 +184,18 @@ def test_endpoints_carry_status_counts_pending_and_partial(tmp_path, monkeypatch
     partial = next(p for p in d["points"] if p["coords"] == [0.018])
     assert partial["complete"] is False and partial["n_expected"] == 10
     assert d["mle_coords"] == [0.15]
+    assert d["n_estimate_points"] == 2  # 0.10 and 0.15; the partial 0.018 is not one
     assert d["heartbeat_at"] is not None
+
+
+def test_no_interval_is_drawn_from_partial_values_alone(tmp_path):
+    """Two values with 1 of 10 starts each, none complete: the best so far is
+    reported, but no interval is computed from two lower bounds."""
+    store = _store(tmp_path)
+    _start(store, 0.018, 0, -4620.0)
+    _start(store, 0.15, 0, -4630.0)
+    _invocation(store, state=RUNNING)
+    c = load_profile(store, BASE)
+    assert c.estimate_points == []
+    assert c.mle.coords == (0.018,) and c.provisional
+    assert c.ci_bounds_1d() == (None, None)
