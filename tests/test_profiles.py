@@ -220,3 +220,27 @@ def test_2d_profile_endpoint(tmp_path, monkeypatch):
     # The clicked-cell payload: each point carries its conditional nuisance MLE.
     mle_pt = next(p for p in body["points"] if p["coords"] == [0.03, 2.0])
     assert mle_pt["nuisance"] == {"r1": 0.042, "phi_inv": 0.2}
+
+
+def test_coordinate_is_read_exactly_from_focal_not_the_rounded_label(tmp_path):
+    """camdl labels a grid cell with its value rounded to 4 decimals
+    (``gamma=0.2313`` for 0.23125); the exact value is in ``mle.toml [focal]``."""
+    import json as _json
+    from camdl_scope.profiles import load_profile
+
+    store = tmp_path / "results" / "fits"
+    store.mkdir(parents=True)
+    leaf = tmp_path / "results" / "profiles" / "sir-aa" / "gamma_0.2313-bb" / "m-cc" / "seed_1-dd" / "start_0-ee"
+    leaf.mkdir(parents=True)
+    (leaf / "run.json").write_text(_json.dumps({
+        "kind": "profile_point",
+        "levels": [{"name": "profile", "label": "sir"}, {"name": "point", "label": "gamma=0.2313"}],
+        "inputs": {"best_loglik": -61.47, "method": "nl-sbplx"},
+    }))
+    (leaf / "mle.toml").write_text("[focal]\ngamma = 0.23125\n\n[mle]\nbeta = 0.839\n")
+    curve = load_profile(store, "sir-aa")
+    assert curve is not None
+    assert curve.points[0].coords == (0.23125,)
+    # Without [focal], the label still gives the (rounded) value.
+    (leaf / "mle.toml").write_text("[mle]\nbeta = 0.839\n")
+    assert load_profile(store, "sir-aa").points[0].coords == (0.2313,)

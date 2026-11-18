@@ -7,10 +7,12 @@
 - ``base``  — the inference *problem* (label e.g. ``ctl_binom``). The base hash
   deliberately EXCLUDES the focal grid, so points from different grid
   invocations of the same problem co-locate under one base; we aggregate them.
-- ``point`` — one focal grid cell. Its level label is the authority for the
-  coordinate: 1D is ``g=0.0300``; a 2D grid cell is ``g=0.0316__Cscale=0.2000``
-  (params joined by ``__``). ``inputs.grid_point`` is only the grid *index*, not
-  the value, so we never use it for the axis. A profile can be over one param (a
+- ``point`` — one focal grid cell. Its level label names the profiled params:
+  1D is ``g=0.0300``; a 2D grid cell is ``g=0.0316__Cscale=0.2000`` (params
+  joined by ``__``). The label rounds each value to 4 decimals (grid value
+  ``0.23125`` is labelled ``0.2313``), so the coordinate is read exactly from a
+  start's ``mle.toml`` ``[focal]`` table, and from the label only when that is
+  unreadable. ``inputs.grid_point`` is only the grid *index*, not the value. A profile can be over one param (a
   curve) or two (a likelihood surface); higher-D is read but not rendered.
 - ``stage`` — the optimizer method (``nlopt(sbplx)`` / ``if2`` / ``pmmh``).
 - ``seed`` / ``start`` — one optimization restart each; ``inputs.best_loglik``
@@ -168,6 +170,25 @@ def _parse_coords(
     return (tuple(params), tuple(values)) if params else None
 
 
+def _read_focal(leaf: Path, names: tuple[str, ...]) -> tuple[float, ...] | None:
+    """The exact grid values of ``names`` from a start's ``mle.toml``
+    ``[focal]`` table, or ``None`` if the table is unreadable or lacks one."""
+    try:
+        obj = tomllib.loads((leaf / "mle.toml").read_text())
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    focal = obj.get("focal")
+    if not isinstance(focal, dict):
+        return None
+    out: list[float] = []
+    for n in names:
+        v = focal.get(n)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        out.append(float(v))
+    return tuple(out)
+
+
 def _read_nuisance(leaf: Path) -> dict[str, float]:
     """The conditional-MLE nuisance params from a restart leaf's ``mle.toml``
     ``[mle]`` table (the coords held fixed live under ``[focal]``, not here).
@@ -214,6 +235,7 @@ def load_profile(store: Path, base_id: str) -> ProfileCurve | None:
                 parsed = _parse_coords(_level_label(rec, "point"), point_dir.name)
                 if parsed is not None:
                     names, coords = parsed
+                    coords = _read_focal(run_json.parent, names) or coords
                     if not params:
                         params = names
                 base_lbl = _level_label(rec, "profile")
