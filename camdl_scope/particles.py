@@ -309,7 +309,9 @@ def particle_health(rs: RunState, cutoff: int) -> ParticleHealth:
 
     if algo == "pgas":
         return _pgas(rs, cutoff, particles)
-    if algo in ("pmmh", "mh"):
+    # camdl's `mh` shares PMMH's chain machinery but scores the deterministic
+    # ODE likelihood, so it has no particle filter to report on.
+    if algo == "pmmh":
         return _pmmh(rs, cutoff, particles)
     return ParticleHealth(
         method=algo,
