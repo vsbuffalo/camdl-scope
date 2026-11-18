@@ -71,6 +71,9 @@ export function ProfilePlot({ data }: { data: ProfileResponse }) {
     // An interval needs two values to bracket; with fewer, draw no band and no
     // threshold rather than a band that reads as "the interval is everything".
     const hasCi = hasMle && (data.n_estimate_points ?? 2) >= 2
+    // With no complete value yet, the "MLE" is the best partial value, a lower
+    // bound: mark it as a hollow ring with no rule, so it does not read as final.
+    const mleFromPartial = (data.n_estimate_points ?? 1) === 0
     const mleValue = data.mle_coords[0] ?? 0
     const mleLL = data.mle_loglik ?? 0
     const param = data.params[0]!
@@ -107,7 +110,9 @@ export function ProfilePlot({ data }: { data: ProfileResponse }) {
           ]
         : []),
       // The MLE — vertical marker.
-      ...(hasMle ? [Plot.ruleX([mleValue], { stroke: MLE, strokeWidth: 0.75 })] : []),
+      ...(hasMle && !mleFromPartial
+        ? [Plot.ruleX([mleValue], { stroke: MLE, strokeWidth: 0.75 })]
+        : []),
       Plot.line(complete, {
         x: 'value',
         y: 'loglik',
@@ -150,10 +155,10 @@ export function ProfilePlot({ data }: { data: ProfileResponse }) {
             Plot.dot([{ value: mleValue, loglik: mleLL }], {
               x: 'value',
               y: 'loglik',
-              fill: MLE,
-              r: 4,
-              stroke: token('surface'),
-              strokeWidth: 0.75,
+              fill: mleFromPartial ? 'none' : MLE,
+              r: mleFromPartial ? 5 : 4,
+              stroke: mleFromPartial ? MLE : token('surface'),
+              strokeWidth: mleFromPartial ? 1.25 : 0.75,
             }),
           ]
         : []),

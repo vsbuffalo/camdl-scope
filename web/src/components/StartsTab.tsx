@@ -6,6 +6,7 @@ import { ForestSkeleton, MutedNotice } from '@/components/States'
 import { Card } from '@/components/ui/card'
 import { ChainLoglikTable } from '@/components/ChainLoglikTable'
 import { MleRunNotes } from '@/components/MleRunNotes'
+import { StartsParallel } from '@/components/StartsParallel'
 import { startsFinished } from '@/lib/mle'
 import { fmtValue } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -101,9 +102,26 @@ export function StartsTab({
                   each dot is where a start ended (failed starts are left out);
                   the red one is{' '}
                   {data.provisional ? 'the best so far' : 'the reported θ̂'}.
-                  Tightly clustered ⇒ the mode is reliable; scattered ⇒
-                  multiple local optima.
+                  Scattered ⇒ multiple local optima. Tightly clustered ⇒ the
+                  starts reach the same height, not necessarily the same point:
+                  the plot below shows whether their parameters agree.
                 </p>
+                {converged.length > 1 && (
+                  <div className="mt-3">
+                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">
+                      do the starts agree on the parameters?
+                    </div>
+                    <StartsParallel starts={converged} params={data.params} />
+                    <p className="mt-1 font-mono text-[10px] text-faint">
+                      one axis per parameter, from its lower bound (bottom) to
+                      its upper bound (top); one line per start through its
+                      optimum. Lines pinching to a point ⇒ the starts agree on
+                      that parameter; spread ⇒ they don&apos;t. Red is the best
+                      start; the further a start&apos;s log-likelihood falls
+                      below it, the fainter its line.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : data.n_restarts === 0 ? (
               <MutedNotice
@@ -204,8 +222,11 @@ export function StartsTab({
             </div>
 
             {/* camdl writes this comparison with the finished fit, so a
-                provisional fit has none yet — not an older leaf's absence. */}
-            {!data.provisional && (
+                provisional fit has none yet — not an older leaf's absence.
+                An nl-* optimizer never writes one (camdl sets
+                chain_loglik_agreement to None: a start ends at one point, so
+                there is no per-start mean to compare); only IF2 does. */}
+            {!data.provisional && !data.algorithm.startsWith('nl-') && (
               <div className="border-t border-hairline">
                 <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-faint">
                   per-start log-likelihood · camdl&apos;s comparison
