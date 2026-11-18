@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card'
 import { ChainLoglikTable } from '@/components/ChainLoglikTable'
 import { MleRunNotes } from '@/components/MleRunNotes'
 import { StartsParallel } from '@/components/StartsParallel'
+import { StartsProgress } from '@/components/StartsProgress'
 import { startsFinished } from '@/lib/mle'
 import { fmtValue } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -65,9 +66,11 @@ export function StartsTab({
                   not converge either: count it apart. */}
               <span
                 className={
-                  data.n_converged - data.n_maxeval < data.n_restarts
-                    ? 'text-warn'
-                    : 'text-good'
+                  data.n_restarts === 0
+                    ? 'text-faint'
+                    : data.n_converged - data.n_maxeval < data.n_restarts
+                      ? 'text-warn'
+                      : 'text-good'
                 }
               >
                 {data.n_converged - data.n_maxeval} converged
@@ -94,6 +97,28 @@ export function StartsTab({
                 </span>
               )}
             </div>
+
+            {data.searches.length > 0 && (
+              <div className="border-b border-hairline px-3 py-3">
+                <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">
+                  how each search climbs
+                </div>
+                <StartsProgress
+                  searches={data.searches}
+                  restarts={data.restarts}
+                  live={status === 'running'}
+                />
+                <p className="mt-1 font-mono text-[10px] text-faint">
+                  each search&apos;s best log-likelihood so far against its
+                  evaluations, as a gap to the best any search has found (log
+                  scale). Still rising at its last evaluation ⇒ its budget cut it
+                  off; flat ⇒ it converged in practice, whatever NLopt&apos;s
+                  status says. Red leads; blue is still running; a hollow amber
+                  end stopped at max_evals; an open diamond is where a search
+                  that started non-finite first found a finite value.
+                </p>
+              </div>
+            )}
 
             {converged.length > 0 ? (
               <div className="px-3 py-3">
@@ -123,7 +148,7 @@ export function StartsTab({
                   </div>
                 )}
               </div>
-            ) : data.n_restarts === 0 ? (
+            ) : data.n_restarts === 0 && data.searches.length > 0 ? null : data.n_restarts === 0 ? (
               <MutedNotice
                 bordered={false}
                 title="No start has finished yet"
@@ -217,6 +242,36 @@ export function StartsTab({
                       </tr>
                     )
                   })}
+                  {data.searches
+                    .filter((t) => !t.finished)
+                    .map((t) => (
+                      <tr
+                        key={`run-${t.chain}`}
+                        className="border-b border-hairline last:border-b-0"
+                      >
+                        <td className="px-3 py-1.5 text-left text-muted">c{t.chain}</td>
+                        <td
+                          className="px-3 py-1.5 text-right italic text-body-dim"
+                          title="best so far: a running search's log-likelihood can only rise"
+                        >
+                          {t.best_loglik != null ? `≥ ${fmtValue(t.best_loglik)}` : '—'}
+                        </td>
+                        <td
+                          className={cn(
+                            'px-3 py-1.5 text-left',
+                            status === 'running' ? 'text-accent' : 'text-warn',
+                          )}
+                        >
+                          {status === 'running' ? 'running' : 'stopped'}
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-faint">
+                          {t.evals.toLocaleString()}
+                        </td>
+                        {data.params.map((p) => (
+                          <td key={p.name} className="px-3 py-1.5 text-right text-faint" />
+                        ))}
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>

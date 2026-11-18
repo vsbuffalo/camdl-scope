@@ -41,6 +41,7 @@
    }
   ],
   "provisional": false,
+  "provisional_from_running": false,
   "restarts": [
    {
     "chain": 0,
@@ -87,6 +88,124 @@
     }
    }
   ],
-  "run_id": "opt_bobyqa-4479dfba"
+  "run_id": "opt_bobyqa-1fcb8b0e",
+  "searches": [
+   {
+    "best_loglik": -47.8097,
+    "chain": 0,
+    "evals": 82,
+    "finished": true,
+    "started_nonfinite": "<volatile>",
+    "trace": [
+     [
+      1,
+      -18471.2
+     ],
+     [
+      26,
+      -47.8172
+     ],
+     [
+      51,
+      -47.8097
+     ],
+     [
+      76,
+      -47.8097
+     ],
+     [
+      82,
+      -47.8097
+     ]
+    ]
+   },
+   {
+    "best_loglik": -47.8097,
+    "chain": 1,
+    "evals": 71,
+    "finished": true,
+    "started_nonfinite": "<volatile>",
+    "trace": [
+     [
+      1,
+      -7415.76
+     ],
+     [
+      26,
+      -48.714
+     ],
+     [
+      51,
+      -47.8097
+     ],
+     [
+      71,
+      -47.8097
+     ]
+    ]
+   },
+   {
+    "best_loglik": -47.8097,
+    "chain": 2,
+    "evals": 63,
+    "finished": true,
+    "started_nonfinite": "<volatile>",
+    "trace": [
+     [
+      1,
+      -2055.27
+     ],
+     [
+      26,
+      -57.5524
+     ],
+     [
+      51,
+      -47.8097
+     ],
+     [
+      63,
+      -47.8097
+     ]
+    ]
+   },
+   {
+    "best_loglik": -47.8097,
+    "chain": 3,
+    "evals": 147,
+    "finished": true,
+    "started_nonfinite": "<volatile>",
+    "trace": [
+     [
+      1,
+      -24124.6
+     ],
+     [
+      26,
+      -155.708
+     ],
+     [
+      51,
+      -60.7711
+     ],
+     [
+      76,
+      -47.8286
+     ],
+     [
+      101,
+      -47.8166
+     ],
+     [
+      126,
+      -47.8097
+     ],
+     [
+      147,
+      -47.8097
+     ]
+    ]
+   }
+  ]
  }
 }

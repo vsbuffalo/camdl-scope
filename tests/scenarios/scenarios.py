@@ -137,10 +137,21 @@ def _truncate_fit(run_dir: Path, keep: int, beat: str) -> Path:
     [leaf] = run_dir.glob("*/seed_*")
     rows = (leaf / "chain_results.tsv").read_text().splitlines()
     (leaf / "chain_results.tsv").write_text("\n".join(rows[: 1 + keep]) + "\n")
+    done = {r.split("\t")[0] for r in rows[1 : 1 + keep]}
+    trace = leaf / "opt_trace.tsv"
+    if trace.is_file():
+        # A finished search keeps its whole trace; an unfinished one, the first
+        # 40% of its rows (it was cut off mid-climb).
+        head, *body = trace.read_text().splitlines()
+        by: dict[str, list[str]] = {}
+        for ln in body:
+            by.setdefault(ln.split("\t")[0], []).append(ln)
+        kept = [ln for c, lns in by.items() for ln in (lns if c in done else lns[: max(1, len(lns) * 2 // 5)])]
+        trace.write_text("\n".join([head, *kept]) + "\n")
     events = [ln for ln in (leaf / "events.jsonl").read_text().splitlines() if "method_report" not in ln]
     (leaf / "events.jsonl").write_text("\n".join(events) + ("\n" if events else ""))
     for f in leaf.iterdir():
-        if f.name not in {"run.json", "events.jsonl", "chain_results.tsv"}:
+        if f.name not in {"run.json", "events.jsonl", "chain_results.tsv", "opt_trace.tsv"}:
             shutil.rmtree(f) if f.is_dir() else f.unlink()
     state = {"running": {"phase": "optimizing", "step": 1400, "total": 5000}}
     _heartbeat(leaf / "progress.json", state, beat == "fresh")

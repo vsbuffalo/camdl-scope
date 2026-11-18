@@ -62,6 +62,34 @@ class MleParam:
 
 
 @dataclass(frozen=True)
+class TracePoint:
+    eval: int  # the search's evaluation count at this row
+    best_loglik: float | None  # best finite log-likelihood so far; None if none yet
+
+
+@dataclass(frozen=True)
+class SearchTrace:
+    """One optimiser search as camdl's ``opt_trace.tsv`` records it, rows in
+    the order written (camdl appends a row every 25 evaluations or 2 s, and one
+    at the search's end)."""
+
+    chain: int
+    points: tuple[TracePoint, ...]
+    #: The parameter values at the best point so far (last row).
+    best_values: dict[str, float | None]
+    #: The search's first evaluation was not finite: a bad start.
+    started_nonfinite: bool
+
+    @property
+    def evals(self) -> int:
+        return self.points[-1].eval if self.points else 0
+
+    @property
+    def best_loglik(self) -> float | None:
+        return self.points[-1].best_loglik if self.points else None
+
+
+@dataclass(frozen=True)
 class MleFit:
     loglik: float | None  # log-likelihood at the reported optimum
     n_restarts: int
@@ -74,6 +102,11 @@ class MleFit:
     # How many starts the run was configured with (run.json), when known. A
     # hint: ``starts = "single"`` collapses the run to one start.
     n_expected: int | None = None
+    #: Each search's live trace (``opt_trace.tsv``), when camdl wrote one.
+    searches: list[SearchTrace] = field(default_factory=list)
+    #: While provisional, the estimate comes from a search still running (its
+    #: best point so far beats every finished start), not a finished one.
+    provisional_from_running: bool = False
 
     @property
     def n_maxeval(self) -> int:
@@ -175,6 +208,34 @@ def _restarts(seed_dir: Path, estimated: list[str], *, live: bool) -> list[MleRe
     return out
 
 
+OPT_TRACE = "opt_trace.tsv"
+
+
+def read_opt_trace(seed_dir: Path, estimated: list[str], *, live: bool) -> list[SearchTrace]:
+    """Each search's trace from camdl's ``opt_trace.tsv`` (one file, a
+    ``chain`` column), by chain. Read whole by path on every call, as the file
+    grows; with ``live=True`` a torn last line is dropped (camdl writes each
+    row in one append). Empty when camdl wrote no trace (older camdl, or a
+    method that is not an NLopt search)."""
+    p = seed_dir / OPT_TRACE
+    if not p.is_file():
+        return []
+    by_chain: dict[int, list[dict[str, str]]] = {}
+    for row in read_restart_rows(p, live=live):
+        if "eval" in row and "chain" in row:
+            by_chain.setdefault(_int(row["chain"]), []).append(row)
+    out: list[SearchTrace] = []
+    for chain, rows in sorted(by_chain.items()):
+        last = rows[-1]
+        out.append(SearchTrace(
+            chain=chain,
+            points=tuple(TracePoint(_int(r["eval"]), _finite(r.get("best_loglik"))) for r in rows),
+            best_values={name: _finite(last.get(name)) for name in estimated},
+            started_nonfinite=_finite(rows[0].get("loglik")) is None,
+        ))
+    return out
+
+
 def read_mle(
     seed_dir: Path, estimated: list[str], n_expected: int | None = None
 ) -> MleFit | None:
@@ -189,11 +250,19 @@ def read_mle(
     provisional = not mle_path.is_file()
     restarts = _restarts(seed_dir, estimated, live=provisional)
     converged = [r for r in restarts if r.loglik > FAILED_LOGLIK]
+    searches = read_opt_trace(seed_dir, estimated, live=provisional)
+    from_running = False
 
     if provisional:
         best = converged[0] if converged else None
         values = dict(best.values) if best else {}
         loglik = best.loglik if best else None
+        # A search still running may already be past every finished start.
+        finished = {r.chain for r in restarts}
+        running = [t for t in searches if t.chain not in finished and t.best_loglik is not None]
+        lead = max(running, key=lambda t: t.best_loglik or -math.inf, default=None)
+        if lead is not None and (loglik is None or (lead.best_loglik or -math.inf) > loglik):
+            values, loglik, from_running = dict(lead.best_values), lead.best_loglik, True
     else:
         try:
             obj = tomllib.loads(mle_path.read_text())
@@ -230,4 +299,6 @@ def read_mle(
         restarts=restarts,
         provisional=provisional,
         n_expected=n_expected,
+        searches=searches,
+        provisional_from_running=from_running,
     )

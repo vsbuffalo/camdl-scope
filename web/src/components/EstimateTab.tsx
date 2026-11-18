@@ -38,7 +38,7 @@ export function EstimateTab({
           />
         )}
 
-        {data && data.provisional && data.n_restarts === 0 && (
+        {data && data.provisional && data.n_restarts === 0 && data.loglik == null && (
           <>
             <MleRunNotes data={data} status={status} />
             <MutedNotice
@@ -49,13 +49,15 @@ export function EstimateTab({
           </>
         )}
 
-        {data && !(data.provisional && data.n_restarts === 0) && (
+        {data && !(data.provisional && data.n_restarts === 0 && data.loglik == null) && (
           <>
             <MleRunNotes data={data} status={status} />
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-hairline px-3 py-2.5">
               <span className="font-mono text-[11px] text-muted">
                 {data.provisional
-                  ? `Best of ${data.n_restarts} finished ${data.n_restarts === 1 ? 'start' : 'starts'} so far`
+                  ? data.provisional_from_running
+                    ? 'Best point so far of a running search'
+                    : `Best of ${data.n_restarts} finished ${data.n_restarts === 1 ? 'start' : 'starts'} so far`
                   : 'MLE point estimate'}{' '}
                 ·{' '}
                 <span className="text-ink-dim">

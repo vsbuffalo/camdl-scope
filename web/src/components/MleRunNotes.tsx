@@ -22,9 +22,11 @@ export function MleRunNotes({
         ? {
             tone: 'text-notice',
             text:
-              data.n_restarts === 0
+              data.n_restarts === 0 && data.loglik == null
                 ? 'Optimizer running — no start has finished yet.'
-                : `Optimizer running — ${startsFinished(data)}. The estimate is the best of the finished starts so far, not the fit's answer; camdl writes that when every start is in.`,
+                : data.provisional_from_running
+                  ? `Optimizer running — ${data.n_restarts === 0 ? 'no start has finished yet' : startsFinished(data)}. The estimate is the best point a search still running has reached; it can only rise, and it is not the fit's answer, which camdl writes when every start is in.`
+                  : `Optimizer running — ${startsFinished(data)}. The estimate is the best of the finished starts so far, not the fit's answer; camdl writes that when every start is in.`,
           }
         : {
             tone: 'text-warn',

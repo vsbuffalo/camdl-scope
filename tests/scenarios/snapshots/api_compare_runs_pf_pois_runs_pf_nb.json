@@ -1,7 +1,7 @@
 {
  "status": 200,
  "body": {
-  "baseline": "pf_pois-64601a31",
+  "baseline": "pf_pois-0ec41a3d",
   "commensurable": true,
   "metrics": [
    "elpd",
@@ -11,12 +11,12 @@
   "missing_prequential": [],
   "notes": [
    "scores are plug-in (scored at a single θ, dropping parameter uncertainty → under-dispersed); and in-sample (θ fit to all the data → optimistic in absolute level, by roughly the effective number of parameters fit, which does not cancel in a Δelpd and so biases differences toward the more flexible model) — not a leave-future-out forecast score. See LFO (#295).",
-   "not checked for a shared observation set: 'pf_pois-64601a31' (read as an explicit prequential.json, which records no bound data); 'pf_nb-c0ede1ae' (read as an explicit prequential.json, which records no bound data). A difference against such a row may be a data difference, not a model difference.",
+   "not checked for a shared observation set: 'pf_pois-0ec41a3d' (read as an explicit prequential.json, which records no bound data); 'pf_nb-a62c9f33' (read as an explicit prequential.json, which records no bound data). A difference against such a row may be a data difference, not a model difference.",
    "se(Δ) is a normal approximation, unreliable at small T (here T = 20) and when the models predict alike (Sivula, Magnusson & Vehtari, arXiv:2008.10296) — read it as descriptive, not as a test.",
    "The Jeffreys tiers calibrate Bayes factors; these are in-sample likelihood ratios, not Bayes factors.",
-   "pf_pois-64601a31: starts at prior",
-   "lag-1 autocorrelation of the per-step Δelpd vs baseline: pf_nb-c0ede1ae +0.84",
-   "pf_nb-c0ede1ae: starts at prior"
+   "pf_pois-0ec41a3d: starts at prior",
+   "lag-1 autocorrelation of the per-step Δelpd vs baseline: pf_nb-a62c9f33 +0.84",
+   "pf_nb-a62c9f33: starts at prior"
   ],
   "rows": [
    {
@@ -32,7 +32,7 @@
     "mean_crps": 8.59204,
     "overconfident": false,
     "pit_cov90": 0.95,
-    "run_id": "pf_pois-64601a31",
+    "run_id": "pf_pois-0ec41a3d",
     "se_delta_elpd": null,
     "t_score": 20
    },
@@ -49,7 +49,7 @@
     "mean_crps": 28.2619,
     "overconfident": false,
     "pit_cov90": 0.95,
-    "run_id": "pf_nb-c0ede1ae",
+    "run_id": "pf_nb-a62c9f33",
     "se_delta_elpd": 4.48572,
     "t_score": 20
    }

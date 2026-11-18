@@ -15,6 +15,7 @@ later optimization, not a correctness requirement.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,6 +74,7 @@ from .models import (
     FindingGroup,
     MleParam,
     MleResponse,
+    MleSearch,
     MleRestart,
     ModelGraph,
     ModelRender,
@@ -991,6 +993,16 @@ def get_run(run_id: str, predict: str | None = _PREDICT_Q) -> RunDetail:
     return _run_detail(meta, build_run_state(meta), predict)
 
 
+def _thin(points: list[tuple[int, float | None]], cap: int) -> list[tuple[int, float | None]]:
+    """At most ``cap`` points, evenly strided, always keeping the last (the
+    search's current state)."""
+    if len(points) <= cap:
+        return points
+    step = math.ceil(len(points) / cap)
+    out = points[::step]
+    return out if out[-1] == points[-1] else [*out, points[-1]]
+
+
 @router.get("/runs/{run_id}/mle", response_model=MleResponse)
 def get_mle(run_id: str) -> MleResponse:
     """The point estimate + multi-start results of an MLE ('scout') fit — or,
@@ -1031,9 +1043,19 @@ def get_mle(run_id: str) -> MleResponse:
         )
         for r in fit.restarts
     ]
+    finished = {r.chain for r in fit.restarts}
+    searches = [
+        MleSearch(
+            chain=t.chain, evals=t.evals, best_loglik=_finite_or_none(t.best_loglik),
+            finished=t.chain in finished, started_nonfinite=t.started_nonfinite,
+            trace=_thin([(pt.eval, _finite_or_none(pt.best_loglik)) for pt in t.points], 400),
+        )
+        for t in fit.searches
+    ]
     return MleResponse(
         run_id=run_id, label=meta.display_label,
         algorithm=meta.algorithm, backend=meta.backend.value,
+        searches=searches, provisional_from_running=fit.provisional_from_running,
         loglik=_finite_or_none(fit.loglik),
         n_restarts=fit.n_restarts, n_converged=fit.n_converged,
         params=params, restarts=restarts,

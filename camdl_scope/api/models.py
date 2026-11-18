@@ -1182,6 +1182,21 @@ class MleRestart(BaseModel):
     values: dict[str, float | None] = {}
 
 
+class MleSearch(BaseModel):
+    """One optimiser search's progress, from camdl's live ``opt_trace.tsv``:
+    its evaluation count, best log-likelihood so far (null if none finite
+    yet), whether it has finished (it has a row in the start table), whether its
+    first evaluation was non-finite, and its trace as ``[eval, best_loglik]``
+    pairs (thinned to at most 400, keeping the last)."""
+
+    chain: int
+    evals: int
+    best_loglik: float | None = None
+    finished: bool
+    started_nonfinite: bool
+    trace: list[tuple[int, float | None]]
+
+
 class MleResponse(BaseModel):
     """An MLE ('scout') fit: the point estimate θ̂ (``params``, estimated order),
     the optimum ``loglik``, and the multi-start ``restarts`` — the MLE analogue of
@@ -1203,6 +1218,10 @@ class MleResponse(BaseModel):
     restarts: list[MleRestart]
     #: True until camdl writes the point estimate (``mle_params.toml``).
     provisional: bool = False
+    #: While provisional, the estimate is a running search's best point so far.
+    provisional_from_running: bool = False
+    #: Each search's live progress; empty when camdl wrote no ``opt_trace.tsv``.
+    searches: list[MleSearch] = []
     #: Starts the run was configured with (run.json), when recorded. A hint:
     #: ``starts = "single"`` collapses a run to one start.
     n_expected: int | None = None

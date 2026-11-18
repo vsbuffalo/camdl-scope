@@ -1180,6 +1180,16 @@ export interface components {
              * @default false
              */
             provisional: boolean;
+            /**
+             * Provisional From Running
+             * @default false
+             */
+            provisional_from_running: boolean;
+            /**
+             * Searches
+             * @default []
+             */
+            searches: components["schemas"]["MleSearch"][];
             /** N Expected */
             n_expected?: number | null;
             /**
@@ -1222,6 +1232,31 @@ export interface components {
             values: {
                 [key: string]: number | null;
             };
+        };
+        /**
+         * MleSearch
+         * @description One optimiser search's progress, from camdl's live ``opt_trace.tsv``:
+         *     its evaluation count, best log-likelihood so far (null if none finite
+         *     yet), whether it has finished (it has a row in the start table), whether its
+         *     first evaluation was non-finite, and its trace as ``[eval, best_loglik]``
+         *     pairs (thinned to at most 400, keeping the last).
+         */
+        MleSearch: {
+            /** Chain */
+            chain: number;
+            /** Evals */
+            evals: number;
+            /** Best Loglik */
+            best_loglik?: number | null;
+            /** Finished */
+            finished: boolean;
+            /** Started Nonfinite */
+            started_nonfinite: boolean;
+            /** Trace */
+            trace: [
+                number,
+                number | null
+            ][];
         };
         /**
          * ModelGraph
