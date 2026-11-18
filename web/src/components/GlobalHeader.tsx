@@ -1,3 +1,4 @@
+import { useProfiles } from '@/api/queries'
 import { cn } from '@/lib/utils'
 import { DEMO } from '@/lib/demo'
 import { setThemeChoice, useThemeChoice, type ThemeChoice } from '@/lib/theme'
@@ -32,6 +33,10 @@ export function GlobalHeader({
   workspace: Workspace
   onWorkspace: (w: Workspace) => void
 }) {
+  // A running profile is not a fit, so the run list cannot show it; the
+  // Profile tab carries a running light instead, wherever you are.
+  const profiles = useProfiles()
+  const nRunning = (profiles.data ?? []).filter((p) => p.status === 'running').length
   return (
     // Height is mirrored by --app-header-h (index.css) so anything sticking
     // below this bar can offset by it; keep them in step.
@@ -71,6 +76,15 @@ export function GlobalHeader({
                   )}
                 >
                   {w.label}
+                  {w.value === 'profile' && nRunning > 0 && (
+                    <span
+                      className="ml-1.5 inline-flex items-center gap-1 font-mono text-[10px] text-warn"
+                      title={`${nRunning} profile${nRunning === 1 ? '' : 's'} running`}
+                    >
+                      <span className="size-1.5 bg-warn-vivid" aria-hidden />
+                      {nRunning} running
+                    </span>
+                  )}
                 </button>
               )
             })}

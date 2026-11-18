@@ -1658,6 +1658,16 @@ export interface components {
             prior_unsupported?: string | null;
         };
         /**
+         * ProfilePendingPoint
+         * @description A grid cell an invocation will run that has no finished start yet.
+         */
+        ProfilePendingPoint: {
+            /** Coords */
+            coords: number[];
+            /** N Expected */
+            n_expected: number;
+        };
+        /**
          * ProfilePoint
          * @description One grid cell of a profile: the profiled ``coords`` (one value per param —
          *     length 1 for a curve, 2 for a surface) and the best optimized log-likelihood
@@ -1679,6 +1689,15 @@ export interface components {
             nuisance: {
                 [key: string]: number;
             };
+            /** N Expected */
+            n_expected?: number | null;
+            /**
+             * Complete
+             * @default true
+             */
+            complete: boolean;
+            /** Loglik Spread */
+            loglik_spread?: number | null;
         };
         /**
          * ProfileResponse
@@ -1703,10 +1722,15 @@ export interface components {
             loglik_type: string;
             /** Points */
             points: components["schemas"]["ProfilePoint"][];
+            /**
+             * Pending
+             * @default []
+             */
+            pending: components["schemas"]["ProfilePendingPoint"][];
             /** Mle Coords */
             mle_coords: number[];
             /** Mle Loglik */
-            mle_loglik: number;
+            mle_loglik?: number | null;
             /** Ci Level */
             ci_level: number;
             /** Ci Drop */
@@ -1715,6 +1739,22 @@ export interface components {
             ci_lo?: number | null;
             /** Ci Hi */
             ci_hi?: number | null;
+            /**
+             * Status
+             * @default unknown
+             */
+            status: string;
+            /**
+             * Provisional
+             * @default false
+             */
+            provisional: boolean;
+            /** N Starts Finished */
+            n_starts_finished?: number | null;
+            /** N Starts Expected */
+            n_starts_expected?: number | null;
+            /** Heartbeat At */
+            heartbeat_at?: number | null;
         };
         /**
          * ProfileSummary
@@ -1735,6 +1775,15 @@ export interface components {
             n_points: number;
             /** Mle Coords */
             mle_coords: number[];
+            /**
+             * Status
+             * @default unknown
+             */
+            status: string;
+            /** N Starts Finished */
+            n_starts_finished?: number | null;
+            /** N Starts Expected */
+            n_starts_expected?: number | null;
         };
         /**
          * ProgressInfo

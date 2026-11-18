@@ -1209,7 +1209,13 @@ class ProfileSummary(BaseModel):
     params: list[str]  # profiled param names, e.g. ["g"] or ["g", "Cscale"]
     method: str
     n_points: int
-    mle_coords: list[float]  # MLE coordinate, one value per profiled param
+    mle_coords: list[float]  # MLE coordinate, one value per profiled param; [] if none yet
+    #: running | stalled | done | failed | unknown — see ProfileResponse.status.
+    status: str = "unknown"
+    #: Starts finished / expected over the cells camdl's invocation record
+    #: names; null when no record says what to expect.
+    n_starts_finished: int | None = None
+    n_starts_expected: int | None = None
 
 
 class ProfilePoint(BaseModel):
@@ -1223,6 +1229,22 @@ class ProfilePoint(BaseModel):
     loglik: float
     n_starts: int
     nuisance: dict[str, float] = {}
+    #: Starts this cell will have (n_starts × seeds of the invocations naming
+    #: it); null when no invocation record names it.
+    n_expected: int | None = None
+    #: False while some of its starts have not finished: ``loglik`` is then
+    #: the max over the starts so far, a lower bound that can only rise.
+    complete: bool = True
+    #: Max − min of the finished starts' log-likelihoods (failed starts
+    #: excluded); null with fewer than two.
+    loglik_spread: float | None = None
+
+
+class ProfilePendingPoint(BaseModel):
+    """A grid cell an invocation will run that has no finished start yet."""
+
+    coords: list[float]
+    n_expected: int
 
 
 class ProfileResponse(BaseModel):
@@ -1240,12 +1262,27 @@ class ProfileResponse(BaseModel):
     method: str
     loglik_type: str
     points: list[ProfilePoint]
+    #: Cells camdl's invocation record names that have no finished start yet.
+    pending: list[ProfilePendingPoint] = []
+    #: The MLE cell, from the complete cells when there are any (see
+    #: ``provisional``); empty and null while no cell has finished.
     mle_coords: list[float]
-    mle_loglik: float
+    mle_loglik: float | None = None
     ci_level: float
     ci_drop: float
     ci_lo: float | None = None
     ci_hi: float | None = None
+    #: ``running`` (an invocation's heartbeat is fresh) | ``stalled`` (its
+    #: heartbeat stopped while running: killed partway) | ``done`` | ``failed``
+    #: | ``unknown`` (camdl kept no invocation record: an older profile).
+    status: str = "unknown"
+    #: The grid is incomplete (some cell pending or partial): the MLE and the
+    #: interval are computed from the complete cells and may still move.
+    provisional: bool = False
+    n_starts_finished: int | None = None
+    n_starts_expected: int | None = None
+    #: The freshest invocation heartbeat, unix seconds; null without one.
+    heartbeat_at: float | None = None
 
 
 # --- Store workspace ---------------------------------------------------------

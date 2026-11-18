@@ -68,8 +68,13 @@ export function ProfileSurface({ data }: { data: ProfileResponse }) {
     if (!el || width <= 0) return
 
     const [nameX, nameY] = data.params
-    const maxLL = data.mle_loglik
+    const real = data.points.filter((p) => p.loglik > SENTINEL).map((p) => p.loglik)
+    // The peak the Δ is measured from: camdl-scope's MLE (complete cells), else
+    // the best cell so far.
+    const maxLL = data.mle_loglik ?? (real.length ? Math.max(...real) : 0)
     const isAbs = mode === 'absolute'
+    const startsText = (n: number, of: number | null | undefined) =>
+      of != null ? `${n} of ${of} starts` : `${n} start${n === 1 ? '' : 's'}`
     const all = data.points
       .filter((p) => p.coords.length >= 2)
       .map((p) => ({
@@ -77,8 +82,16 @@ export function ProfileSurface({ data }: { data: ProfileResponse }) {
         gy: p.coords[1]!,
         ll: p.loglik,
         dl: p.loglik - maxLL, // ≤ 0
+        complete: p.complete ?? true,
+        starts:
+          startsText(p.n_starts, p.n_expected) +
+          (p.complete === false ? ' (partial: a lower bound)' : '') +
+          (p.loglik_spread != null ? `, spread ${p.loglik_spread.toFixed(2)}` : ''),
       }))
-    if (all.length === 0) {
+    const pending = (data.pending ?? [])
+      .filter((p) => p.coords.length >= 2)
+      .map((p) => ({ gx: p.coords[0]!, gy: p.coords[1]!, n: p.n_expected }))
+    if (all.length === 0 && pending.length === 0) {
       el.replaceChildren()
       return
     }
@@ -88,10 +101,15 @@ export function ProfileSurface({ data }: { data: ProfileResponse }) {
 
     // Discrete, ascending grid axes (band domains keyed on the numeric values) —
     // spanning every evaluated cell so the mesh is complete, failed ones included.
-    const xs = [...new Set(all.map((c) => c.gx))].sort((a, b) => a - b)
-    const ys = [...new Set(all.map((c) => c.gy))].sort((a, b) => a - b)
-    const inRegion = (c: { dl: number }) => c.dl >= -data.ci_drop
-    const mleCell = { gx: data.mle_coords[0]!, gy: data.mle_coords[1]! }
+    const xs = [...new Set([...all, ...pending].map((c) => c.gx))].sort((a, b) => a - b)
+    const ys = [...new Set([...all, ...pending].map((c) => c.gy))].sort((a, b) => a - b)
+    // The region and the MLE are camdl-scope's estimate, from complete cells.
+    const inRegion = (c: { dl: number; complete: boolean }) =>
+      c.complete && c.dl >= -data.ci_drop
+    const mleCell =
+      data.mle_coords.length >= 2
+        ? { gx: data.mle_coords[0]!, gy: data.mle_coords[1]! }
+        : null
 
     // Square-ish tiles: size to the width, then set height from the row count.
     const cell = Math.max(14, Math.min(46, Math.floor((width - 74) / xs.length)))
@@ -154,10 +172,37 @@ export function ProfileSurface({ data }: { data: ProfileResponse }) {
           x: 'gx',
           y: 'gy',
           fill: isAbs ? 'll' : 'dl',
+          // A partial cell's logL is a lower bound: drawn faded, dash-outlined.
+          fillOpacity: (c: { complete: boolean }) => (c.complete ? 1 : 0.4),
           inset: 0.5,
-          title: (c: { gx: number; gy: number; ll: number; dl: number }) =>
+          title: (c: { gx: number; gy: number; ll: number; dl: number; starts: string }) =>
             `${nameX}=${fmtGrid(c.gx)}, ${nameY}=${fmtGrid(c.gy)}\n` +
-            `logL=${c.ll.toFixed(2)}  (Δ ${c.dl.toFixed(2)})`,
+            `logL=${c.ll.toFixed(2)}  (Δ ${c.dl.toFixed(2)})\n${c.starts}`,
+        }),
+        Plot.cell(
+          cells.filter((c) => !c.complete),
+          {
+            x: 'gx',
+            y: 'gy',
+            fill: 'none',
+            stroke: AXIS,
+            strokeDasharray: '2,2',
+            strokeWidth: 1,
+            inset: 2,
+          },
+        ),
+        // Cells with no finished start yet: empty, dash-outlined.
+        Plot.cell(pending, {
+          x: 'gx',
+          y: 'gy',
+          fill: 'none',
+          stroke: AXIS,
+          strokeOpacity: 0.6,
+          strokeDasharray: '2,3',
+          strokeWidth: 1,
+          inset: 2,
+          title: (c: { gx: number; gy: number; n: number }) =>
+            `${nameX}=${fmtGrid(c.gx)}, ${nameY}=${fmtGrid(c.gy)}\n0 of ${c.n} starts finished`,
         }),
         // The 95% joint region, outlined as it forms. In the ink colour: the
         // gaps between cells are the surface colour, so an outline in that
@@ -172,7 +217,7 @@ export function ProfileSurface({ data }: { data: ProfileResponse }) {
           inset: 1.5,
         }),
         // The MLE cell.
-        Plot.cell([mleCell], {
+        Plot.cell(mleCell ? [mleCell] : [], {
           x: 'gx',
           y: 'gy',
           fill: 'none',
@@ -270,8 +315,11 @@ function CellReadout({
   const pt = data.points.find(
     (p) => p.coords[0] === selected.gx && p.coords[1] === selected.gy,
   )
+  const pendingCell = (data.pending ?? []).find(
+    (p) => p.coords[0] === selected.gx && p.coords[1] === selected.gy,
+  )
   const failed = !pt || pt.loglik <= -1e99
-  const dl = pt ? pt.loglik - data.mle_loglik : 0
+  const dl = pt && data.mle_loglik != null ? pt.loglik - data.mle_loglik : 0
   const isAbs = mode === 'absolute'
   const nuisance = pt ? Object.entries(pt.nuisance) : []
 
@@ -282,7 +330,11 @@ function CellReadout({
           <span className="text-faint">cell </span>
           {nameX}={fmtGrid(selected.gx)}, {nameY}={fmtGrid(selected.gy)}
         </span>
-        {failed ? (
+        {pendingCell ? (
+          <span className="text-faint">
+            no start finished yet (0 of {pendingCell.n_expected})
+          </span>
+        ) : failed ? (
           <span className="text-faint">no feasible fit (sentinel)</span>
         ) : isAbs ? (
           <span>
@@ -296,6 +348,13 @@ function CellReadout({
           </span>
         )}
       </div>
+      {pt && pt.n_expected != null && (
+        <div className={pt.complete === false ? 'mt-1 text-warn' : 'mt-1 text-faint'}>
+          {pt.n_starts} of {pt.n_expected} starts
+          {pt.complete === false && ' — partial: logL is a lower bound'}
+          {pt.loglik_spread != null && ` · spread across starts ${pt.loglik_spread.toFixed(2)}`}
+        </div>
+      )}
       {!failed && nuisance.length > 0 && (
         <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <span className="text-[10px] uppercase tracking-wide text-faint">

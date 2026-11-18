@@ -345,7 +345,9 @@ export function useProfiles() {
   return useQuery({
     queryKey: ['profiles'],
     queryFn: getProfiles,
-    refetchInterval: 30_000,
+    // Fast enough that a just-launched profile shows in the header and the
+    // selector without a reload; the endpoint is a directory walk.
+    refetchInterval: 10_000,
   })
 }
 

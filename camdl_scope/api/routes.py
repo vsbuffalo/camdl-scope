@@ -84,6 +84,7 @@ from .models import (
     PredictivePoint,
     PredictiveResponse,
     PriorCurve,
+    ProfilePendingPoint,
     ProfilePoint,
     ProfileResponse,
     ProfileSummary,
@@ -2016,6 +2017,9 @@ def compare(
 def _profile_response(curve: profiles_mod.ProfileCurve) -> ProfileResponse:
     mle = curve.mle
     lo, hi = curve.ci_bounds_1d()  # (None, None) for a 2D surface
+    prog = curve.starts_progress()
+    beats = [inv.progress.updated_at for inv in curve.invocations
+             if inv.progress is not None and inv.progress.updated_at is not None]
     return ProfileResponse(
         base_id=curve.base_id, label=curve.label, params=list(curve.params),
         method=curve.method, loglik_type=curve.loglik_type,
@@ -2023,12 +2027,23 @@ def _profile_response(curve: profiles_mod.ProfileCurve) -> ProfileResponse:
             ProfilePoint(
                 coords=list(p.coords), loglik=p.loglik,
                 n_starts=p.n_starts, nuisance=p.nuisance,
+                n_expected=p.n_expected, complete=p.complete,
+                loglik_spread=_finite_or_none(p.loglik_spread),
             )
             for p in curve.points
         ],
-        mle_coords=list(mle.coords), mle_loglik=mle.loglik,
+        pending=[
+            ProfilePendingPoint(coords=list(p.coords), n_expected=p.n_expected)
+            for p in curve.pending
+        ],
+        mle_coords=list(mle.coords) if mle else [],
+        mle_loglik=mle.loglik if mle else None,
         ci_level=profiles_mod.CI_LEVEL, ci_drop=curve.ci_drop,
         ci_lo=lo, ci_hi=hi,
+        status=curve.status(), provisional=curve.provisional,
+        n_starts_finished=prog[0] if prog else None,
+        n_starts_expected=prog[1] if prog else None,
+        heartbeat_at=float(max(beats)) if beats else None,
     )
 
 
@@ -2038,9 +2053,14 @@ def list_profiles() -> list[ProfileSummary]:
     store = _store()
     out: list[ProfileSummary] = []
     for c in profiles_mod.discover_profiles(store):
+        prog = c.starts_progress()
         out.append(ProfileSummary(
             base_id=c.base_id, label=c.label, params=list(c.params),
-            method=c.method, n_points=len(c.points), mle_coords=list(c.mle.coords),
+            method=c.method, n_points=len(c.points) + len(c.pending),
+            mle_coords=list(c.mle.coords) if c.mle else [],
+            status=c.status(),
+            n_starts_finished=prog[0] if prog else None,
+            n_starts_expected=prog[1] if prog else None,
         ))
     return out
 
