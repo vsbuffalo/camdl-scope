@@ -1,0 +1,19 @@
+# Particle-filter score of the negative-binomial model: the losing Compare candidate.
+[model]
+camdl = "sir_nb.camdl"
+
+[data.observations]
+cases = "cases.tsv"
+
+[estimate]
+beta = { bounds = [0.5, 1.5], start = 0.9115 }
+
+[fixed]
+gamma = 0.3128
+N0 = 10000
+k = 20
+
+[method]
+algorithm = "pfilter"
+backend = "chain_binomial"
+particles = 2000

@@ -1,0 +1,99 @@
+{
+ "status": 200,
+ "body": [
+  {
+   "base_id": "sir-d2d69896",
+   "label": "sir",
+   "method": "nl-sbplx",
+   "mle_coords": [
+    0.3,
+    0.98
+   ],
+   "n_points": 16,
+   "n_starts_expected": 32,
+   "n_starts_finished": 27,
+   "params": [
+    "gamma",
+    "beta"
+   ],
+   "status": "running"
+  },
+  {
+   "base_id": "sir-8ebc75fa",
+   "label": "sir",
+   "method": "nl-sbplx",
+   "mle_coords": [
+    0.32
+   ],
+   "n_points": 5,
+   "n_starts_expected": 15,
+   "n_starts_finished": 7,
+   "params": [
+    "gamma"
+   ],
+   "status": "stalled"
+  },
+  {
+   "base_id": "sir-1fff7deb",
+   "label": "sir",
+   "method": "nl-sbplx",
+   "mle_coords": [
+    0.9
+   ],
+   "n_points": 6,
+   "n_starts_expected": 18,
+   "n_starts_finished": 10,
+   "params": [
+    "beta"
+   ],
+   "status": "running"
+  },
+  {
+   "base_id": "sir-1d9f3e93",
+   "label": "sir",
+   "method": "nl-sbplx",
+   "mle_coords": [
+    6000.0
+   ],
+   "n_points": 5,
+   "n_starts_expected": 10,
+   "n_starts_finished": 10,
+   "params": [
+    "N0"
+   ],
+   "status": "done"
+  },
+  {
+   "base_id": "sir-538665b6",
+   "label": "sir",
+   "method": "nl-sbplx",
+   "mle_coords": [
+    0.325,
+    0.96
+   ],
+   "n_points": 25,
+   "n_starts_expected": 50,
+   "n_starts_finished": 50,
+   "params": [
+    "gamma",
+    "beta"
+   ],
+   "status": "done"
+  },
+  {
+   "base_id": "sir-ce5cbd8c",
+   "label": "sir",
+   "method": "nl-sbplx",
+   "mle_coords": [
+    0.3
+   ],
+   "n_points": 6,
+   "n_starts_expected": 18,
+   "n_starts_finished": 18,
+   "params": [
+    "gamma"
+   ],
+   "status": "done"
+  }
+ ]
+}

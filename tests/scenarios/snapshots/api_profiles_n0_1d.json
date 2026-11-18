@@ -1,0 +1,99 @@
+{
+ "status": 200,
+ "body": {
+  "base_id": "sir-1d9f3e93",
+  "ci_drop": 1.9207,
+  "ci_hi": 15371.4,
+  "ci_level": 0.95,
+  "ci_lo": null,
+  "heartbeat_at": "<volatile>",
+  "label": "sir",
+  "loglik_type": "ode_marginal",
+  "method": "nl-sbplx",
+  "mle_coords": [
+   6000.0
+  ],
+  "mle_loglik": -47.8097,
+  "n_estimate_points": 5,
+  "n_starts_expected": 10,
+  "n_starts_finished": 10,
+  "params": [
+   "N0"
+  ],
+  "pending": [],
+  "points": [
+   {
+    "complete": true,
+    "coords": [
+     6000.0
+    ],
+    "loglik": -47.8097,
+    "loglik_spread": 3.86464e-11,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "beta": 0.546876,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     9000.0
+    ],
+    "loglik": -47.8097,
+    "loglik_spread": 8.02913e-13,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "beta": 0.820315,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     12000.0
+    ],
+    "loglik": -47.8097,
+    "loglik_spread": 4.20641e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "beta": 1.09375,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     15000.0
+    ],
+    "loglik": -47.8097,
+    "loglik_spread": 1.0516e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "beta": 1.36719,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     18000.0
+    ],
+    "loglik": -63.3257,
+    "loglik_spread": 5.96856e-13,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "beta": 1.5,
+     "gamma": 0.226658
+    }
+   }
+  ],
+  "provisional": false,
+  "status": "done"
+ }
+}

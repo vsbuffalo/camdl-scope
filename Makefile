@@ -57,3 +57,15 @@ TAG ?= $(shell git describe --tags --always --dirty)
 demo-bundle:
 	cd web && npm ci && VITE_DEMO=1 npm run build -- --base ./ --outDir dist-demo --emptyOutDir
 	python3 scripts/pack_demo_bundle.py --dist web/dist-demo --tag $(TAG) --out-dir release
+
+## scenarios: run camdl (CAMDL_BIN, default `camdl`) over tests/scenarios/inputs into build/scenarios
+scenarios:
+	uv run python -m tests.scenarios.scenarios generate
+
+## scenario-snapshots: record every scenario view's API JSON into tests/scenarios/snapshots (commit the diff)
+scenario-snapshots:
+	uv run python -m tests.scenarios.scenarios snapshot
+
+## gallery: screenshot every scenario view, light and dark -> build/scenarios/gallery/index.html
+gallery: build
+	uv run python -m tests.scenarios.scenarios gallery

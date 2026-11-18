@@ -1,0 +1,259 @@
+{
+ "status": 200,
+ "body": {
+  "chain_ids": [
+   0,
+   1,
+   2,
+   3
+  ],
+  "chain_logliks": {
+   "chains": [
+    {
+     "chain": 0,
+     "cutoff": null,
+     "diff": null,
+     "ess": "3.08",
+     "flagged": null,
+     "mean": "-49.74",
+     "reason": "too_few_effective_draws",
+     "se": null,
+     "status": "not_assessed",
+     "z": null
+    },
+    {
+     "chain": 1,
+     "cutoff": null,
+     "diff": null,
+     "ess": "4.51",
+     "flagged": null,
+     "mean": "-51.47",
+     "reason": "too_few_effective_draws",
+     "se": null,
+     "status": "not_assessed",
+     "z": null
+    },
+    {
+     "chain": 2,
+     "cutoff": null,
+     "diff": null,
+     "ess": "3.67",
+     "flagged": null,
+     "mean": "-48.42",
+     "reason": "too_few_effective_draws",
+     "se": null,
+     "status": "not_assessed",
+     "z": null
+    },
+    {
+     "chain": 3,
+     "cutoff": null,
+     "diff": null,
+     "ess": "4.03",
+     "flagged": null,
+     "mean": "-155.00",
+     "reason": "too_few_effective_draws",
+     "se": null,
+     "status": "not_assessed",
+     "z": null
+    }
+   ],
+   "column": "log_likelihood",
+   "column_absent": false,
+   "family_alpha": 0.001,
+   "min_ess": 10.0
+  },
+  "chain_logliks_error": null,
+  "cross_chain": null,
+  "dead_chain_ids": [],
+  "decomposition": {
+   "available": false,
+   "chain_ids": [],
+   "initial_state_derived": false,
+   "reason": "this sampler does not write a complete-data split — only marginal samplers' log_likelihood is present, which has no path or prior term to separate.",
+   "residual_max": 0.0,
+   "residual_tol": 0.01,
+   "streams": [],
+   "terms": [],
+   "total_range": 0.0,
+   "total_sd": 0.0
+  },
+  "ess_per_iter": 0.0015933,
+  "ess_per_sec": "<volatile>",
+  "ess_unreportable": [],
+  "findings": [
+   {
+    "chain_messages": "<volatile>",
+    "headline": "acceptance unhealthy: 4 chain rate(s) 2%–8%  (healthy 15–50%)",
+    "kind": "acceptance_rate_unhealthy",
+    "params": [],
+    "severity": "error"
+   },
+   {
+    "chain_messages": "<volatile>",
+    "headline": "R̂ high: gamma 2.64 · beta 2.30",
+    "kind": "rhat_high",
+    "params": [
+     "gamma",
+     "beta"
+    ],
+    "severity": "error"
+   }
+  ],
+  "frozen_chains": [],
+  "leaves": [
+   {
+    "is_open": true,
+    "leaf": "mh-68ca473b/seed_1-39ae1d69",
+    "method": "mh",
+    "run_id": "ac00f3bd03970990568af719ab3827ed7fcdfb453a2c5d90984e6ca26f220d01",
+    "status": "completed",
+    "verdict": {
+     "band": "severe",
+     "chains": [],
+     "error": null,
+     "kind": "not_converged",
+     "max_rhat": "2.643",
+     "param": "gamma",
+     "status": "error",
+     "text": "not converged: max R̂ 2.643 on gamma (severe)"
+    }
+   }
+  ],
+  "logpost_label": "marginal",
+  "map_chain": 2,
+  "map_loglik": -47.8541,
+  "mixing": {
+   "band": [
+    0.15,
+    0.5
+   ],
+   "chains": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "label": "acceptance",
+   "values": [
+    0.035,
+    0.045,
+    0.02,
+    0.08
+   ]
+  },
+  "n_chains": 4,
+  "n_chains_dead": 0,
+  "n_chains_warming": 0,
+  "n_tail": 20,
+  "params": [
+   {
+    "ess_bulk": 8.08136,
+    "ess_per_chain": [
+     6.95079,
+     6.14204,
+     4.09906,
+     6.06611
+    ],
+    "ess_tail": 15.7205,
+    "ess_text": null,
+    "mcse": 0.0324182,
+    "mean": 0.859754,
+    "name": "beta",
+    "rhat": 2.2989,
+    "rhat_refused": null,
+    "rhat_status": "error",
+    "rhat_text": null,
+    "sd": 0.083959,
+    "sep": 6.28733,
+    "symbol": null
+   },
+   {
+    "ess_bulk": 7.64782,
+    "ess_per_chain": [
+     5.40594,
+     5.81119,
+     3.74362,
+     4.76586
+    ],
+    "ess_tail": 10.8827,
+    "ess_text": null,
+    "mcse": 0.0348785,
+    "mean": 0.257346,
+    "name": "gamma",
+    "rhat": 2.64336,
+    "rhat_refused": null,
+    "rhat_status": "error",
+    "rhat_text": null,
+    "sd": 0.0901855,
+    "sep": 6.768,
+    "symbol": null
+   }
+  ],
+  "particle_health": {
+   "available": false,
+   "longest_stall_by_chain": {},
+   "method": "mh",
+   "particles": null,
+   "reason": "'mh' is not a particle method — there is no filter to report on.",
+   "renewal_by_chain": {},
+   "renewal_profile": [],
+   "stats": []
+  },
+  "run_id": "mh_unconverged-b3053ede",
+  "sampler_panels": [
+   {
+    "columns": [
+     {
+      "band": [
+       0.15,
+       0.5
+      ],
+      "is_fraction": true,
+      "key": "accepted",
+      "label": "accept",
+      "note": "Metropolis acceptance rate."
+     }
+    ],
+    "id": "sampler-telemetry",
+    "note": "Per-chain summary of the sampler's own telemetry, over the retained draws. Counts are sums; everything else is a mean.",
+    "rows": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "title": "sampler diagnostics",
+    "values": [
+     [
+      0.05
+     ],
+     [
+      0.0
+     ],
+     [
+      0.0
+     ],
+     [
+      0.1
+     ]
+    ]
+   }
+  ],
+  "source": "camdl",
+  "stage": "<volatile>",
+  "stats_vintage": "<volatile>",
+  "verdict": {
+   "band": "severe",
+   "chains": [],
+   "error": null,
+   "kind": "not_converged",
+   "max_rhat": "2.643",
+   "param": "gamma",
+   "status": "error",
+   "text": "not converged: max R̂ 2.643 on gamma (severe)"
+  },
+  "warmup_cutoff": 100,
+  "warmup_pct": null
+ }
+}

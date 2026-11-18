@@ -1,0 +1,70 @@
+{
+ "status": 200,
+ "body": {
+  "algorithm": "nl-sbplx",
+  "all_maxeval": false,
+  "backend": "ode",
+  "chain_logliks": null,
+  "chain_logliks_error": null,
+  "label": "opt_running · nl-sbplx/ode",
+  "loglik": -47.8097,
+  "n_converged": 2,
+  "n_expected": 6,
+  "n_maxeval": 0,
+  "n_restarts": 2,
+  "params": [
+   {
+    "bounds": [
+     0.5,
+     1.5
+    ],
+    "description": null,
+    "name": "beta",
+    "reference": null,
+    "restart_hi": 0.911461,
+    "restart_lo": 0.911461,
+    "symbol": null,
+    "value": 0.911461
+   },
+   {
+    "bounds": [
+     0.1,
+     0.6
+    ],
+    "description": null,
+    "name": "gamma",
+    "reference": null,
+    "restart_hi": 0.312817,
+    "restart_lo": 0.312817,
+    "symbol": null,
+    "value": 0.312817
+   }
+  ],
+  "provisional": true,
+  "restarts": [
+   {
+    "chain": 0,
+    "hit_maxeval": false,
+    "loglik": -47.8097,
+    "n_evals": 231,
+    "status": "xtol_reached",
+    "values": {
+     "beta": 0.911461,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "chain": 1,
+    "hit_maxeval": false,
+    "loglik": -47.8097,
+    "n_evals": 265,
+    "status": "xtol_reached",
+    "values": {
+     "beta": 0.911461,
+     "gamma": 0.312817
+    }
+   }
+  ],
+  "run_id": "opt_running-4479dfba"
+ }
+}

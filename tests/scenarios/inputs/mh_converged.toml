@@ -1,0 +1,22 @@
+# Four MH chains, long enough to converge (camdl's verdict: converged).
+[model]
+camdl = "sir.camdl"
+
+[data.observations]
+cases = "cases.tsv"
+
+[estimate]
+beta = { bounds = [0.5, 1.5], prior = { uniform = {} } }
+gamma = { bounds = [0.1, 0.6], prior = { uniform = {} } }
+
+[fixed]
+N0 = 10000
+
+[method]
+algorithm = "mh"
+backend = "ode"
+chains = 4
+iterations = 16000
+burn_in = 6000
+adapt = true
+starts = "lhs"

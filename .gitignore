@@ -16,3 +16,5 @@ tests/fixtures/golden-store/
 
 # Ephemeral agent worktrees
 .claude/
+# scenario store and gallery (make scenarios / make gallery)
+build/

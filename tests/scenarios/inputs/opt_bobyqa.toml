@@ -1,0 +1,22 @@
+# Four nl-bobyqa starts: the same problem under a second optimizer.
+[model]
+camdl = "sir.camdl"
+
+[data.observations]
+cases = "cases.tsv"
+
+[estimate]
+beta = { bounds = [0.5, 1.5] }
+gamma = { bounds = [0.1, 0.6] }
+
+[fixed]
+N0 = 10000
+
+
+[method]
+algorithm = "nl-bobyqa"
+backend = "ode"
+chains = 4
+starts = "lhs"
+tolerance = 1e-8
+max_evals = 5000

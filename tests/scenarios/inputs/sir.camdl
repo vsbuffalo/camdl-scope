@@ -1,0 +1,34 @@
+# Base: none — root model
+# Adds: nothing; the scenario store's reference model
+# Changes: nothing else
+#
+# A closed SIR epidemic: susceptibles (S) are infected (I) at rate
+# beta * S * I / N0 and recover (R) at rate gamma. N0 scales the contact rate.
+# Because S starts fixed at 9990, only the ratio beta / N0 enters the dynamics,
+# so a fit that estimates both beta and N0 lies on a ridge of equal likelihood:
+# the dashboard's multi-start view is meant to show exactly that.
+#
+# Fitted to one stream: cases, the new infections in each 3-day window,
+# Poisson-distributed around the model's incidence.
+time_unit = 'days
+compartments { S, I, R }
+parameters {
+  beta  : rate  in [0.5, 1.5]
+  gamma : rate  in [0.1, 0.6]
+  N0    : count in [100, 100000]
+}
+transitions {
+  infection : S --> I @ beta * S * I / N0
+  recovery  : I --> R @ gamma * I
+}
+observations {
+  cases {
+    columns       { time : time, cases : count }
+    covers        = closing_at(time, 3 'days)
+    projected     = incidence(infection)
+    emit_schedule = every 3 'days
+    cases ~ poisson(rate = projected)
+  }
+}
+init { S = 9990  I = 10 }
+simulate { from = 0 'days  to = 60 'days  dt = 0.01 'days }

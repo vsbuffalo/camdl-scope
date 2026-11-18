@@ -1,0 +1,23 @@
+# The ridge problem with a 120-evaluation budget: every start stops at max_evals,
+# scattered in log-likelihood and in every parameter.
+[model]
+camdl = "sir.camdl"
+
+[data.observations]
+cases = "cases.tsv"
+
+[estimate]
+beta = { bounds = [0.5, 1.5] }
+gamma = { bounds = [0.1, 0.6] }
+N0 = { bounds = [2000, 50000] }
+
+[fixed]
+
+
+[method]
+algorithm = "nl-sbplx"
+backend = "ode"
+chains = 8
+starts = "lhs"
+tolerance = 1e-8
+max_evals = 120

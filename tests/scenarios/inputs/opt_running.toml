@@ -1,0 +1,22 @@
+# Copy of opt_agree; the generator truncates it into a mid-run state.
+[model]
+camdl = "sir.camdl"
+
+[data.observations]
+cases = "cases.tsv"
+
+[estimate]
+beta = { bounds = [0.5, 1.5] }
+gamma = { bounds = [0.1, 0.6] }
+
+[fixed]
+N0 = 10000
+
+
+[method]
+algorithm = "nl-sbplx"
+backend = "ode"
+chains = 6
+starts = "lhs"
+tolerance = 1e-8
+max_evals = 5000

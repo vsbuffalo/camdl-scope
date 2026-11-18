@@ -1,0 +1,18 @@
+# Particle-filter score of the Poisson model at the optimum: a Compare candidate.
+[model]
+camdl = "sir.camdl"
+
+[data.observations]
+cases = "cases.tsv"
+
+[estimate]
+beta = { bounds = [0.5, 1.5], start = 0.9115 }
+
+[fixed]
+gamma = 0.3128
+N0 = 10000
+
+[method]
+algorithm = "pfilter"
+backend = "chain_binomial"
+particles = 2000

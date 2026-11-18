@@ -1,0 +1,16 @@
+{
+ "status": 200,
+ "body": {
+  "candidates": [
+   {
+    "label": "pf_nb",
+    "run_id": "pf_nb-c0ede1ae"
+   },
+   {
+    "label": "pf_pois",
+    "run_id": "pf_pois-64601a31"
+   }
+  ],
+  "n_without_prequential": 8
+ }
+}

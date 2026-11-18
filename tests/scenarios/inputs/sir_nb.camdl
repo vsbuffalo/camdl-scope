@@ -1,0 +1,33 @@
+# Base: sir.camdl
+# Adds: a negative-binomial observation model with dispersion k
+# Changes: nothing else
+#
+# The same closed SIR epidemic as sir.camdl. Cases are negative-binomial around
+# the model's incidence instead of Poisson, so the comparison of the two models
+# (the dashboard's Compare tab) has a clear answer: the data were simulated from
+# the Poisson model.
+#
+# Fitted to one stream: cases, the new infections in each 3-day window.
+time_unit = 'days
+compartments { S, I, R }
+parameters {
+  beta  : rate  in [0.5, 1.5]
+  gamma : rate  in [0.1, 0.6]
+  N0    : count in [100, 100000]
+  k     : positive in [0.5, 200]
+}
+transitions {
+  infection : S --> I @ beta * S * I / N0
+  recovery  : I --> R @ gamma * I
+}
+observations {
+  cases {
+    columns       { time : time, cases : count }
+    covers        = closing_at(time, 3 'days)
+    projected     = incidence(infection)
+    emit_schedule = every 3 'days
+    cases ~ neg_binomial(mean = projected, r = k)
+  }
+}
+init { S = 9990  I = 10 }
+simulate { from = 0 'days  to = 60 'days  dt = 0.01 'days }

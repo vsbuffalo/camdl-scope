@@ -1,0 +1,23 @@
+# Eight starts estimating beta, gamma and N0: all converge to one log-likelihood
+# but spread along the beta/N0 ridge (only their ratio is identified).
+[model]
+camdl = "sir.camdl"
+
+[data.observations]
+cases = "cases.tsv"
+
+[estimate]
+beta = { bounds = [0.5, 1.5] }
+gamma = { bounds = [0.1, 0.6] }
+N0 = { bounds = [2000, 50000] }
+
+[fixed]
+
+
+[method]
+algorithm = "nl-sbplx"
+backend = "ode"
+chains = 8
+starts = "lhs"
+tolerance = 1e-8
+max_evals = 5000

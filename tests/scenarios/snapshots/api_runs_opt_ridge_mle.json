@@ -1,0 +1,157 @@
+{
+ "status": 200,
+ "body": {
+  "algorithm": "nl-sbplx",
+  "all_maxeval": false,
+  "backend": "ode",
+  "chain_logliks": null,
+  "chain_logliks_error": null,
+  "label": "opt_ridge · nl-sbplx/ode",
+  "loglik": -47.8097,
+  "n_converged": 8,
+  "n_expected": 8,
+  "n_maxeval": 0,
+  "n_restarts": 8,
+  "params": [
+   {
+    "bounds": [
+     0.5,
+     1.5
+    ],
+    "description": null,
+    "name": "beta",
+    "reference": null,
+    "restart_hi": 1.48515,
+    "restart_lo": 0.661951,
+    "symbol": null,
+    "value": 1.4023
+   },
+   {
+    "bounds": [
+     0.1,
+     0.6
+    ],
+    "description": null,
+    "name": "gamma",
+    "reference": null,
+    "restart_hi": 0.312817,
+    "restart_lo": 0.312817,
+    "symbol": null,
+    "value": 0.312817
+   },
+   {
+    "bounds": [
+     2000.0,
+     50000.0
+    ],
+    "description": null,
+    "name": "N0",
+    "reference": null,
+    "restart_hi": 16294.2,
+    "restart_lo": 7262.53,
+    "symbol": null,
+    "value": 15385.2
+   }
+  ],
+  "provisional": false,
+  "restarts": [
+   {
+    "chain": 0,
+    "hit_maxeval": false,
+    "loglik": -47.8097,
+    "n_evals": 259,
+    "status": "xtol_reached",
+    "values": {
+     "N0": 10390.9,
+     "beta": 0.947086,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "chain": 1,
+    "hit_maxeval": false,
+    "loglik": -47.8097,
+    "n_evals": 315,
+    "status": "xtol_reached",
+    "values": {
+     "N0": 16294.2,
+     "beta": 1.48515,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "chain": 2,
+    "hit_maxeval": false,
+    "loglik": -47.8097,
+    "n_evals": 271,
+    "status": "xtol_reached",
+    "values": {
+     "N0": 7794.18,
+     "beta": 0.710409,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "chain": 3,
+    "hit_maxeval": false,
+    "loglik": -47.8097,
+    "n_evals": 354,
+    "status": "xtol_reached",
+    "values": {
+     "N0": 15637.9,
+     "beta": 1.42533,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "chain": 4,
+    "hit_maxeval": false,
+    "loglik": -47.8097,
+    "n_evals": 854,
+    "status": "xtol_reached",
+    "values": {
+     "N0": 10487.5,
+     "beta": 0.955896,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "chain": 5,
+    "hit_maxeval": false,
+    "loglik": -47.8097,
+    "n_evals": 843,
+    "status": "xtol_reached",
+    "values": {
+     "N0": 7262.53,
+     "beta": 0.661951,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "chain": 6,
+    "hit_maxeval": false,
+    "loglik": -47.8097,
+    "n_evals": 499,
+    "status": "xtol_reached",
+    "values": {
+     "N0": 10412.4,
+     "beta": 0.949045,
+     "gamma": 0.312817
+    }
+   },
+   {
+    "chain": 7,
+    "hit_maxeval": false,
+    "loglik": -47.8097,
+    "n_evals": 343,
+    "status": "xtol_reached",
+    "values": {
+     "N0": 15385.2,
+     "beta": 1.4023,
+     "gamma": 0.312817
+    }
+   }
+  ],
+  "run_id": "opt_ridge-723e5ca4"
+ }
+}

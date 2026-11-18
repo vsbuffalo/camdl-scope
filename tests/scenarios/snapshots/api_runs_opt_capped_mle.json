@@ -1,0 +1,157 @@
+{
+ "status": 200,
+ "body": {
+  "algorithm": "nl-sbplx",
+  "all_maxeval": true,
+  "backend": "ode",
+  "chain_logliks": null,
+  "chain_logliks_error": null,
+  "label": "opt_capped · nl-sbplx/ode",
+  "loglik": -47.8097,
+  "n_converged": 8,
+  "n_expected": 8,
+  "n_maxeval": 8,
+  "n_restarts": 8,
+  "params": [
+   {
+    "bounds": [
+     0.5,
+     1.5
+    ],
+    "description": null,
+    "name": "beta",
+    "reference": null,
+    "restart_hi": 1.49995,
+    "restart_lo": 0.662334,
+    "symbol": null,
+    "value": 0.947056
+   },
+   {
+    "bounds": [
+     0.1,
+     0.6
+    ],
+    "description": null,
+    "name": "gamma",
+    "reference": null,
+    "restart_hi": 0.586199,
+    "restart_lo": 0.232547,
+    "symbol": null,
+    "value": 0.312783
+   },
+   {
+    "bounds": [
+     2000.0,
+     50000.0
+    ],
+    "description": null,
+    "name": "N0",
+    "reference": null,
+    "restart_hi": 16637.9,
+    "restart_lo": 7335.67,
+    "symbol": null,
+    "value": 10390.9
+   }
+  ],
+  "provisional": false,
+  "restarts": [
+   {
+    "chain": 0,
+    "hit_maxeval": true,
+    "loglik": -47.8098,
+    "n_evals": 120,
+    "status": "maxeval_reached",
+    "values": {
+     "N0": 10390.9,
+     "beta": 0.947056,
+     "gamma": 0.312783
+    }
+   },
+   {
+    "chain": 2,
+    "hit_maxeval": true,
+    "loglik": -47.8098,
+    "n_evals": 120,
+    "status": "maxeval_reached",
+    "values": {
+     "N0": 7794.18,
+     "beta": 0.710341,
+     "gamma": 0.312722
+    }
+   },
+   {
+    "chain": 5,
+    "hit_maxeval": true,
+    "loglik": -48.0152,
+    "n_evals": 120,
+    "status": "maxeval_reached",
+    "values": {
+     "N0": 7335.67,
+     "beta": 0.662334,
+     "gamma": 0.303027
+    }
+   },
+   {
+    "chain": 1,
+    "hit_maxeval": true,
+    "loglik": -48.0443,
+    "n_evals": 120,
+    "status": "maxeval_reached",
+    "values": {
+     "N0": 16294.2,
+     "beta": 1.49995,
+     "gamma": 0.323213
+    }
+   },
+   {
+    "chain": 3,
+    "hit_maxeval": true,
+    "loglik": -49.8392,
+    "n_evals": 120,
+    "status": "maxeval_reached",
+    "values": {
+     "N0": 15981.1,
+     "beta": 1.42533,
+     "gamma": 0.287682
+    }
+   },
+   {
+    "chain": 6,
+    "hit_maxeval": true,
+    "loglik": -49.9123,
+    "n_evals": 120,
+    "status": "maxeval_reached",
+    "values": {
+     "N0": 10388.5,
+     "beta": 0.975114,
+     "gamma": 0.343666
+    }
+   },
+   {
+    "chain": 7,
+    "hit_maxeval": true,
+    "loglik": -61.8296,
+    "n_evals": 120,
+    "status": "maxeval_reached",
+    "values": {
+     "N0": 16637.9,
+     "beta": 1.4023,
+     "gamma": 0.232547
+    }
+   },
+   {
+    "chain": 4,
+    "hit_maxeval": true,
+    "loglik": -223.469,
+    "n_evals": 120,
+    "status": "maxeval_reached",
+    "values": {
+     "N0": 8333.68,
+     "beta": 0.955989,
+     "gamma": 0.586199
+    }
+   }
+  ],
+  "run_id": "opt_capped-723e5ca4"
+ }
+}

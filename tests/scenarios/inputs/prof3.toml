@@ -1,0 +1,22 @@
+# Base config for 2D profiles and the N0 profile (beta, gamma, N0 estimated).
+[model]
+camdl = "sir.camdl"
+
+[data.observations]
+cases = "cases.tsv"
+
+[estimate]
+beta = { bounds = [0.5, 1.5] }
+gamma = { bounds = [0.1, 0.6] }
+N0 = { bounds = [5000, 20000] }
+
+[fixed]
+
+
+[method]
+algorithm = "nl-sbplx"
+backend = "ode"
+chains = 2
+starts = "lhs"
+tolerance = 1e-8
+max_evals = 2000
