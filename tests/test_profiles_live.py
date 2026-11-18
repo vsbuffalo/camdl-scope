@@ -33,8 +33,8 @@ def _base(store: Path) -> Path:
     return b
 
 
-def _start(store: Path, v: float, k: int, loglik: float) -> None:
-    leaf = _base(store) / _dir(v) / "nlopt_sbplx_-mm" / "seed_1-ss" / f"start_{k}-kk"
+def _start(store: Path, v: float, k: int, loglik: float, method: str = "nlopt_sbplx_-mm") -> None:
+    leaf = _base(store) / _dir(v) / method / "seed_1-ss" / f"start_{k}-kk"
     leaf.mkdir(parents=True)
     (leaf / "run.json").write_text(json.dumps({
         "kind": "profile_point",
@@ -55,6 +55,7 @@ def _invocation(store: Path, *, state: object = None, age: float = 0.0,
         "focal": [{"name": "leave_s", "values": GRID}],
         "n_starts": n_starts, "seeds": [1],
         "points": [{"coords": {"leave_s": v}, "dir": _dir(v)} for v in GRID],
+        "method_dir": "nlopt_sbplx_-mm",
         "total_jobs": n_starts * len(GRID),
     }))
     if state is not None:
@@ -199,3 +200,18 @@ def test_no_interval_is_drawn_from_partial_values_alone(tmp_path):
     assert c.estimate_points == []
     assert c.mle.coords == (0.018,) and c.provisional
     assert c.ci_bounds_1d() == (None, None)
+
+
+def test_leaves_of_another_method_do_not_count_as_this_invocations_starts(tmp_path):
+    """An earlier run with other method settings left 10 starts at 0.10; this
+    invocation (method nlopt_sbplx_-mm) has finished 2 of its 10 there. The cell
+    is partial, but its log-likelihood is still the best over every leaf."""
+    store = _store(tmp_path)
+    for k in range(10):
+        _start(store, 0.10, k, -4700.0, method="nlopt_sbplx_-old")
+    _start(store, 0.10, 0, -4631.8)
+    _start(store, 0.10, 1, -4632.0)
+    _invocation(store, state=RUNNING)
+    p = next(p for p in load_profile(store, BASE).points if p.coords == (0.10,))
+    assert (p.n_starts, p.n_expected, p.complete) == (2, 10, False)
+    assert p.loglik == -4631.8

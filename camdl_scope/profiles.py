@@ -4,9 +4,10 @@
 
     profiles/<base>/<point>/<stage>/<seed>/<start>/run.json
 
-- ``base``  — the inference *problem* (label e.g. ``ctl_binom``). The base hash
-  deliberately EXCLUDES the focal grid, so points from different grid
-  invocations of the same problem co-locate under one base; we aggregate them.
+- ``base``  — the inference *problem* and its focal grid (label e.g.
+  ``ctl_binom``): camdl's ``ProfileBase`` hashes the resolved grid, so a
+  different grid is a different base. Invocations share a base when they rerun
+  the same grid, with other seeds or other method settings; we aggregate them.
 - ``point`` — one focal grid cell. Its level label names the profiled params:
   1D is ``g=0.0300``; a 2D grid cell is ``g=0.0316__Cscale=0.2000`` (params
   joined by ``__``). The label rounds each value to 4 decimals (grid value
@@ -114,6 +115,9 @@ class ProfileInvocation:
     algorithm: str
     params: tuple[str, ...]
     points: tuple[ExpectedPoint, ...]
+    # The <method> directory under each point this invocation writes into;
+    # None when the record does not name one.
+    method_dir: str | None
     n_starts: int
     seeds: tuple[int, ...]
     progress: RunProgress | None
@@ -361,6 +365,7 @@ def _read_invocation(d: Path) -> ProfileInvocation | None:
         algorithm=str(rec.get("algorithm") or ""),
         params=params,
         points=tuple(points),
+        method_dir=rec.get("method_dir") if isinstance(rec.get("method_dir"), str) else None,
         n_starts=n_starts if isinstance(n_starts, int) and n_starts > 0 else 1,
         seeds=tuple(x for x in seeds if isinstance(x, int)) if isinstance(seeds, list) else (),
         progress=read_progress(d),
@@ -392,10 +397,21 @@ def load_profile(store: Path, base_id: str) -> ProfileCurve | None:
     # Starts expected per cell directory: the most any invocation asks of it.
     expected: dict[str, int] = {}
     expected_coords: dict[str, tuple[float, ...]] = {}
+    # The method directories whose leaves count towards a cell's expected
+    # starts. Another invocation with other method settings may have written
+    # leaves into the same cell; those are results too (the curve takes the
+    # best of all), but they are not this invocation's starts. None: some
+    # invocation naming the cell did not say, so every leaf counts.
+    counted: dict[str, set[str] | None] = {}
     for inv in invocations:
         for ep in inv.points:
             expected[ep.dir] = max(expected.get(ep.dir, 0), inv.starts_per_point)
             expected_coords.setdefault(ep.dir, ep.coords)
+            prior = counted.get(ep.dir, set())
+            counted[ep.dir] = (
+                None if inv.method_dir is None or prior is None
+                else prior | {inv.method_dir}
+            )
 
     label = base_id
     params: tuple[str, ...] = ()
@@ -409,6 +425,8 @@ def load_profile(store: Path, base_id: str) -> ProfileCurve | None:
             continue
         best = -math.inf
         n = 0
+        n_counted = 0  # leaves in the method directories the record counts
+        methods = counted.get(point_dir.name)
         finished: list[float] = []
         coords: tuple[float, ...] | None = None
         best_leaf: Path | None = None
@@ -438,10 +456,15 @@ def load_profile(store: Path, base_id: str) -> ProfileCurve | None:
                     best = fll
                     best_leaf = run_json.parent
                 n += 1
+                if methods is None or run_json.relative_to(point_dir).parts[0] in methods:
+                    n_counted += 1
         if coords is not None and n > 0:
             seen_dirs.add(point_dir.name)
             points.append(ProfilePoint(
-                coords=coords, loglik=best, n_starts=n,
+                # A cell an invocation names counts that invocation's starts;
+                # any other cell counts every finished leaf, as before.
+                coords=coords, loglik=best,
+                n_starts=n_counted if point_dir.name in expected else n,
                 nuisance=_read_nuisance(best_leaf) if best_leaf else {},
                 n_expected=expected.get(point_dir.name),
                 loglik_spread=(max(finished) - min(finished)) if len(finished) >= 2 else None,
