@@ -1,5 +1,8 @@
 /**
- * Deep links: a URL that opens one exact fit.
+ * Deep links: a URL that opens one exact fit, profile or comparison.
+ *
+ * `?profile=<base_id>` opens a profile and `?compare=<run>,<run>` a comparison;
+ * the rest of this module is about fits.
  *
  * `?run=<token>&tab=<tab>` — so a fit can be handed over in a message, a ticket
  * or an agent's output and land the reader on the same run, rather than on
@@ -30,6 +33,10 @@ export interface DeepLink {
   run?: string
   /** Inner tab to open, e.g. `diagnostics`. Ignored if the run has no such tab. */
   tab?: string
+  /** A profile to open in the Profile workspace, by its base id. */
+  profile?: string
+  /** Runs to select in the Compare workspace, comma-separated in the URL. */
+  compare?: string[]
 }
 
 /** How a run token resolved against the store. */
@@ -164,6 +171,8 @@ export function readDeepLink(): DeepLink {
   return {
     run: p.get('run') ?? undefined,
     tab: p.get('tab') ?? undefined,
+    profile: p.get('profile') ?? undefined,
+    compare: p.get('compare')?.split(',').filter(Boolean) ?? undefined,
   }
 }
 
@@ -178,7 +187,8 @@ export function writeDeepLink(next: Partial<DeepLink>): void {
   if (typeof window === 'undefined') return
   const url = new URL(window.location.href)
   for (const [key, value] of Object.entries(next)) {
-    if (value) url.searchParams.set(key, value)
+    const v = Array.isArray(value) ? value.join(',') : value
+    if (v) url.searchParams.set(key, v)
     else url.searchParams.delete(key)
   }
   window.history.replaceState(null, '', url)

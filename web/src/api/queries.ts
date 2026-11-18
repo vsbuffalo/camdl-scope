@@ -3,6 +3,7 @@ import type { WarmupSetting } from '@/lib/chains'
 import { usePredictChoice } from '@/lib/predict-selection'
 import {
   getCompare,
+  getCompareCandidates,
   getDiagnostics,
   getPriorPosterior,
   getPriorPredictive,
@@ -133,6 +134,15 @@ export function usePosterior(
  * `T_score` refusal still resolves (with `commensurable: false`), so only a
  * genuine backend error surfaces as `isError`.
  */
+/** The Compare picker's candidates; refreshed like the run list. */
+export function useCompareCandidates() {
+  return useQuery({
+    queryKey: ['compare-candidates'],
+    queryFn: getCompareCandidates,
+    refetchInterval: 10_000,
+  })
+}
+
 export function useCompare(
   runIds: string[],
   opts: { baseline?: string; allowMismatchedHorizon?: boolean } = {},

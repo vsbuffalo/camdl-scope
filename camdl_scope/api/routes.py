@@ -63,6 +63,8 @@ from .models import (
     PriorPosteriorResponse,
     PriorPosteriorRow,
     SamplerPanel,
+    CompareCandidate,
+    CompareCandidates,
     CompareResponse,
     CompareRow,
     DiagnosticsResponse,
@@ -1909,6 +1911,28 @@ def get_diagnostics(
 # ---------------------------------------------------------------------------
 
 
+@router.get("/compare/candidates", response_model=CompareCandidates)
+def compare_candidates() -> CompareCandidates:
+    """Runs that can be compared: listed runs with a ``prequential.json`` under
+    them, plus run folders the run list omits because they hold only a
+    particle-filter score (camdl's one-method-per-config layout)."""
+    store = _store()
+    metas = ingest.discover_runs(store, include_warming=True)
+    out: list[CompareCandidate] = []
+    covered: set[Path] = set()
+    n_without = 0
+    for m in metas:
+        if compare_mod.find_prequential(m.run_dir) is None:
+            n_without += 1
+            continue
+        covered.add(m.run_dir)
+        out.append(CompareCandidate(run_id=m.run_id, label=m.display_label))
+    for r in compare_mod.discover_scored(store):
+        if r.run_dir not in covered:
+            out.append(CompareCandidate(run_id=r.run_id, label=r.label))
+    return CompareCandidates(candidates=out, n_without_prequential=n_without)
+
+
 @router.get("/compare", response_model=CompareResponse)
 def compare(
     runs: list[str] = Query(..., description="run ids to compare (≥2)"),
@@ -1934,12 +1958,18 @@ def compare(
     specs: list[compare_mod.CompareSpec] = []
     labels: dict[str, str] = {}
     missing: list[str] = []
+    scored = {r.run_id: r for r in compare_mod.discover_scored(store)}
     for rid in runs:
         meta = _find_meta(store, rid)
-        if meta is None:
+        if meta is not None:
+            labels[rid] = meta.display_label
+            pq = compare_mod.find_prequential(meta.run_dir)
+        elif rid in scored:
+            # A standalone particle-filter scoring run: not in the run list.
+            labels[rid] = scored[rid].label
+            pq = scored[rid].path
+        else:
             raise HTTPException(status_code=404, detail=f"run not found: {rid}")
-        labels[rid] = meta.display_label
-        pq = compare_mod.find_prequential(meta.run_dir)
         if pq is None:
             missing.append(rid)
             continue
@@ -1982,7 +2012,8 @@ def compare(
                 delta_elpd=_finite_or_none(d),
                 delta_elpd_db=_finite_or_none(r.get("delta_elpd_db")),
                 evidence_label=r.get("evidence_label"),
-                e_t=_finite_or_none(r.get("e_t")),
+                # camdl names it `lr` (the likelihood ratio); older camdl, `e_t`.
+                e_t=_finite_or_none(r.get("lr", r.get("e_t"))),
                 se_delta_elpd=_finite_or_none(se),
                 mean_crps=_finite_or_none(r.get("mean_crps")),
                 delta_mean_crps=_finite_or_none(r.get("delta_mean_crps")),

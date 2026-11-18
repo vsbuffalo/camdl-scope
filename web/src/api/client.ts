@@ -50,6 +50,8 @@ export type SamplerPanel = components['schemas']['SamplerPanel']
 export type PriorPosteriorResponse = components['schemas']['PriorPosteriorResponse']
 export type PriorPosteriorRow = components['schemas']['PriorPosteriorRow']
 export type CompareResponse = components['schemas']['CompareResponse']
+export type CompareCandidates = components['schemas']['CompareCandidates']
+export type CompareCandidate = components['schemas']['CompareCandidate']
 export type CompareRow = components['schemas']['CompareRow']
 export type QuantityInfo = components['schemas']['QuantityInfo']
 export type QuantitySeriesResponse = components['schemas']['QuantitySeriesResponse']
@@ -327,6 +329,12 @@ export function getQuantitySeries(
  * carry a `prequential.json`, via the authoritative `camdl compare`. Optional
  * `baseline` run id; `allowMismatchedHorizon` acknowledges a `T_score` mismatch.
  */
+/** Runs that can enter a comparison (they carry a `prequential.json`),
+ *  including standalone particle-filter scoring runs the run list omits. */
+export function getCompareCandidates(): Promise<CompareCandidates> {
+  return getJson<CompareCandidates>('/api/compare/candidates')
+}
+
 export function getCompare(
   runIds: string[],
   opts: { baseline?: string; allowMismatchedHorizon?: boolean } = {},

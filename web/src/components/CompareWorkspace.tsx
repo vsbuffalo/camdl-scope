@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { CompareResponse } from '@/api/client'
-import { useCompare, useRuns } from '@/api/queries'
+import { useCompare, useCompareCandidates, useRuns } from '@/api/queries'
+import { readDeepLink, writeDeepLink } from '@/lib/deeplink'
 import { PrequentialPicker } from '@/components/PrequentialPicker'
 import { CompareTable } from '@/components/CompareTable'
 import { DeltaElpdPlot } from '@/components/DeltaElpdPlot'
@@ -62,10 +63,14 @@ function BaselineSelect({
  * ticker that stands in for the long fit label in the dense table and the plot.
  */
 export function CompareWorkspace() {
-  const { data, isError } = useRuns()
-  const runs = data ?? []
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const selectedIds = runs
+  const { data: runsData } = useRuns()
+  const runs = runsData ?? []
+  const { data, isError } = useCompareCandidates()
+  const candidates = data?.candidates ?? []
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(readDeepLink().compare ?? []),
+  )
+  const selectedIds = candidates
     .filter((r) => selected.has(r.run_id))
     .map((r) => r.run_id)
 
@@ -77,6 +82,7 @@ export function CompareWorkspace() {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
+      writeDeepLink({ compare: [...next] })
       return next
     })
 
@@ -90,6 +96,8 @@ export function CompareWorkspace() {
   return (
     <div>
       <PrequentialPicker
+        candidates={candidates}
+        others={data?.n_without_prequential ?? 0}
         runs={runs}
         selected={selected}
         onToggle={toggle}

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -73,6 +74,83 @@ def find_prequential(run_dir: Path) -> Path | None:
     return None
 
 
+_HASH_SUFFIX = re.compile(r"-[0-9a-f]{8}$")
+
+
+@dataclass(frozen=True)
+class ScoredRun:
+    """A run folder that carries a ``prequential.json``. Since camdl writes one
+    ``[method]`` per config, a particle-filter scoring run is a run folder of its
+    own (``<label>-<hash>/pfilter-<hash>/seed_*/prequential.json``) with no
+    draws and no point estimate, so the run list never shows it; this finds it
+    by its score artifact alone. ``run_id`` is the folder name."""
+
+    run_id: str
+    label: str
+    run_dir: Path
+    path: Path
+    mtime: float
+
+
+def discover_scored(store: Path) -> list[ScoredRun]:
+    """Every run folder directly under ``store`` with a ``prequential.json``
+    (newest first)."""
+    out: list[ScoredRun] = []
+    try:
+        dirs = [d for d in store.iterdir() if d.is_dir()]
+    except OSError:
+        return out
+    for d in dirs:
+        pq = find_prequential(d)
+        if pq is None:
+            continue
+        try:
+            mtime = pq.stat().st_mtime
+        except OSError:
+            continue
+        out.append(ScoredRun(d.name, _HASH_SUFFIX.sub("", d.name), d, pq, mtime))
+    return sorted(out, key=lambda r: r.mtime, reverse=True)
+
+
+# camdl's JSON carries its advisories as named top-level fields (null when they
+# do not apply), in this reading order: what the scores are, whether the data
+# and filter settings were checked to match, then how to read the SE and the
+# evidence words.
+_CAVEAT_FIELDS = (
+    "optimism_caveat",
+    "data_mismatch",
+    "data_changed",
+    "data_unchecked",
+    "data_change_unchecked",
+    "data_compared_on_prefix",
+    "filter_settings_mismatch",
+    "filter_settings_unchecked",
+    "filter_noise_unassessed",
+    "se_caveat",
+    "evidence_scale_note",
+)
+
+
+def json_notes(data: dict) -> list[str]:
+    """camdl's advisories from its JSON: the top-level caveat fields that are
+    set, each row's lag-1 autocorrelation of per-step Δelpd (which makes the
+    paired SE optimistic when large), and each row's warnings by kind. Read and
+    worded here, never judged: camdl decides which caveats apply."""
+    out = [str(data[k]) for k in _CAVEAT_FIELDS if isinstance(data.get(k), str) and data[k]]
+    for r in data.get("rows", []):
+        name = r.get("name", "?")
+        lag1 = r.get("lag1_autocorr_delta_elpd")
+        if isinstance(lag1, (int, float)):
+            out.append(
+                f"lag-1 autocorrelation of the per-step Δelpd vs baseline: {name} {lag1:+.2f}"
+            )
+        for w in r.get("warnings") or []:
+            kind = w.get("kind") if isinstance(w, dict) else w
+            if kind:
+                out.append(f"{name}: {str(kind).replace('_', ' ')}")
+    return out
+
+
 def _write_compare_toml(
     specs: list[CompareSpec], baseline: str | None, metrics: list[str] | None
 ) -> str:
@@ -107,8 +185,8 @@ def run_compare(
     Runs once without the horizon override. If camdl refuses on a ``T_score``
     mismatch (exit 2), retries WITH ``--allow-mismatched-horizon`` so the caller
     still receives absolute scores (Δ columns ``null``) and learns the models
-    were not commensurable. ``notes`` carries stderr advisories (the optimism
-    caveat). Raises :class:`CompareError` on any other failure.
+    were not commensurable. ``notes`` carries camdl's advisories: its JSON caveat
+    fields and row warnings (:func:`json_notes`), plus any stderr ``note:`` lines. Raises :class:`CompareError` on any other failure.
     """
     if len(specs) < 2:
         raise CompareError("need at least two models to compare")
@@ -150,7 +228,7 @@ def run_compare(
         line.strip()[len("note:") :].strip()
         for line in proc.stderr.splitlines()
         if line.strip().startswith("note:")
-    ]
+    ] + json_notes(data)
     # If the caller allowed mismatches up front, derive commensurability from the
     # actual T_scores (the refusal path that would have set it was skipped).
     if allow_mismatched:

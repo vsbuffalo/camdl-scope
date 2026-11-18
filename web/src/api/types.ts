@@ -374,6 +374,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/compare/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare Candidates
+         * @description Runs that can be compared: listed runs with a ``prequential.json`` under
+         *     them, plus run folders the run list omits because they hold only a
+         *     particle-filter score (camdl's one-method-per-config layout).
+         */
+        get: operations["compare_candidates_api_compare_candidates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/compare": {
         parameters: {
             query?: never;
@@ -645,6 +667,29 @@ export interface components {
                 number,
                 number
             ] | null;
+        };
+        /**
+         * CompareCandidate
+         * @description A run that can enter a comparison: it carries a ``prequential.json``.
+         *     Either a listed run, or a standalone particle-filter scoring run, which the
+         *     run list omits.
+         */
+        CompareCandidate: {
+            /** Run Id */
+            run_id: string;
+            /** Label */
+            label: string;
+        };
+        /**
+         * CompareCandidates
+         * @description The Compare picker's list, newest first, and how many listed runs carry
+         *     no score artifact (shown as a count, not hidden).
+         */
+        CompareCandidates: {
+            /** Candidates */
+            candidates: components["schemas"]["CompareCandidate"][];
+            /** N Without Prequential */
+            n_without_prequential: number;
         };
         /**
          * CompareResponse
@@ -3202,6 +3247,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_candidates_api_compare_candidates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompareCandidates"];
                 };
             };
         };

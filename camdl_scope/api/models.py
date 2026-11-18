@@ -787,6 +787,23 @@ class CompareRow(BaseModel):
     overconfident: bool = False
 
 
+class CompareCandidate(BaseModel):
+    """A run that can enter a comparison: it carries a ``prequential.json``.
+    Either a listed run, or a standalone particle-filter scoring run, which the
+    run list omits."""
+
+    run_id: str
+    label: str
+
+
+class CompareCandidates(BaseModel):
+    """The Compare picker's list, newest first, and how many listed runs carry
+    no score artifact (shown as a count, not hidden)."""
+
+    candidates: list[CompareCandidate]
+    n_without_prequential: int
+
+
 class CompareResponse(BaseModel):
     """A prequential model comparison. ``commensurable`` is false when the models
     were scored on different horizons (``T_score`` mismatch) — Δ columns are then

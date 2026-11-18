@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { fmtValue } from '@/lib/format'
 import { loadJson, saveJson } from '@/lib/persist'
+import { readDeepLink, writeDeepLink } from '@/lib/deeplink'
 import { cn } from '@/lib/utils'
 
 /**
@@ -29,12 +30,13 @@ export function ProfileWorkspace() {
   // Persist the chosen profile — two profiles of the same model share a label
   // (`· g` vs `· g × Cscale`) and the default flips by mtime, so without this a
   // reload can bounce you to the other one.
-  const [selectedId, setSelectedId] = useState<string | undefined>(() =>
-    loadJson<string | undefined>('profile:base', undefined),
+  const [selectedId, setSelectedId] = useState<string | undefined>(
+    () => readDeepLink().profile ?? loadJson<string | undefined>('profile:base', undefined),
   )
   const selected = list.find((p) => p.base_id === selectedId) ?? list[0]
   const selectProfile = (id: string) => {
     saveJson('profile:base', id)
+    writeDeepLink({ profile: id })
     setSelectedId(id)
   }
 

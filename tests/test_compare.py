@@ -82,3 +82,51 @@ def test_run_compare_shells_out_and_parses(tmp_path):
     by = {r["name"]: r for r in data["rows"]}
     assert by["model_a"]["delta_elpd"] is None
     assert by["model_b"]["delta_elpd"] < 0
+
+
+def test_standalone_pfilter_runs_are_compare_candidates(tmp_path, monkeypatch):
+    """camdl writes one [method] per config, so a particle-filter scoring run is
+    a run folder of its own with no draws or estimate. The run list omits it;
+    the Compare picker must still offer it, and /api/compare must resolve it."""
+    store = tmp_path / "results" / "fits"
+    for label, level in (("pf_pois-2dc18961", -2.0), ("pf_nb-c0ede1ae", -2.5)):
+        _write_prequential(
+            store / label / "pfilter-d7e5f501" / "seed_1-39ae1d69" / "prequential.json", level
+        )
+    found = {r.run_id: r.label for r in compare.discover_scored(store)}
+    assert found == {"pf_pois-2dc18961": "pf_pois", "pf_nb-c0ede1ae": "pf_nb"}
+
+    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(store))
+    from fastapi.testclient import TestClient
+    from camdl_scope.api.app import app
+
+    c = TestClient(app)
+    got = c.get("/api/compare/candidates").json()
+    assert {x["run_id"] for x in got["candidates"]} == set(found)
+    assert got["n_without_prequential"] == 0
+    assert c.get("/api/runs").json() == []  # the run list still omits them
+    if shutil.which(compare.CAMDL_BIN) is None:
+        pytest.skip("camdl not on PATH")
+    r = c.get("/api/compare", params=[("runs", "pf_pois-2dc18961"), ("runs", "pf_nb-c0ede1ae")])
+    assert r.status_code == 200, r.text
+    assert {row["label"] for row in r.json()["rows"]} == {"pf_pois", "pf_nb"}
+
+
+def test_json_caveats_and_row_warnings_become_notes():
+    """camdl puts its advisories in named JSON fields, not stderr."""
+    data = {
+        "optimism_caveat": "scores are plug-in and in-sample",
+        "data_mismatch": None,
+        "se_caveat": "se is a normal approximation",
+        "rows": [
+            {"name": "a", "lag1_autocorr_delta_elpd": None, "warnings": []},
+            {"name": "b", "lag1_autocorr_delta_elpd": 0.8425,
+             "warnings": [{"kind": "starts_at_prior"}]},
+        ],
+    }
+    assert compare.json_notes(data) == [
+        "scores are plug-in and in-sample",
+        "se is a normal approximation",
+        "lag-1 autocorrelation of the per-step Δelpd vs baseline: b +0.84",
+        "b: starts at prior",
+    ]

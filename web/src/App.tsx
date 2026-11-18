@@ -19,9 +19,13 @@ function App() {
   // while the saved workspace is `store` would otherwise land on the store
   // summary, with the linked fit loaded behind it and nothing on screen saying
   // so.
-  const [workspace, setWorkspace] = useState<Workspace>(() =>
-    readDeepLink().run ? 'explore' : loadJson<Workspace>('workspace', 'explore'),
-  )
+  const [workspace, setWorkspace] = useState<Workspace>(() => {
+    const link = readDeepLink()
+    if (link.run) return 'explore'
+    if (link.profile) return 'profile'
+    if (link.compare?.length) return 'compare'
+    return loadJson<Workspace>('workspace', 'explore')
+  })
   const onWorkspace = (w: Workspace) => {
     saveJson('workspace', w)
     setWorkspace(w)
