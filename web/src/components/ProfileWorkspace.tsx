@@ -225,7 +225,7 @@ function ProfileCard({ baseId }: { baseId: string }) {
                     <p className="mt-1.5 font-mono text-[10px] text-faint">
                       {data.points.length} grid cells · brighter = higher
                       likelihood, grey = no feasible fit · red outline = MLE,
-                      white = 95% region (Δlogℓ ≥ −{data.ci_drop.toFixed(2)}) ·
+                      thin outline = 95% region (Δlogℓ ≥ −{data.ci_drop.toFixed(2)}) ·
                       updates live as cells land
                     </p>
                   </div>

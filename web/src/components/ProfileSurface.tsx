@@ -34,7 +34,7 @@ const fmtGrid = (v: number): string => Number(v.toPrecision(3)).toString()
  * relative to the current best (Δlogℓ ≤ 0, brightest at the peak). Missing cells
  * are blank, so a *running* profile shows the mesh filling in as camdl lands each
  * point. The MLE cell is outlined red; cells inside the 95% joint region
- * (Δlogℓ ≥ −`ci_drop`, ½·χ²₂ ≈ 3.0) are outlined white. Categorical (band) axes —
+ * (Δlogℓ ≥ −`ci_drop`, ½·χ²₂ ≈ 3.0) are outlined in the ink colour. Categorical (band) axes —
  * the grid values are discrete and log-spaced, so equal-width tiles read as a
  * clean matrix rather than a distorted scatter. Self-measuring so it draws on
  * first paint (incl. headless capture).
@@ -159,15 +159,17 @@ export function ProfileSurface({ data }: { data: ProfileResponse }) {
             `${nameX}=${fmtGrid(c.gx)}, ${nameY}=${fmtGrid(c.gy)}\n` +
             `logL=${c.ll.toFixed(2)}  (Δ ${c.dl.toFixed(2)})`,
         }),
-        // The 95% joint region, outlined as it forms.
+        // The 95% joint region, outlined as it forms. In the ink colour: the
+        // gaps between cells are the surface colour, so an outline in that
+        // colour cannot be told apart from them.
         Plot.cell(cells.filter(inRegion), {
           x: 'gx',
           y: 'gy',
           fill: 'none',
-          stroke: token('surface'),
-          strokeOpacity: 0.7,
-          strokeWidth: 1,
-          inset: 0.5,
+          stroke: token('ink'),
+          strokeOpacity: 0.8,
+          strokeWidth: 1.5,
+          inset: 1.5,
         }),
         // The MLE cell.
         Plot.cell([mleCell], {
