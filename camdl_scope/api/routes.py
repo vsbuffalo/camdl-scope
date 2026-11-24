@@ -35,7 +35,6 @@ from .. import model_graph as model_graph_mod
 from .. import model_render as model_render_mod
 from .. import predictive
 from .. import sims as sims_mod
-from .. import fitmeta
 from .. import storeinfo
 from .. import verdict as verdict_mod
 from .. import profiles as profiles_mod
@@ -280,7 +279,7 @@ def _cross_chain(meta: RunMeta) -> CrossChainCompatModel | None:
     JSON has no NaN, and emitting a bare ``NaN`` token produces a body the
     browser refuses to parse — the whole response would fail, not just the
     cell."""
-    c = crosschain_mod.find_compat(meta.run_dir)
+    c = crosschain_mod.read_compat(meta.leaf_dir)
     if c is None:
         return None
     return CrossChainCompatModel(
@@ -548,10 +547,10 @@ def _run_summary(meta: RunMeta, ov: RunOverview) -> RunSummary:
     return RunSummary(
         run_id=meta.run_id,
         label=meta.display_label,
-        folder=meta.run_dir.name,
+        folder=meta.problem_dir.name,
         folder_default=meta.folder_default,
         seed=meta.seed,
-        leaf=meta.posterior_dir.relative_to(meta.run_dir).as_posix(),
+        leaf=meta.leaf_dir.relative_to(meta.problem_dir).as_posix(),
         leaf_run_id=meta.leaf_run_id,
         method=meta.method,
         method_default=meta.method_default,
@@ -566,7 +565,7 @@ def _run_summary(meta: RunMeta, ov: RunOverview) -> RunSummary:
         chain_ids=ov.chain_ids,
         n_params=len(meta.estimated),
         has_docs=not meta.docs.is_empty(),
-        has_prequential=compare_mod.find_prequential(meta.run_dir) is not None,
+        has_prequential=compare_mod.find_prequential(meta.leaf_dir) is not None,
         progress=_progress_info(ov.progress),
         max_iter=ov.max_iter,
         target_sweeps=meta.target_sweeps,
@@ -590,15 +589,15 @@ def _quantity_info(q: quantities_mod.QuantityMeta, meta: RunMeta) -> QuantityInf
 #: The ``?predict=`` query parameter every predict-reading endpoint takes.
 _PREDICT_Q = Query(
     None,
-    description="Which `fit predict` output of the run to read: a key from "
-    "RunDetail.predicts. Omitted, the default-options predict.",
+    description="Which prediction of the run to read: a key from "
+    "RunDetail.predicts. Omitted, the default one.",
 )
 
 
 def _predict_dir(meta: RunMeta, key: str | None) -> Path | None:
-    """The predict directory of the run ``meta`` shows. 404 for a ``key`` this
+    """The prediction folder of the run ``meta`` shows. 404 for a ``key`` this
     run has no predict under; ``None`` (no key) for a never-predicted run."""
-    d = predictive.resolve_predict_dir(meta.run_dir, meta.leaf_run_id, key)
+    d = predictive.resolve_predict_dir(meta.leaf_dir, key)
     if d is None and key is not None:
         raise HTTPException(status_code=404, detail=f"no predict {key!r} for this run")
     return d
@@ -637,7 +636,7 @@ def _run_detail(meta: RunMeta, rs: RunState, predict: str | None = None) -> RunD
         families=[ParamFamily(base=b, members=ms) for b, ms in pg.families.items()],
         default_selection=pg.default_selection(),
     )
-    pdirs = predictive.predict_dirs(meta.run_dir, meta.leaf_run_id)
+    pdirs = predictive.predict_dirs(meta.leaf_dir)
     pdir = _predict_dir(meta, predict)
     shown = next((p.key for p in pdirs if p.path == pdir), None)
     if pdir is not None:
@@ -658,7 +657,7 @@ def _run_detail(meta: RunMeta, rs: RunState, predict: str | None = None) -> RunD
         fit_kind=meta.fit_kind,
         n_chains=len(rs.chains),
         dead_chain_ids=dead,
-        frozen_chain_ids=chainrecord_mod.read_frozen_chains(meta.posterior_dir) or [],
+        frozen_chain_ids=chainrecord_mod.read_frozen_chains(meta.leaf_dir) or [],
         max_iter=rs.max_iter(),
         target_sweeps=meta.target_sweeps,
         declared_burn_in=meta.declared_burn_in,
@@ -675,7 +674,7 @@ def _run_detail(meta: RunMeta, rs: RunState, predict: str | None = None) -> RunD
         ],
         predict=shown,
         available_streams=pred_streams,
-        available_prior_streams=predictive.discover_prior_streams(meta.run_dir),
+        available_prior_streams=predictive.discover_prior_streams(meta.leaf_dir),
         available_quantities=[
             _quantity_info(q, meta) for q in _quantity_manifest.quantities
         ],
@@ -684,8 +683,8 @@ def _run_detail(meta: RunMeta, rs: RunState, predict: str | None = None) -> RunD
             Calendar(origin=cal.origin, time_unit=cal.time_unit, days_per_unit=cal.days_per_unit)
             if cal is not None else None
         ),
-        has_model_render=model_render_mod.has_model_render(meta.run_dir),
-        has_model_graph=model_graph_mod.has_model_graph(meta.run_dir),
+        has_model_render=model_render_mod.has_model_render(meta.problem_dir),
+        has_model_graph=model_graph_mod.has_model_graph(meta.problem_dir),
         algorithm_config=dict(meta.algorithm_config),
     )
 
@@ -1014,8 +1013,8 @@ def get_mle(run_id: str) -> MleResponse:
     if meta is None or meta.fit_kind != "mle":
         raise HTTPException(status_code=404, detail=f"no MLE fit: {run_id}")
     fit = mle_mod.read_mle(
-        meta.posterior_dir, list(meta.estimated),
-        n_expected=ingest.read_expected_starts(meta.posterior_dir),
+        meta.leaf_dir, list(meta.estimated),
+        n_expected=ingest.read_expected_starts(meta.leaf_dir),
     )
     if fit is None:
         raise HTTPException(status_code=404, detail=f"unreadable MLE fit: {run_id}")
@@ -1034,7 +1033,7 @@ def get_mle(run_id: str) -> MleResponse:
             restart_lo=_finite_or_none(p.restart_lo),
             restart_hi=_finite_or_none(p.restart_hi),
         ))
-    logliks, logliks_err = _chain_loglik_model(meta.posterior_dir)
+    logliks, logliks_err = _chain_loglik_model(meta.leaf_dir)
     restarts = [
         MleRestart(
             chain=r.chain, loglik=_fnum(r.loglik), status=r.status, n_evals=r.n_evals,
@@ -1097,7 +1096,7 @@ def get_posterior(
     # subset, so once a chain is dropped we source R̂/ESS from the live arviz
     # estimate over the retained chains (the quantiles already pool from them).
     summ = None if filtered else rs.summary
-    verdict = verdict_mod.leaf_verdict(meta.posterior_dir)
+    verdict = verdict_mod.leaf_verdict(meta.leaf_dir)
     params = [
         pp
         for p in meta.estimated
@@ -1238,78 +1237,34 @@ def get_draws(
 # ---------------------------------------------------------------------------
 
 
-def _read_model_source(run_dir: Path, store: Path, meta_json: dict) -> SourceFile:
-    """The model source, syntax-highlighted.
-
-    Prefer the copy archived in the fit folder (``model.camdl.original``,
-    gh#353): it is self-contained and path-independent, so it resolves from a
-    viewer launched anywhere. A fit run on an ``.ir.json`` archives no
-    ``.camdl``, and an older fit has no copy; both fall back to the live file the
-    record names, resolved by its ``schema_version`` (``source_model`` relative
-    to the fit folder in version 2, ``model_path`` relative to the project root
-    in version 1; see :mod:`camdl_scope.fitmeta`)."""
-    ref = fitmeta.model_ref(meta_json)
-    archived = run_dir / "model.camdl.original"
-    if archived.is_file():
-        try:
-            text = archived.read_text()
-        except OSError:
-            pass
-        else:
-            return SourceFile(
-                path=ref or "model.camdl", present=True, origin="leaf",
-                html=highlight_camdl(text), text=text,
-            )
+def _stored_source(path: Path, name: str, highlight) -> SourceFile:
+    """A source file stored with the fit, highlighted; ``present`` false when it
+    cannot be read."""
     try:
-        p = fitmeta.source_model_path(meta_json, run_dir, store)
-    except UnsupportedSchema as e:
-        return SourceFile(path=str(e), present=False, origin="live")
-    if p is None:
-        return SourceFile(path=None, present=False, origin="live")
-    if not p.is_file():
-        return SourceFile(path=ref, present=False, origin="live")
-    try:
-        text = p.read_text()
+        text = path.read_text()
     except OSError:
-        return SourceFile(path=ref, present=False, origin="live")
-    return SourceFile(
-        path=ref, present=True, origin="live",
-        html=highlight_camdl(text), text=text,
-    )
+        return SourceFile(path=name, present=False, origin="leaf")
+    return SourceFile(path=name, present=True, origin="leaf", html=highlight(text), text=text)
 
 
 @router.get("/runs/{run_id}/source", response_model=SourceResponse)
 def get_source(run_id: str) -> SourceResponse:
-    """The fit's sources: the highlighted ``.camdl`` model (the copy archived in
-    the run leaf when present, else read live from the recorded path) and the
-    ``fit.toml`` (always archived in the run leaf)."""
+    """The fit's sources, both stored with it: the problem's ``model.camdl`` and
+    the run's ``fit.toml``, highlighted."""
     store = _store()
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
     try:
-        meta_json = json.loads((meta.run_dir / "fit.meta.json").read_text())
+        meta_json = json.loads((meta.leaf_dir / "fit.meta.json").read_text())
     except (OSError, json.JSONDecodeError):
         meta_json = {}
-    model = _read_model_source(meta.run_dir, store, meta_json)
-
-    toml_path = meta.run_dir / "fit.toml.original"
-    if toml_path.is_file():
-        try:
-            ttext = toml_path.read_text()
-            fit_toml = SourceFile(
-                path="fit.toml", present=True, origin="leaf",
-                html=highlight_toml(ttext), text=ttext,
-            )
-        except OSError:
-            fit_toml = SourceFile(path="fit.toml", present=False, origin="leaf")
-    else:
-        fit_toml = SourceFile(path="fit.toml", present=False, origin="leaf")
-
     return SourceResponse(
-        run_id=run_id, model=model,
+        run_id=run_id,
+        model=_stored_source(meta.problem_dir / "model.camdl", "model.camdl", highlight_camdl),
         model_identity=meta_json.get("model_identity"),
-        fit_toml=fit_toml, highlight_css=HIGHLIGHT_CSS,
+        fit_toml=_stored_source(meta.leaf_dir / "fit.toml", "fit.toml", highlight_toml),
+        highlight_css=HIGHLIGHT_CSS,
     )
 
 
@@ -1323,7 +1278,7 @@ def get_model_render(run_id: str) -> ModelRender:
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
-    raw = model_render_mod.read_model_render(meta.run_dir)
+    raw = model_render_mod.read_model_render(meta.problem_dir)
     if raw is None:
         raise HTTPException(status_code=404, detail=f"no model.render.json for run: {run_id}")
     return ModelRender.model_validate(raw)
@@ -1339,7 +1294,7 @@ def get_model_graph(run_id: str) -> ModelGraph:
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
-    raw = model_graph_mod.read_model_graph(meta.run_dir)
+    raw = model_graph_mod.read_model_graph(meta.problem_dir)
     if raw is None:
         raise HTTPException(status_code=404, detail=f"no model.graph.json for run: {run_id}")
     return ModelGraph.model_validate(raw)
@@ -1423,8 +1378,12 @@ def get_predictive(
     rhat_max: float | None = None
     ess_min: float | None = None
     n_draws: int | None = None
+    # The prediction's mode (free_forward, one_step). camdl.predictive/v5 names
+    # the column ``mode`` and gives ``horizon`` an integer meaning; v4 calls the
+    # mode ``horizon``.
+    mode_col = "mode" if "mode" in ps.table.columns else "horizon"
     for r in ps.table.to_dicts():
-        h, t = str(r.get("horizon") or ""), str(r.get("treatment") or "")
+        h, t = str(r.get(mode_col) or ""), str(r.get("treatment") or "")
         sc = str(r.get("scenario") or "as_fitted")
         horizons.add(h)
         treatments.add(t)
@@ -1634,7 +1593,7 @@ def get_traces(
 def _verdict_model(meta: RunMeta) -> VerdictModel:
     """camdl's verdict on the leaf this run entry shows, as persisted by camdl
     (``events.jsonl``), or the reason there is none. Nothing is computed here."""
-    return _to_verdict_model(verdict_mod.leaf_verdict(meta.posterior_dir))
+    return _to_verdict_model(verdict_mod.leaf_verdict(meta.leaf_dir))
 
 
 def _to_verdict_model(v: verdict_mod.Verdict) -> VerdictModel:
@@ -1648,13 +1607,13 @@ def _to_verdict_model(v: verdict_mod.Verdict) -> VerdictModel:
 def _leaf_rows(meta: RunMeta) -> list[LeafRowModel]:
     """Every method leaf of the run's problem folder, whichever the dashboard
     has open: completed, running and failed, each with its own verdict."""
-    open_leaf = f"{meta.posterior_dir.parent.name}/{meta.posterior_dir.name}"
+    open_leaf = f"{meta.leaf_dir.parent.name}/{meta.leaf_dir.name}"
     return [
         LeafRowModel(
             leaf=r.leaf, method=r.method, run_id=r.run_id, status=r.status,
             verdict=_to_verdict_model(r.verdict), is_open=(r.leaf == open_leaf),
         )
-        for r in verdict_mod.leaf_rows(meta.run_dir)
+        for r in verdict_mod.leaf_rows(meta.problem_dir)
     ]
 
 
@@ -1699,7 +1658,7 @@ def get_prior_predictive(
     meta = _find_meta(store, run_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"run not found: {run_id}")
-    bands = predictive.read_prior_bands(meta.run_dir, stream)
+    bands = predictive.read_prior_bands(meta.leaf_dir, stream)
     if bands is None:
         raise HTTPException(
             status_code=404, detail=f"no prior predictive for stream: {stream}"
@@ -1819,11 +1778,11 @@ def get_diagnostics(
     # the live estimate is the whole fix: dropping the dead chains used to
     # discard the `bad_init` errors that explain why they are missing.
     reported = rs.summary
-    verdict = verdict_mod.leaf_verdict(meta.posterior_dir)
-    loglik_model, loglik_err = _chain_loglik_model(meta.posterior_dir)
+    verdict = verdict_mod.leaf_verdict(meta.leaf_dir)
+    loglik_model, loglik_err = _chain_loglik_model(meta.leaf_dir)
     base = dict(
         verdict=_to_verdict_model(verdict), leaves=_leaf_rows(meta),
-        frozen_chains=chainrecord_mod.read_frozen_chains(meta.posterior_dir),
+        frozen_chains=chainrecord_mod.read_frozen_chains(meta.leaf_dir),
         chain_logliks=loglik_model, chain_logliks_error=loglik_err,
         run_id=run_id, warmup_pct=warmup_pct, warmup_cutoff=cutoff,
         n_chains=len(rs.chains), n_chains_warming=warming,
@@ -1935,24 +1894,34 @@ def get_diagnostics(
 
 @router.get("/compare/candidates", response_model=CompareCandidates)
 def compare_candidates() -> CompareCandidates:
-    """Runs that can be compared: listed runs with a ``prequential.json`` under
-    them, plus run folders the run list omits because they hold only a
-    particle-filter score (camdl's one-method-per-config layout)."""
+    """Runs that can be compared: listed runs with a ``prequential.json``, plus
+    the particle-filter scoring runs the run list omits."""
     store = _store()
     metas = ingest.discover_runs(store, include_warming=True)
     out: list[CompareCandidate] = []
     covered: set[Path] = set()
     n_without = 0
     for m in metas:
-        if compare_mod.find_prequential(m.run_dir) is None:
+        if compare_mod.find_prequential(m.leaf_dir) is None:
             n_without += 1
             continue
-        covered.add(m.run_dir)
+        covered.add(m.leaf_dir)
         out.append(CompareCandidate(run_id=m.run_id, label=m.display_label))
     for r in compare_mod.discover_scored(store):
-        if r.run_dir not in covered:
+        if r.leaf not in covered:
             out.append(CompareCandidate(run_id=r.run_id, label=r.label))
     return CompareCandidates(candidates=out, n_without_prequential=n_without)
+
+
+def _name_runs(note: str, labels: dict[str, str]) -> str:
+    """camdl names each model in its notes by the name it was given, which is
+    the run's entry id; show the run's label there instead, as the table does,
+    when no two runs share it."""
+    if len(set(labels.values())) < len(labels):
+        return note
+    for rid in sorted(labels, key=len, reverse=True):
+        note = note.replace(rid, labels[rid])
+    return note
 
 
 @router.get("/compare", response_model=CompareResponse)
@@ -1985,7 +1954,7 @@ def compare(
         meta = _find_meta(store, rid)
         if meta is not None:
             labels[rid] = meta.display_label
-            pq = compare_mod.find_prequential(meta.run_dir)
+            pq = compare_mod.find_prequential(meta.leaf_dir)
         elif rid in scored:
             # A standalone particle-filter scoring run: not in the run list.
             labels[rid] = scored[rid].label
@@ -2056,7 +2025,7 @@ def compare(
         baseline=base_name,
         metrics=list(data.get("metrics", [])),
         commensurable=commensurable,
-        notes=notes,
+        notes=[_name_runs(n, labels) for n in notes],
         rows=rows,
         missing_prequential=missing,
     )
@@ -2071,8 +2040,6 @@ def _profile_response(curve: profiles_mod.ProfileCurve) -> ProfileResponse:
     mle = curve.mle
     lo, hi = curve.ci_bounds_1d()  # (None, None) for a 2D surface
     prog = curve.starts_progress()
-    beats = [inv.progress.updated_at for inv in curve.invocations
-             if inv.progress is not None and inv.progress.updated_at is not None]
     return ProfileResponse(
         base_id=curve.base_id, label=curve.label, params=list(curve.params),
         method=curve.method, loglik_type=curve.loglik_type,
@@ -2098,13 +2065,13 @@ def _profile_response(curve: profiles_mod.ProfileCurve) -> ProfileResponse:
             1 for p in curve.estimate_points if p.loglik > profiles_mod.SENTINEL_LOGLIK),
         n_starts_finished=prog[0] if prog else None,
         n_starts_expected=prog[1] if prog else None,
-        heartbeat_at=float(max(beats)) if beats else None,
+        heartbeat_at=curve.heartbeat_at,
     )
 
 
 @router.get("/profiles", response_model=list[ProfileSummary])
 def list_profiles() -> list[ProfileSummary]:
-    """Every profile-likelihood run under ``profiles/`` — the selector list."""
+    """Every ``camdl profile`` command in the store — the selector list."""
     store = _store()
     out: list[ProfileSummary] = []
     for c in profiles_mod.discover_profiles(store):
@@ -2181,7 +2148,7 @@ def get_sim_series(
     if meta is None or not meta.members:
         raise HTTPException(status_code=404, detail=f"sim not found: {sim_id}")
     roles = sims_mod.resolve_roles(meta.members[0])
-    model = sims_mod.read_sim_model(store, meta)  # exact compartments + calendar
+    model = sims_mod.read_sim_model(meta)  # exact compartments + calendar
     exact = model.states or None
     states = sims_mod.available_series(roles, "state", exact)
     if not states:
@@ -2275,8 +2242,8 @@ def _project_snapshot(
         # The walk is per problem folder; its default run speaks for it.
         if not meta.folder_default:
             continue
-        known[meta.run_dir.name] = build_run_overview(meta)
-        labels[meta.run_dir.name] = meta.display_label
+        known[meta.problem_dir.name] = build_run_overview(meta)
+        labels[meta.problem_dir.name] = meta.display_label
 
     rows: list[StoreRunRow] = []
     counts: dict[str, int] = {}
@@ -2296,7 +2263,6 @@ def _project_snapshot(
             )
         )
 
-    store_name = store.resolve().name
     return StoreSnapshotModel(
         root=snap.root,
         store=snap.store,
@@ -2310,7 +2276,7 @@ def _project_snapshot(
             StoreDirRow(
                 name=c.name, bytes=c.bytes, alloc_bytes=c.alloc_bytes,
                 files=c.files, dirs=c.dirs,
-                is_store=(c.name == store_name),
+                is_store=(c.name.endswith(f"/{ingest.FIT_KIND}")),
             )
             for c in snap.children
         ],
@@ -2352,7 +2318,7 @@ def get_store(scan: bool = Query(default=True)) -> StoreResponse:
     snap = sc.snapshot
     store = _store()
     return StoreResponse(
-        root=str(storeinfo.resolve_scan_root(store)),
+        root=str(store),
         store=str(store.resolve()),
         scan=_scan_state(sc),
         snapshot=_project_snapshot(snap, _store()) if snap is not None else None,
@@ -2369,7 +2335,7 @@ def rescan_store() -> StoreResponse:
     snap = sc.snapshot
     store = _store()
     return StoreResponse(
-        root=str(storeinfo.resolve_scan_root(store)),
+        root=str(store),
         store=str(store.resolve()),
         scan=_scan_state(sc),
         snapshot=_project_snapshot(snap, _store()) if snap is not None else None,

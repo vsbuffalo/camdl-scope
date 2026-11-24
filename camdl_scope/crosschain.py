@@ -124,7 +124,7 @@ def _clustered_order(centred: np.ndarray) -> list[int]:
 
 
 def read_compat(seed_dir: Path) -> CrossChainCompat | None:
-    """Read the artifact from a stage seed directory.
+    """Read the artifact from a fit run's folder.
 
     ``None`` when absent (any PMMH stage, or a PGAS stage predating the
     artifact) or malformed — a half-parsed matrix would be drawn as a
@@ -183,27 +183,3 @@ def read_compat(seed_dir: Path) -> CrossChainCompat | None:
         has_positive_offdiagonal=has_pos,
         n_nonfinite=n_nonfinite,
     )
-
-
-def find_compat(run_dir: Path) -> CrossChainCompat | None:
-    """The run's cross-chain matrix, from its posterior stage's seed directory.
-
-    Searches the same shape camdl writes (`<run>/<NN>-<stage>/<seed>/`); the
-    newest match wins, mirroring how the other stage artifacts are resolved.
-    """
-    run_dir = Path(run_dir)
-    cands: list[Path] = []
-    for pat in (f"*/*/{FILENAME}", f"*/{FILENAME}", FILENAME):
-        try:
-            cands = sorted(
-                run_dir.glob(pat), key=lambda p: p.stat().st_mtime, reverse=True
-            )
-        except OSError:
-            continue
-        if cands:
-            break
-    for c in cands:
-        got = read_compat(c.parent)
-        if got is not None:
-            return got
-    return None

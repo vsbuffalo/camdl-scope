@@ -1,32 +1,29 @@
-"""Posterior-predictive artifacts — the ``camdl fit predict`` output, if run.
+"""Posterior-predictive artifacts — ``camdl predict`` output, if run.
 
-A fit only has these once ``camdl fit predict`` has been run against it; a live
-or never-predicted fit has none and every reader here returns ``None`` / ``[]``.
+A fit run has these once ``camdl predict <run>`` has been run against it; a live
+or never-predicted run has none and every reader here returns ``None`` / ``[]``.
 
-``fit predict`` replays one run, and writes into a directory of the problem
-folder named for that run and the options it was predicted with (camdl gh#896,
-run spec §2.2.2)::
+Each prediction is a result of its own, stored inside the run whose draws it
+used and named by its mode (camdl run-store proposal, "Predictions and a
+score")::
 
-    <run_dir>/predict/<run_id12>/              # default predict options
-    <run_dir>/predict/<run_id12>-<opts8>/      # any other --horizon, --n-draws, …
+    <fit run>/predict/<mode>-<12 hex>/
+        identity.json  run.json                     # its records
         predictive/<stream>.tsv   predictive.json   # quantile ribbons
         observed/<stream>.tsv     observed.json     # the observed series
-        quantities/<name>.tsv     quantities.json   # see quantities.py
+        quantities-model/<name>.tsv  quantities.json  # see quantities.py
 
-``<run_id12>`` is the first 12 hex characters of the run's ``run_id`` (the leaf's
-``run.json``); ``<opts8>`` hashes the options, which ``predictive.json`` records
-under ``options``. :func:`predict_dirs` finds these for one run; every other
-reader here takes one such directory. Predict output an older camdl wrote at the
-folder level is not read: camdl no longer reads it either, and it cannot say
-which run it replays.
+:func:`predict_dirs` finds these for one run; every other reader here takes one
+such directory.
 
 Column layout (read straight off camdl's renderer):
 
 * ``predictive/<stream>.tsv`` —
-  ``time | <index dims…> | horizon | treatment | fit_rhat_max | fit_ess_min | n_draws |
+  ``scenario | time | <index dims…> | horizon | treatment | fit_rhat_max | fit_ess_min | n_draws |
   q05 | q25 | q50 | q75 | q95``. The ``<index dims…>`` columns are the stream's
-  stratifying dimensions (none for a single national series); several horizons
-  stack under the one header.
+  stratifying dimensions (none for a single national series). In
+  ``camdl.predictive/v4`` the ``horizon`` column holds the mode
+  (``free_forward``, ``one_step``); v5 renames it ``mode``.
 * ``observed/<stream>.tsv`` — ``time | <index dims…> | value``; the value is an
   empty cell where the observed series has a hole.
 
@@ -44,24 +41,26 @@ from pathlib import Path
 
 import polars as pl
 
+from . import store
+
 PREDICT_DIR = "predict"
 PREDICTIVE_DIR = "predictive"
 OBSERVED_DIR = "observed"
 # Sidecars that carry the stream time calendar (origin epoch + unit), in order of
 # preference — both should agree; predictive is the one the ribbons come from.
 _CALENDAR_SIDECARS = ("predictive.json", "observed.json")
-#: How many hex characters of a run_id name its predict directory.
-RUN_ID_PREFIX = 12
+#: The order predictions of one run are listed in, by mode; the first is the
+#: one shown unless another is asked for.
+_MODE_ORDER = ("free_forward", "one_step", "forecast")
 
 
 @dataclass(frozen=True)
 class PredictDir:
-    """One ``fit predict`` output of one run.
+    """One prediction of one run.
 
-    ``key`` is the directory name (``<run_id12>`` or ``<run_id12>-<opts8>``) and
-    is what the API takes to select it. ``options`` are the predict options
-    camdl recorded for it; ``default`` marks the one predicted with camdl's
-    default options, which is the one shown unless another is asked for."""
+    ``key`` is its folder name (``free_forward-00022db423dc``) and is what the
+    API takes to select it. ``options`` are the predict options camdl recorded
+    for it; ``default`` marks the one shown unless another is asked for."""
 
     key: str
     path: Path
@@ -80,37 +79,27 @@ def _read_options(d: Path) -> dict:
     return {}
 
 
-def predict_dirs(run_dir: Path, run_id: str | None) -> list[PredictDir]:
-    """Every ``fit predict`` output of run ``run_id`` in problem folder
-    ``run_dir``: the default-options one first, then each option-keyed one by
-    name. Empty when the run was never predicted or its ``run_id`` is unknown
-    (a leaf with no readable ``run.json``)."""
-    if not run_id or len(run_id) < RUN_ID_PREFIX:
-        return []
-    root = Path(run_dir) / PREDICT_DIR
-    if not root.is_dir():
-        return []
-    id12 = run_id[:RUN_ID_PREFIX]
-    out: list[PredictDir] = []
-    for d in sorted(root.iterdir()):
-        if not d.is_dir():
+def predict_dirs(leaf: Path) -> list[PredictDir]:
+    """Every completed prediction of the fit run in ``leaf``: free-forward
+    first, then one-step, then forecasts, each mode's in folder order. Empty
+    when the run was never predicted."""
+    found: list[tuple[int, str, Path]] = []
+    for d in store.walk(Path(leaf) / PREDICT_DIR, 1):
+        rec = store.read_run_record(d)
+        if rec is None or rec.status != "completed":
             continue
-        if d.name == id12:
-            out.insert(0, PredictDir(d.name, d, True, _read_options(d)))
-        elif d.name.startswith(id12 + "-"):
-            out.append(PredictDir(d.name, d, False, _read_options(d)))
-    return out
+        mode = str(_read_options(d).get("mode") or "")
+        rank = _MODE_ORDER.index(mode) if mode in _MODE_ORDER else len(_MODE_ORDER)
+        found.append((rank, d.name, d))
+    found.sort()
+    return [PredictDir(name, d, i == 0, _read_options(d)) for i, (_r, name, d) in enumerate(found)]
 
 
-def resolve_predict_dir(
-    run_dir: Path, run_id: str | None, key: str | None = None
-) -> Path | None:
-    """The predict directory to read: the one named ``key`` if given, else the
-    default-options one, else (a run only ever predicted with non-default
-    options) the first option-keyed one. ``None`` when there is no such predict
-    for this run — a ``key`` belonging to another run is not found, never
-    substituted."""
-    dirs = predict_dirs(run_dir, run_id)
+def resolve_predict_dir(leaf: Path, key: str | None = None) -> Path | None:
+    """The prediction to read: the one named ``key`` if given, else the
+    default. ``None`` when the run has no such prediction — a ``key``
+    belonging to another run is not found, never substituted."""
+    dirs = predict_dirs(leaf)
     if key is not None:
         return next((p.path for p in dirs if p.key == key), None)
     return dirs[0].path if dirs else None

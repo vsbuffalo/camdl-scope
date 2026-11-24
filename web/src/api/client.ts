@@ -130,7 +130,7 @@ export function getRuns(): Promise<RunSummary[]> {
 
 /** One run's metadata, schema, and verdict. */
 /**
- * `?predict=<key>` (or `&predict=`) selecting one `fit predict` output of a run;
+ * `?predict=<key>` (or `&predict=`) selecting one `camdl predict` output of a run;
  * empty for the run's default. Never sent in demo mode: the snapshot holds only
  * the default predict.
  */
@@ -235,7 +235,7 @@ export function getSimSeries(
 
 /**
  * One stream's posterior-predictive ribbons + observed series. 404s when the
- * stream has no predictive artifact (`camdl fit predict` hasn't run).
+ * stream has no predictive artifact (`camdl predict` hasn't run).
  */
 export function getPredictive(
   runId: string,
@@ -359,7 +359,7 @@ export function getProfile(baseId: string): Promise<ProfileResponse> {
 
 /** Disk usage and run inventory for the whole store family. Returns the last
  *  completed walk immediately and starts one in the background if there is
- *  none — a cold walk of a full `results/` tree is minutes. */
+ *  none — a cold walk of a full store is minutes. */
 export function getStore(): Promise<StoreResponse> {
   return getJson<StoreResponse>('/api/store')
 }

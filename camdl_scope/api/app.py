@@ -2,8 +2,8 @@
 
 Routes live under ``/api/*``; the built frontend (``web/dist``) is mounted at
 ``/`` when present, so a single ``camdl-scope`` process serves both. The store
-to read is taken from ``CAMDL_SCOPE_STORE`` (set by the CLI / env), else
-``results/fits`` under the working directory — matching the v1 app's contract.
+to read is chosen as camdl chooses it: ``$CAMDL_STORE`` (set by the CLI's
+``--store``), else ``./camdl-store``.
 
 This module must import cleanly even while the rest of the core is mid-edit:
 the run store is only touched inside request handlers (lazily), never at import.
@@ -21,11 +21,12 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Receive, Scope, Send
 
+from .. import store
+
 _log = logging.getLogger("camdl_scope")
 
 # Store resolution mirrors the v1 app: an explicit override wins, else the
 # conventional ``results/fits`` under the directory camdl-scope is launched from.
-_DEFAULT_STORE = Path.cwd() / "results" / "fits"
 
 # Where the built SPA can live, in resolution order:
 #   1. inside the installed package (``camdl_scope/_web``) — put there by the
@@ -69,12 +70,11 @@ _NO_BUNDLE_MESSAGE = (
 
 
 def current_store() -> Path:
-    """The fit store to read, resolved *fresh* on every call from
-    ``CAMDL_SCOPE_STORE`` (the CLI/env override), else the conventional
-    ``results/fits``. Reading the env each call — rather than freezing it at
-    import — lets the CLI and the tests repoint the store after this module is
-    imported."""
-    return Path(os.environ.get("CAMDL_SCOPE_STORE", str(_DEFAULT_STORE)))
+    """The run store to read, resolved *fresh* on every call:
+    ``$CAMDL_STORE``, else ``./camdl-store`` (:func:`camdl_scope.store.locate`).
+    Reading the env each call — rather than freezing it at import — lets the
+    CLI and the tests repoint the store after this module is imported."""
+    return store.locate().resolve()
 
 
 app = FastAPI(title="camdl-scope", version="2.0.0-dev")

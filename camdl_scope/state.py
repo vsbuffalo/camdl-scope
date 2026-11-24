@@ -6,8 +6,8 @@ UI renders them.
 
 Design notes
 ------------
-* A ``RunState`` is one fit (one ``<run>-<hash>/`` dir, one posterior
-  stage, one seed). Its chains are keyed by integer chain id.
+* A ``RunState`` is one fit run (one camdl FitRun folder: one method, one
+  seed). Its chains are keyed by integer chain id.
 * A ``ChainBuffer`` holds the *raw per-sweep* trace as numpy arrays, plus
   the byte offset of the last fully-read line so the next tail can resume.
   We keep auxiliary columns (``log_likelihood``, ``log_posterior``, and
@@ -52,11 +52,10 @@ AUX_COLUMNS: tuple[str, ...] = (
     "accept_stat",
     "energy",
 )
-"""Fallback list of non-parameter trace columns.
+"""The non-parameter trace columns: what a sampler writes about itself.
 
-Only a fallback: camdl declares a ``role`` for every trace column in the stage's
-``run.json`` (``output_schema``), and :func:`camdl_scope.ingest.read_column_roles`
-prefers that. Use this only for runs whose ``run.json`` predates the schema.
+camdl's run store records no role for a trace column, so this list is how a
+sampler's own columns are told from the model's coordinates.
 
 A hardcoded list silently misfiles whatever a sampler adds, and the cost is
 invisible rather than loud: a misfiled diagnostic lands in the *parameter*
@@ -273,17 +272,9 @@ class ChainBuffer:
     values: dict[str, np.ndarray] = field(default_factory=dict)  # param -> array
     aux: dict[str, np.ndarray] = field(default_factory=dict)  # aux col -> array
     header: list[str] | None = None  # raw column names (cached after first read)
-    # camdl's declared diagnostic columns for this run (from run.json). Empty
-    # means "not declared" — the reader then falls back to AUX_COLUMNS. Carried
-    # per buffer so the streaming appender can classify without the run meta.
-    diagnostic_cols: frozenset[str] = frozenset()
 
     def is_diagnostic(self, col: str) -> bool:
-        return (
-            col in self.diagnostic_cols
-            if self.diagnostic_cols
-            else col in AUX_COLUMNS
-        )
+        return col in AUX_COLUMNS
 
     @property
     def n(self) -> int:
@@ -296,108 +287,79 @@ class ChainBuffer:
 @dataclass
 class RunMeta:
     """Lightweight discovery record — enough to identify and label a run
-    without parsing the whole trace."""
+    without parsing the whole trace. One entry is one camdl FitRun."""
 
-    run_id: str  # dir name, e.g. natbc_dens_hierk_nc_pgas_long-754f3fe8
-    run_dir: Path  # the <run>-<hash> directory
-    posterior_dir: Path  # the stage we read: a non-empty NN-posterior-*/seed_*/
+    #: The entry id: the problem folder's name when it holds one run, else
+    #: ``<folder>~<seed dir>`` (:func:`camdl_scope.ingest.discover_runs`).
+    run_id: str
+    #: The FitProblem folder, ``<build>/fit/<model>-<12 hex>/``: the problem's
+    #: data, partition and model source, and every run of it under ``runs/``.
+    problem_dir: Path
+    #: The FitRun folder, ``<problem>/runs/<method>-<12 hex>/seed_<n>-<12 hex>/``.
+    leaf_dir: Path
     chain_paths: dict[int, Path]  # cid -> trace.tsv
-    model: str  # model file stem
+    model: str  # the model's name, as camdl labelled the problem
     algorithm: str  # pgas | mh | pmmh | ...
     backend: Backend
     estimated: list[str]
-    target_sweeps: int | None  # sweeps (pgas) or iterations (mh), from fit.toml
-    declared_burn_in: int | None  # burn_in from fit.toml
-    thin: int = 1  # thinning factor from fit.toml — denominator for a live ESS/iter
-    fit_toml_stem: str = ""  # config stem, e.g. natbc_dens_hierk_nc_pgas_long
-    user_label: str | None = None  # camdl-native user-display label, if set
-    # camdl's run_id of the leaf shown (``posterior_dir``'s run.json). Not the
-    # same thing as ``run_id`` above, which is the problem folder's name: a
-    # folder holds every run of one problem, and ``fit predict`` output is
-    # filed under the first 12 hex of this one. None when run.json is absent or
-    # unreadable (a leaf still warming up).
+    target_sweeps: int | None  # sweeps (pgas) or iterations (mh), from [method]
+    declared_burn_in: int | None  # burn_in from [method]
+    thin: int = 1  # thinning factor from [method] — denominator for a live ESS/iter
+    config_stem: str = ""  # the fit file's stem, e.g. natbc_dens_hierk_nc_pgas_long
+    user_label: str | None = None  # the run's current --label, if any
+    #: camdl's run id of this FitRun (64 hex, from ``identity.json``). ``None``
+    #: only for a hand-built entry.
     leaf_run_id: str | None = None
-    # Which run of its problem folder this entry is. A folder holds every run
-    # of one problem — one per fit seed, and one per re-run under changed
-    # settings — and each is its own entry. ``seed`` is the fit seed (from the
-    # ``seed_<n>-<hash>`` leaf name); ``folder_default`` marks the run a bare
-    # folder name opens. A folder holding one run keeps the folder name as its
-    # ``run_id``; in a folder of several, each id is ``<folder>~<leaf>``.
+    # Which run of its problem folder this entry is. ``seed`` is the fit seed as
+    # typed; ``folder_default`` marks the run a bare folder name opens.
     seed: int | None = None
     folder_default: bool = True
     # Whether this is the run its method directory opens by default. A method
-    # directory is one sampler configuration of the problem (camdl hashes the
-    # sampler settings, starts included, into it), so its seed leaves are
-    # replicates of one another and leaves in different method directories are
-    # not. ``folder~method`` opens this run.
+    # directory is one method's settings for the problem, so its seed runs are
+    # replicates of one another. ``folder~method`` opens this run.
     method_default: bool = True
-    # The stage whose heartbeat is running *now*, when the run has one. A re-run
-    # under new sampler settings adds a stage beside the finished one, and until
-    # that stage writes rows we still read the finished stage's draws — so the
-    # stage holding the posterior and the stage doing the sampling can differ.
-    # None when they coincide (the ordinary single-stage case).
-    live_stage_dir: Path | None = None
-    # How the fit summarizes: "posterior" (chains/draws — the default path) or
-    # "mle" (a point estimate from an optimization 'scout' stage; no draws).
+    # How the fit summarizes: "posterior" (chains/draws) or "mle" (a point
+    # estimate from an optimizer; no draws).
     fit_kind: str = "posterior"
-    # Per-fit sidecar metadata (fit.meta.json). ``docs`` is the model's ``#'``
-    # documentation dictionary (empty when undocumented); ``schema`` is the
-    # observation/dimension schema (None when the sidecar carried no model).
+    # The model's ``#'`` documentation (empty when undocumented) and the
+    # observation/dimension schema (None until the run has written fit.meta.json).
     docs: ModelDocs = field(default_factory=ModelDocs)
     schema: ObsSchema | None = None
-    # Trace column -> camdl's declared role ("iteration" | "diagnostic" |
-    # "param_estimated" | …), read from the stage's run.json output_schema.
-    # Empty for runs that predate the schema, which then fall back to
-    # AUX_COLUMNS. This is what lets a sampler add a diagnostic column and have
-    # it classified correctly without a watcher release.
-    column_roles: dict[str, str] = field(default_factory=dict)
-    # The sampler's static configuration as camdl recorded it (run.json
-    # ``inputs.algorithm``): particle count, sweep budget, tolerance. Keys are
-    # algorithm-specific and deliberately not enumerated. Empty for runs whose
-    # leaf predates the field.
+    # The sampler's static configuration as camdl resolved it
+    # (``run_inputs.json`` ``algorithm``): particle count, sweep budget,
+    # tolerance. Keys are algorithm-specific and deliberately not enumerated.
     algorithm_config: dict[str, str | float | int] = field(default_factory=dict)
-
-    def is_diagnostic_col(self, col: str) -> bool:
-        """Whether ``col`` is a non-parameter diagnostic, per camdl's declared
-        role when available, else the legacy hardcoded list."""
-        role = self.column_roles.get(col)
-        if role is not None:
-            return role == "diagnostic"
-        return col in AUX_COLUMNS
+    #: The run's status as its ``run.json`` records it.
+    record_status: str = "completed"
+    #: Whether the owning process is alive: ``True``/``False`` on this host,
+    #: ``None`` for an owner on another host (then the heartbeat decides).
+    owner_alive: bool | None = None
+    #: The problem's compiled model (``model.ir.json``), when found.
+    model_ir: Path | None = None
 
     @property
     def hash(self) -> str:
-        """The content-hash suffix of the problem folder's name (after the last
-        '-'). Read from the folder, not ``run_id``: a seed run's id carries the
-        seed directory after the folder name."""
-        name = self.run_dir.name
+        """The 12-hex suffix of the problem folder's name."""
+        name = self.problem_dir.name
         return name.rsplit("-", 1)[-1] if "-" in name else ""
 
     @property
-    def status_dir(self) -> Path:
-        """The stage that answers "is this run doing anything *right now*" — the
-        live stage when a re-run is in flight beside a finished one, else the
-        stage we read. Status is a fact about the run, not about the stage whose
-        draws happen to be the best ones to show."""
-        return self.live_stage_dir or self.posterior_dir
-
-    @property
     def method(self) -> str:
-        """The method directory holding this run's leaf, e.g. ``pmmh-35a17c58``:
-        one sampler configuration of the problem."""
-        return self.posterior_dir.parent.name
+        """The method directory holding this run, e.g. ``pmmh-35a17c58a0b1``:
+        one method's settings for the problem."""
+        return self.leaf_dir.parent.name
 
     @property
     def derived_label(self) -> str:
         """A readable label derived from metadata, independent of camdl's
         native label. Form: ``<config-stem> · <algorithm>/<backend>``."""
-        stem = self.fit_toml_stem or self.run_dir.name.rsplit("-", 1)[0]
+        stem = self.config_stem or self.model or self.problem_dir.name.rsplit("-", 1)[0]
         return f"{stem} · {self.algorithm}/{self.backend.value}"
 
     @property
     def display_label(self) -> str:
-        """The label to show in the UI: the camdl-native user label if set,
-        else the derived one."""
+        """The label to show in the UI: the user's label if set, else the
+        derived one."""
         return self.user_label or self.derived_label
 
 

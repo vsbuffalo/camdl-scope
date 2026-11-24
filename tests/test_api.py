@@ -1,6 +1,6 @@
 """API tests — the typed JSON projection of the run store.
 
-Each test points ``CAMDL_SCOPE_STORE`` at a freshly-built golden store *before*
+Each test points ``CAMDL_STORE`` at a freshly-built golden store *before*
 importing the FastAPI app (so ``current_store()`` reads it) and drives the app
 through Starlette's ``TestClient``. The golden store carries the full
 ``docs``/``schema`` sidecar, so these assert the doc-labelled posterior contract
@@ -9,7 +9,6 @@ the first frontend screen (a forest plot) depends on.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,22 +17,24 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.fixtures.make_golden_store import (
+    DEFAULT_PREDICT,
+    FIT_META,
+    FIT_TOML,
     KEYED_OPTIONS,
-    KEYED_OPTS8,
+    KEYED_PREDICT,
     PARAM_NAMES,
-    POSTERIOR_DIR,
     RUN_DIR,
-    RUN_ID,
-    SEED_DIR,
     build,
+    leaf_path,
 )
+from tests.storekit import BUILD
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     """A TestClient over the app, pointed at a golden store in ``tmp_path``."""
     build(tmp_path)
-    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(tmp_path))
+    monkeypatch.setenv("CAMDL_STORE", str(tmp_path))
     # current_store() reads the env fresh per request, so importing once is fine.
     from camdl_scope.api.app import app
 
@@ -94,19 +95,19 @@ def test_run_detail_schema_streams_and_dimensions(client):
 
 
 def test_run_detail_lists_predicts_default_first(client):
-    """camdl gh#896 files predict output per run and option set; the detail
-    lists both, the default-options one first and shown."""
+    """Each prediction is a result inside the run; the detail lists the run's
+    two free-forward predictions in folder order, the first shown."""
     detail = client.get(f"/api/runs/{RUN_DIR}").json()
-    default, keyed = RUN_ID[:12], f"{RUN_ID[:12]}-{KEYED_OPTS8}"
+    default, keyed = DEFAULT_PREDICT, KEYED_PREDICT
     assert [(p["key"], p["default"]) for p in detail["predicts"]] == [
         (default, True), (keyed, False),
     ]
-    assert detail["predicts"][1]["options"] == KEYED_OPTIONS
+    assert detail["predicts"][1]["options"] == {"mode": "free_forward", **KEYED_OPTIONS}
     assert detail["predict"] == default
 
 
 def test_predictive_reads_the_selected_predict(client):
-    keyed = f"{RUN_ID[:12]}-{KEYED_OPTS8}"
+    keyed = KEYED_PREDICT
     times = lambda body: {p["time"] for p in body["predictive"]}  # noqa: E731
     default = client.get(f"/api/runs/{RUN_DIR}/predictive/cases")
     picked = client.get(f"/api/runs/{RUN_DIR}/predictive/cases", params={"predict": keyed})
@@ -190,16 +191,15 @@ def test_posterior_404(client):
     assert r.status_code == 404
 
 
-# --- Source tab: leaf-archived model source (gh#353) -------------------------
+# --- Source tab: the sources stored with the fit ----------------------------
 
 
-def test_source_prefers_the_leaf_archived_model(client, tmp_path):
-    """When the fit leaf carries ``model.camdl.original`` (gh#353), the Source
-    tab serves that self-contained copy — not a checkout-relative live read —
-    and marks its origin ``leaf``. The golden fit's recorded ``model_path`` is a
-    non-existent ``.ir.json``, so a live read would miss; the leaf copy wins."""
+def test_source_reads_the_problems_model_and_the_runs_fit_toml(client, tmp_path):
+    """The Source tab serves the problem's own ``model.camdl`` and the run's own
+    ``fit.toml``, both stored with the fit, so their origin is ``leaf``."""
     model_src = "compartments { S, I, R }\nparameters { beta ~ log_normal() }\n"
-    (tmp_path / RUN_DIR / "model.camdl.original").write_text(model_src)
+    problem = leaf_path(tmp_path).parents[2]
+    (problem / "model.camdl").write_text(model_src)
 
     r = client.get(f"/api/runs/{RUN_DIR}/source")
     assert r.status_code == 200
@@ -211,21 +211,19 @@ def test_source_prefers_the_leaf_archived_model(client, tmp_path):
     assert model["text"] == model_src
     assert model["html"]  # highlighted, non-empty
 
-    # fit.toml is always leaf-archived.
     assert body["fit_toml"]["present"] is True
     assert body["fit_toml"]["origin"] == "leaf"
+    assert body["fit_toml"]["text"] == FIT_TOML
+    assert body["model_identity"] == FIT_META["model_identity"]
 
 
-def test_source_falls_back_to_live_when_no_leaf_copy(client):
-    """Older fits predate source archiving: with no ``model.camdl.original`` in
-    the leaf, the model falls back to a live read of the recorded path. The
-    golden fit points at a missing ``.ir.json``, so it reads ``present: false``
-    with origin ``live`` — never a leaf hit."""
-    r = client.get(f"/api/runs/{RUN_DIR}/source")
-    assert r.status_code == 200
-    model = r.json()["model"]
-    assert model["origin"] == "live"
+def test_source_missing_model_reads_as_absent(client, tmp_path):
+    """No other copy is looked for: without the problem's ``model.camdl`` the
+    model reads ``present: false``, still from the fit's own folder."""
+    (leaf_path(tmp_path).parents[2] / "model.camdl").unlink()
+    model = client.get(f"/api/runs/{RUN_DIR}/source").json()["model"]
     assert model["present"] is False
+    assert model["origin"] == "leaf"
 
 
 def test_source_404(client):
@@ -354,7 +352,7 @@ def _add_warming_chain(tmp_path):
     """Add a header-only (zero-draw) 3rd chain to the golden run — the reader
     leaves its ``aux`` empty, reproducing a chain still in burn-in."""
     header = "\t".join(["sweep", *PARAM_NAMES, "log_likelihood", "log_posterior"])
-    warming = tmp_path / RUN_DIR / POSTERIOR_DIR / SEED_DIR / "chain_2" / "trace.tsv"
+    warming = leaf_path(tmp_path) / "chain_2" / "trace.tsv"
     warming.parent.mkdir(parents=True, exist_ok=True)
     warming.write_text(header + "\n")
 
@@ -405,19 +403,19 @@ def test_efficiency_metrics_formula_and_thinning_invariance():
 
 def test_diagnostics_report_ess_per_iter_from_summary(client):
     """The golden run's authoritative summary yields a run-level ESS/iteration
-    (no run.json → ESS/second stays None)."""
+    (no execution.json → ESS/second stays None)."""
     body = client.get(f"/api/runs/{RUN_DIR}/diagnostics?warmup_pct=50").json()
     assert body["ess_per_iter"] is not None and body["ess_per_iter"] > 0
-    assert body["ess_per_sec"] is None  # golden fixture writes no run.json
+    assert body["ess_per_sec"] is None  # golden fixture writes no execution.json
 
 
 def test_diagnostics_ess_per_iter_honors_thin_and_walltime(client, tmp_path):
-    """Reading `thin` from the summary and `wall_time_seconds` from run.json:
+    """Reading `thin` from the summary and `wall_time_seconds` from execution.json:
     thinning ×10 makes ESS/iteration 10× smaller (same raw iterations per kept
     draw), and ESS/second appears once wall-clock is recorded."""
     import json as _json
 
-    seed = tmp_path / RUN_DIR / POSTERIOR_DIR / SEED_DIR
+    seed = leaf_path(tmp_path)
     summ_path = seed / "pgas_summary.json"
     summary = _json.loads(summ_path.read_text())
 
@@ -427,8 +425,8 @@ def test_diagnostics_ess_per_iter_honors_thin_and_walltime(client, tmp_path):
 
     summary["thin"] = 10
     summ_path.write_text(_json.dumps(summary))
-    (seed / "run.json").write_text(
-        _json.dumps({"kind": "fit_method", "inputs": {"wall_time_seconds": 8.0}})
+    (seed / "execution.json").write_text(
+        _json.dumps({"schema": "camdl.execution/v1", "wall_time_seconds": 8.0})
     )
     thinned = client.get(f"/api/runs/{RUN_DIR}/diagnostics").json()
 
@@ -441,7 +439,7 @@ def test_diagnostics_live_ess_per_iter_while_running(client, tmp_path):
     ESS/iteration — a live arviz estimate over the post-warm-up tail — so the
     efficiency strip isn't blank during monitoring. ESS/second stays absent (no
     final wall-clock)."""
-    seed = tmp_path / RUN_DIR / POSTERIOR_DIR / SEED_DIR
+    seed = leaf_path(tmp_path)
     (seed / "pgas_summary.json").unlink()  # drop the summary → looks live
     (seed / "diagnostics.json").unlink(missing_ok=True)
 
@@ -455,7 +453,7 @@ def test_diagnostics_read_nuts_summary(client, tmp_path):
     """The path is method-agnostic: nuts writes `nuts_summary.json` with the same
     rhat/ess/thin keys, and the watcher must read it (it previously only looked
     for pgas/pmmh). Renaming the golden summary is enough to exercise it."""
-    seed = tmp_path / RUN_DIR / POSTERIOR_DIR / SEED_DIR
+    seed = leaf_path(tmp_path)
     (seed / "pgas_summary.json").rename(seed / "nuts_summary.json")
 
     body = client.get(f"/api/runs/{RUN_DIR}/diagnostics?warmup_pct=50").json()
@@ -516,7 +514,7 @@ def _run_with_divergences(div_by_chain: dict[int, np.ndarray], n_par: int = 60):
     flags. A chain whose entry is ``None`` writes no divergence column at all."""
     from camdl_scope.state import Backend, ChainBuffer, RunMeta, RunState
 
-    meta = RunMeta(run_id="d", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+    meta = RunMeta(run_id="d", problem_dir=Path("/tmp"), leaf_dir=Path("/tmp"), chain_paths={},
                    model="m", algorithm="nuts", backend=Backend.ODE,
                    estimated=["a", "b"], target_sweeps=None, declared_burn_in=None)
     rs = RunState(meta=meta)
@@ -586,7 +584,7 @@ def test_log_axis_follows_the_declared_prior_not_the_draws():
     rng = np.random.default_rng(0)
     n = 4000
     names = ["wide_log", "narrow_log", "wide_beta", "spans_zero_log"]
-    meta = RunMeta(run_id="l", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+    meta = RunMeta(run_id="l", problem_dir=Path("/tmp"), leaf_dir=Path("/tmp"), chain_paths={},
                    model="m", algorithm="nuts", backend=Backend.ODE,
                    estimated=names, target_sweeps=None, declared_burn_in=None)
     rs = RunState(meta=meta)
@@ -625,7 +623,7 @@ def test_bounded_flat_prior_gets_a_normalised_uniform_band():
     from camdl_scope.state import PriorFamily, PriorSpec, RunMeta, RunState
     from camdl_scope.state import Backend
 
-    meta = RunMeta(run_id="f", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+    meta = RunMeta(run_id="f", problem_dir=Path("/tmp"), leaf_dir=Path("/tmp"), chain_paths={},
                    model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,
                    estimated=["bounded", "unbounded"], target_sweeps=None,
                    declared_burn_in=None)
@@ -664,7 +662,7 @@ def _store_snapshot(client, timeout_s: float = 30.0):
 
 def test_store_starts_a_scan_and_reports_progress(client):
     # The first call must return immediately rather than block on the walk — a
-    # real results/ tree is millions of files and takes minutes.
+    # real store is millions of files and takes minutes.
     body = client.get("/api/store").json()
     assert body["scan"]["state"] in {"scanning", "done"}
 
@@ -689,7 +687,7 @@ def test_store_snapshot_projects_runs_with_their_status(client):
 def test_store_counts_a_non_run_directory_as_an_orphan(client, tmp_path):
     # Debris the watcher cannot open must be visible AS debris; folding it into
     # the run list with a blank status is how a store hides junk.
-    (tmp_path / "not-a-run-deadbeef").mkdir()
+    (tmp_path / BUILD / "fit" / "not-a-run-deadbeef").mkdir()
     client.post("/api/store/rescan")
     snap = _store_snapshot(client)["snapshot"]
     assert snap["orphan_dirs"] == 1
@@ -713,7 +711,7 @@ def test_store_rescan_is_idempotent_and_keeps_serving(client):
 
 
 def _set_burn_in(tmp_path, burn_in: int) -> None:
-    toml = tmp_path / RUN_DIR / "fit.toml.original"
+    toml = leaf_path(tmp_path) / "method.toml"
     toml.write_text(toml.read_text().replace("burn_in = 300", f"burn_in = {burn_in}"))
 
 

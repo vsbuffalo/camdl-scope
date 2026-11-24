@@ -77,7 +77,7 @@ def test_missing_bundle_explains_itself_at_root(tmp_path, monkeypatch):
 
     import camdl_scope.api.app as app_mod
 
-    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(tmp_path))
+    monkeypatch.setenv("CAMDL_STORE", str(tmp_path))
     monkeypatch.setenv("CAMDL_SCOPE_WEB_DIST", str(tmp_path / "no-bundle-here"))
     client = TestClient(app_mod.app)
     r = client.get("/")
@@ -99,7 +99,7 @@ def test_bundle_is_found_per_request_not_at_import(tmp_path, monkeypatch):
     import camdl_scope.api.app as app_mod
 
     dist = tmp_path / "dist"
-    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(tmp_path))
+    monkeypatch.setenv("CAMDL_STORE", str(tmp_path))
     monkeypatch.setenv("CAMDL_SCOPE_WEB_DIST", str(dist))
     client = TestClient(app_mod.app)
 

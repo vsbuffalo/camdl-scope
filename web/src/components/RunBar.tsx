@@ -202,7 +202,7 @@ function predictLabel(p: { key: string; default: boolean; options: Record<string
 }
 
 /**
- * Which `camdl fit predict` output of this run the Predictive, Quantities and
+ * Which `camdl predict` output of this run the Predictive, Quantities and
  * Posterior tabs read. camdl keeps one per option set (gh#896), so a run
  * predicted again with `--horizon 60` has two, and neither overwrote the
  * other. Shown only when there is a choice to make.

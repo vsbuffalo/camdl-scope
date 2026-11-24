@@ -143,18 +143,16 @@ function basename(path: string | null | undefined): string | null {
   return parts[parts.length - 1] || path
 }
 
-/** Provenance blurb for a source panel's subline, keyed by where the bytes
- * came from: the self-contained fit run leaf, or a live read of the checkout. */
+/** Provenance blurb for a source panel's subline: both sources are stored with
+ * the fit in camdl's run store. */
 function originNote(origin: SourceFile['origin']): string {
-  if (origin === 'leaf') return 'archived in the run leaf'
-  if (origin === 'live') return 'read live from its recorded path'
+  if (origin === 'leaf') return 'stored with the fit'
   return ''
 }
 
 /**
- * The fit's sources, stacked: the `.camdl` model on top (the copy archived in
- * the run leaf when present, else read live from its recorded path) and the
- * `fit.toml` below (always archived in the leaf). Pygments-highlighted HTML is
+ * The fit's sources, stacked: the `.camdl` model on top (the problem's stored
+ * copy) and the run's `fit.toml` below. Pygments-highlighted HTML is
  * rendered verbatim; the token stylesheet is injected once. A comfortable
  * reading width — this is text, not a figure.
  */

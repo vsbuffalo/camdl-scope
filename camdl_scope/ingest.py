@@ -1,47 +1,29 @@
-"""Ingest — the only module that knows the camdl run-store layout.
+"""Ingest — fits in camdl's run store: discovery, the trace tail, priors.
 
 Three jobs:
-  * ``discover_runs(store)``      -> [RunMeta]
+  * ``discover_runs(root)``       -> [RunMeta]
   * ``tail_chain(buf)``           -> rows appended since last call (tail-safe)
   * ``extract_priors(meta)``      -> {param: PriorSpec}
 
-Store layout (content-addressed, nested)::
+A fit is two kinds of result (camdl run spec; the records are read by
+:mod:`camdl_scope.store`)::
 
-    <store>/<stem>-<fit hash>/         # a "segment": one problem, one config
-        fit.meta.json
-        fit.toml.original
-        predict/<run_id12>[-<opts8>]/  # `fit predict` output, one per run (and
-                                       #   option set); no seed_* children
-        <method dir>/                  # pgas-<hash>, if2-<hash>, nl-sbplx-<hash>
-            seed_<n>-<hash>/
-                draws.tsv              # the pooled posterior, written at the end
-                mle_params.toml        # …or a point estimate, for an optimizer
-                chain_<k>/
-                    trace.tsv          # appended live by the sampler
-                    trajectories/
+    <build>/fit/<model>-<12 hex>/              # a FitProblem: one problem
+        problem.toml  model.camdl  inputs/     #   (data, partition, model source)
+        runs/<method>-<12 hex>/                # one method's settings
+            seed_<n>-<12 hex>/                 # a FitRun: one run of that method
+                identity.json  run.json        #   records: what it is, its status
+                method.toml  fit.toml          #   the [method] table, the fit file
+                fit.meta.json                  #   resolved partition, priors, schema
+                draws.tsv | mle_params.toml    #   a posterior, or a point estimate
+                chain_<k>/trace.tsv            #   per-chain draws
+                progress.json  events.jsonl    #   heartbeat and event log
+                predict/<mode>-<12 hex>/       #   predictions from this run
 
-Two layouts coexist. A fit.toml used to declare a ``[stages]`` map of named
-stages run in order, and the directory was ``<NN>-<stage name>-<hash>``
-(``01-posterior-89a2e6fc``). It now declares one ``[method]`` table, and the
-directory is ``<algorithm>-<hash>`` (``pgas-79d6825a``) — no ordinal, no
-user-chosen name. camdl does not rewrite segments written before the split, so
-a store carries both and this module reads a leaf by what it contains rather
-than by what its directory is called.
-
-Edge cases handled:
-  * Several method dirs in one segment (a resume leaves an empty stub; a re-run
-    under changed sampler settings adds a sibling with the same algorithm
-    label) — pick the one whose chains have non-empty trace.tsv.
-  * A re-run reuses the segment and adds a *new* method dir beside the finished
-    one. Which leaf we read (the one holding a posterior) and which leaf answers
-    "is this run sampling right now" are then different questions, so discovery
-    resolves both.
-  * A point-estimate leaf beside a posterior leaf in one segment — classified by
-    artifact (``draws.tsv``/``chain_*/trace.tsv`` vs ``mle_params.toml``).
-  * Torn final line — the sampler appends, so the last line may be partial.
-    We read only up to the last newline and remember that byte offset.
-  * MH vs PGAS column schema — normalized to a ``draw`` iteration column
-    plus recognized aux columns; everything else is an estimated parameter.
+Each FitRun is one entry. Its status is its record's: ``completed`` and
+``failed`` are final, and ``running`` is live while the owning process is
+(:class:`camdl_scope.store.Liveness`). A problem folder holding several runs
+(fit seeds, two methods, a resume) lists them all, its default first.
 
 This module is deliberately isolated: if camdl grows a sanctioned
 ``camdl watch`` API later, swap this file and nothing downstream changes.
@@ -52,21 +34,20 @@ from __future__ import annotations
 import io
 import json
 import math
-import os
 import re
+import time
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
 import polars as pl
 
-import time
-
+from . import mle as mle_mod
+from . import store
 from .docs import ModelDocs
 from .schema import ObsSchema
-from . import fitmeta
-from . import mle as mle_mod
 from .verdict import UnsupportedSchema, parse_number, read_events
 from .state import (
     AUX_COLUMNS,
@@ -82,12 +63,19 @@ from .state import (
     Severity,
 )
 
-# A run's heartbeat (progress.json) is written every 5–10 s; allow a few missed
-# beats before a still-"running" heartbeat is treated as stale (presumed dead).
+#: A heartbeat (``progress.json``) is rewritten every 5–10 s; allow a few missed
+#: beats before a ``running`` one is treated as stale. Used only for an owner on
+#: another host, whose process this reader cannot see.
 PROGRESS_STALE_S = 30.0
 
+#: The kind directory fits live under, and the depth of a run below its
+#: problem's ``runs/`` (the method level, then the run).
+FIT_KIND = "fit"
+RUNS_DIR = "runs"
+RUN_DEPTH = 2
+
 # ----------------------------------------------------------------------------
-# Discovery
+# A fit run's own files
 # ----------------------------------------------------------------------------
 
 
@@ -112,30 +100,17 @@ def _nonempty(paths: dict[int, Path]) -> dict[int, Path]:
     return {c: p for c, p in paths.items() if p.exists() and p.stat().st_size > 0}
 
 
-def _pid_alive(pid: int) -> bool:
-    """True if a process with this PID currently exists on the local host."""
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # exists, just owned by another user
-    return True
-
-
 def read_progress(seed_dir: Path) -> RunProgress | None:
-    """Parse a stage's ``progress.json`` heartbeat (gh#278), or ``None`` if the
-    run predates the heartbeat / the file is absent or unreadable.
+    """A run's heartbeat (gh#278): the ``snapshot`` of its ``progress.json``,
+    or ``None`` when absent or unreadable.
 
     The ``state`` field is an externally-tagged ADT: the string ``"done"``, or
     ``{"running": {phase, step, total}}`` / ``{"failed": {reason}}``."""
-    try:
-        raw = json.loads((seed_dir / "progress.json").read_text())
-    except (OSError, json.JSONDecodeError):
+    prog = store.read_progress(seed_dir / "progress.json")
+    if prog is None:
         return None
-    state = raw.get("state")
+    snap = prog.snapshot
+    state = snap.get("state")
     phase = step = total = reason = None
     if isinstance(state, str):
         name = state  # unit variant, e.g. "done"
@@ -148,54 +123,82 @@ def read_progress(seed_dir: Path) -> RunProgress | None:
     else:
         return None
     return RunProgress(
-        state=name, updated_at=raw.get("updated_at"), pid=raw.get("pid"),
+        state=name, updated_at=snap.get("updated_at"), pid=snap.get("pid"),
         phase=phase, step=step, total=total, reason=reason,
     )
 
 
 def progress_is_fresh(prog: RunProgress, now: float | None = None) -> bool:
     """A ``running`` heartbeat whose ``updated_at`` is within the staleness
-    window — the cross-host liveness signal (camdl's ``liveness()`` policy)."""
+    window."""
     if prog.updated_at is None:
         return True
     return (now or time.time()) - prog.updated_at <= PROGRESS_STALE_S
 
 
-def stage_is_live(seed_dir: Path) -> bool:
-    """True if the sampler owning this seed stage is still going.
+def is_point_estimate_algorithm(algorithm: str) -> bool:
+    """Whether ``algorithm`` produces a point estimate rather than draws: IF2 and
+    the NLopt optimizers (``nl-sbplx``, ``nl-bobyqa``, ``nl-lbfgs``, …). The
+    ``nl-`` prefix is camdl's naming for every NLopt method."""
+    return algorithm == "if2" or algorithm.startswith("nl-")
 
-    Prefers the ``progress.json`` heartbeat (gh#278): live iff its state is
-    ``running`` and the heartbeat is fresh — cross-host and PID-reuse-proof.
-    Falls back to the seed dir's ``.lock`` PID for runs that predate the
-    heartbeat (same-host only; a stale PID marks an abandoned stub).
-    """
-    prog = read_progress(seed_dir)
-    if prog is not None:
-        return prog.state == "running" and progress_is_fresh(prog)
-    lock = seed_dir / ".lock"
+
+#: A run that scores a fixed point with the particle filter: a score for
+#: ``camdl compare``, not a fit to show (:mod:`camdl_scope.compare` lists it).
+SCORING_ALGORITHMS = frozenset({"pfilter"})
+
+
+def _read_json(path: Path) -> dict:
     try:
-        pid = int(lock.read_text().strip())
-    except (OSError, ValueError):
-        return False
-    return _pid_alive(pid)
+        rec = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return rec if isinstance(rec, dict) else {}
 
 
-def stage_completed(seed_dir: Path) -> bool:
-    """True if the stage finished and wrote its pooled posterior (``draws.tsv``).
-
-    A posterior stage writes its completion artifacts only at the end —
-    ``draws.tsv`` (the pooled, thinned posterior, and the input ``camdl fit
-    predict`` re-simulates from), alongside ``fit_state.toml`` and the summary
-    JSONs. A stage that was killed, crashed, or OOM'd leaves partial per-chain
-    ``trace.tsv`` files and *none* of these. ``draws.tsv`` is the load-bearing
-    one, so we key on it: no draws.tsv means there is no posterior to predict
-    from, whatever the trace files contain.
-    """
-    draws = seed_dir / "draws.tsv"
+def _read_toml(path: Path) -> dict:
     try:
-        return draws.stat().st_size > 0
-    except OSError:
-        return False
+        with path.open("rb") as fh:
+            return tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def read_method(seed_dir: Path) -> dict:
+    """The run's ``[method]`` table, from its own ``method.toml`` (written when
+    the run starts)."""
+    method = _read_toml(seed_dir / "method.toml").get("method")
+    return method if isinstance(method, dict) else {}
+
+
+def read_expected_starts(seed_dir: Path) -> int | None:
+    """How many starts (chains) the run was configured with — ``[method]``
+    ``chains`` — or ``None``. A hint, not a promise: ``starts = "single"``
+    collapses a run to one start."""
+    v = read_method(seed_dir).get("chains")
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
+
+
+def _read_algorithm_config(seed_dir: Path) -> dict[str, str | float | int]:
+    """The sampler's static configuration as camdl resolved it
+    (``run_inputs.json`` ``algorithm``): particle count, sweep budget, optimizer
+    tolerance. Keys differ by algorithm and are passed through, so a knob camdl
+    starts recording surfaces without a change here. Empty until the run has
+    written the file."""
+    cfg = _read_json(seed_dir / "run_inputs.json").get("algorithm")
+    if not isinstance(cfg, dict):
+        return {}
+    out: dict[str, str | float | int] = {}
+    for k, v in cfg.items():
+        if isinstance(v, bool):
+            # A JSON bool would validate against the numeric arm of the wire
+            # union and reach the UI as a meaningless 1/0; keep it a word.
+            out[str(k)] = str(v).lower()
+        elif isinstance(v, (str, int, float)):
+            out[str(k)] = v
+        # Anything structured has no compact rendering in a one-line header
+        # strip, so it is dropped rather than stringified.
+    return out
 
 
 # ----------------------------------------------------------------------------
@@ -383,283 +386,267 @@ def _read_rhat_bands(summary: dict, seed_dir: Path) -> dict[str, str]:
     }
 
 
+
+
 def _read_wall_time_secs(seed_dir: Path) -> float | None:
-    """Stage wall-clock, the denominator for ESS/second. camdl records it per
-    execution in ``execution.json`` (``wall_time_seconds``, schema
-    ``camdl.execution/v1``), kept out of the leaf's result since one leaf can
-    have several executions; older leaves carry it in ``run.json``
-    (``inputs.wall_time_seconds``). ``None`` when neither records it."""
-    try:
-        rec = json.loads((seed_dir / "execution.json").read_text())
-        v = rec.get("wall_time_seconds") if isinstance(rec, dict) else None
-        if isinstance(v, (int, float)):
-            return float(v)
-    except (OSError, json.JSONDecodeError):
-        pass
-    p = seed_dir / "run.json"
-    try:
-        rec = json.loads(p.read_text())
-    except (OSError, json.JSONDecodeError):
+    """The run's wall-clock, the denominator for ESS/second: ``execution.json``
+    ``wall_time_seconds`` (schema ``camdl.execution/v1``). ``None`` until the
+    run has written it."""
+    v = _read_json(seed_dir / "execution.json").get("wall_time_seconds")
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+# ----------------------------------------------------------------------------
+# Discovery
+# ----------------------------------------------------------------------------
+
+#: Separates a problem folder's name from a run's in an entry id. Not a
+#: character camdl writes in a folder name, and safe in a URL path.
+LEAF_SEP = "~"
+
+#: Where a fit problem's compiled model is: one level below each build's
+#: ``compiled_model/`` directory.
+COMPILED_MODEL_KIND = "compiled_model"
+
+
+@dataclass(frozen=True)
+class _StoreView:
+    """What every fit entry reads from the store as a whole, read once per
+    discovery: owner liveness, labels, display names, compiled models."""
+
+    liveness: store.Liveness
+    #: run id -> its current ``--label``.
+    labels: dict[str, str]
+    #: run id -> the labels camdl named it with (a problem's ``model``).
+    names: dict[str, dict]
+    #: compiled model run id -> its folder (``model.ir.json``, ``docs.json``).
+    models: dict[str, Path]
+
+    @classmethod
+    def read(cls, root: Path) -> "_StoreView":
+        invocations = store.read_invocations(root)
+        return cls(
+            liveness=store.Liveness.read(root),
+            labels=store.current_labels(invocations),
+            names=store.result_labels(invocations),
+            models=store.folders_by_id(root, COMPILED_MODEL_KIND, 1),
+        )
+
+
+@dataclass(frozen=True)
+class _Run:
+    """One FitRun folder, as discovery sees it."""
+
+    leaf: Path
+    identity: store.Identity
+    record: store.RunRecord
+    #: The owner is alive: ``True``/``False`` on this host, ``None`` for an
+    #: owner on another host (decided by heartbeat freshness).
+    owner_alive: bool | None
+    algorithm: str
+    #: The fit seed, as typed (the identity's ``chain.seed.seed``).
+    seed: int | None
+    #: Every ``chain_<k>/trace.tsv`` present, empty ones included.
+    chain_paths: dict[int, Path]
+    #: Whether the run has written results to show: a non-empty trace, or a
+    #: finished optimiser start.
+    has_rows: bool
+
+    @property
+    def completed(self) -> bool:
+        return self.record.status == "completed"
+
+    @property
+    def live(self) -> bool:
+        return self.record.status == "running" and self.owner_alive is not False
+
+    @property
+    def point_estimate(self) -> bool:
+        return is_point_estimate_algorithm(self.algorithm)
+
+    def default_rank(self) -> tuple:
+        """Which run a folder (or a method directory) opens by default: a live
+        run with rows to watch, then a completed one, a posterior before a point
+        estimate, the lowest seed first. Among completed replicate seeds, which
+        finished last is an accident of scheduling, so seed order decides."""
+        return (
+            not (self.live and self.has_rows),
+            not self.completed,
+            self.point_estimate,
+            self.seed if self.seed is not None else math.inf,
+        )
+
+
+def _chain_identity(ident: store.Identity) -> dict:
+    chain = ident.body.get("chain")
+    return chain if isinstance(chain, dict) else {}
+
+
+def _read_run(leaf: Path, view: _StoreView) -> _Run | None:
+    """The run in ``leaf``, or ``None`` when its records are not there yet (a
+    claim being made) or it is not a fit run."""
+    ident = store.read_identity(leaf)
+    record = store.read_run_record(leaf)
+    if ident is None or record is None or ident.kind != "fit_run":
         return None
-    inputs = rec.get("inputs") if isinstance(rec, dict) else None
-    if not isinstance(inputs, dict):
-        return None
-    v = inputs.get("wall_time_seconds")
-    return float(v) if isinstance(v, (int, float)) else None
+    chain = _chain_identity(ident)
+    method = chain.get("method")
+    algorithm = str(method.get("algorithm") or "") if isinstance(method, dict) else ""
+    seed_block = chain.get("seed")
+    seed = seed_block.get("seed") if isinstance(seed_block, dict) else None
+    paths = _seed_chain_paths(leaf)
+    if is_point_estimate_algorithm(algorithm):
+        has_rows = mle_mod.has_restart_rows(leaf)
+    else:
+        has_rows = bool(_nonempty(paths))
+    return _Run(
+        leaf=leaf, identity=ident, record=record,
+        owner_alive=view.liveness.alive(record.owner),
+        algorithm=algorithm,
+        seed=seed if isinstance(seed, int) and not isinstance(seed, bool) else None,
+        chain_paths=paths, has_rows=has_rows,
+    )
 
 
-def read_column_roles(seed_dir: Path) -> dict[str, str]:
-    """camdl's declared role for each trace column, from the stage's
-    ``run.json`` (``output_schema["chain_{n}/trace.tsv"].columns``): e.g.
-    ``sweep -> iteration``, ``n_divergent -> diagnostic``, ``r_eff ->
-    param_estimated``.
-
-    This is the contract that lets the watcher classify a column it has never
-    heard of. ``{}`` when the file is absent or predates the schema — the
-    caller then falls back to :data:`camdl_scope.state.AUX_COLUMNS`."""
-    try:
-        rec = json.loads((seed_dir / "run.json").read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}
-    schema = rec.get("output_schema") if isinstance(rec, dict) else None
-    if not isinstance(schema, dict):
-        return {}
-    out: dict[str, str] = {}
-    for entry in schema.values():
-        cols = entry.get("columns") if isinstance(entry, dict) else None
-        if not isinstance(cols, list):
-            continue
-        for c in cols:
-            if isinstance(c, dict) and isinstance(c.get("name"), str):
-                role = c.get("role")
-                if isinstance(role, str):
-                    out[c["name"]] = role
-    return out
+def _listed(run: _Run, *, include_warming: bool) -> bool:
+    """Whether a run gets an entry: completed; or with results written (running,
+    stalled or failed partway — finished optimiser starts and trace rows are
+    results); or, with ``include_warming``, running with nothing written yet. A
+    particle-filter scoring run is listed by Compare, not here."""
+    if run.algorithm in SCORING_ALGORITHMS:
+        return False
+    if run.completed or run.has_rows:
+        return True
+    return include_warming and run.live
 
 
-def _read_algorithm_config(seed_dir: Path) -> dict[str, str | float | int]:
-    """The sampler's static configuration from the stage leaf's ``run.json``
-    (``inputs.algorithm``) — particle count, sweep budget, optimizer tolerance.
-
-    The keys differ by algorithm (PGAS records ``particles``/``sweeps``, MH
-    ``iterations``, an NLopt scout ``max_evals``/``tolerance``), so we pass
-    through whatever camdl wrote instead of naming a fixed set: a sampler that
-    starts recording a new knob surfaces without a change here. Empty on runs
-    that predate the field and when ``run.json`` is absent/unreadable."""
-    p = seed_dir / "run.json"
-    try:
-        rec = json.loads(p.read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}
-    inputs = rec.get("inputs") if isinstance(rec, dict) else None
-    if not isinstance(inputs, dict):
-        return {}
-    cfg = inputs.get("algorithm")
-    if not isinstance(cfg, dict):
-        return {}
-    out: dict[str, str | float | int] = {}
-    for k, v in cfg.items():
-        if isinstance(v, bool):
-            # A JSON bool would validate against the numeric arm of the wire
-            # union and reach the UI as a meaningless 1/0; keep it a word.
-            out[str(k)] = str(v).lower()
-        elif isinstance(v, (str, int, float)):
-            out[str(k)] = v
-        # Anything structured (a list, a nested block) has no compact rendering
-        # in a one-line header strip, so it is dropped rather than stringified.
-    return out
-
-
-def _method_seed_dirs(run_dir: Path) -> list[Path]:
-    """Every ``<method dir>/seed_*`` leaf of a segment, in directory then seed
-    order.
-
-    A segment accumulates method dirs: a resume, a crash-relaunch, or a re-run
-    under changed sampler settings each add one (the layout hashes the settings
-    into the directory name, so a changed setting is a new dir rather than an
-    overwrite), and a second algorithm run on the same problem lands here too.
-
-    The directory name is not parsed. A method dir is one holding ``seed_*``
-    children; the segment's other children (``predict/``, ``prior_predictive/``)
-    hold none. That reads
-    both the current ``<algorithm>-<hash>`` and the older
-    ``<NN>-<stage name>-<hash>``, and it also surfaces stages whose user-chosen
-    name was never ``posterior`` — ``01-post-*``, ``01-fit-*``, both present in
-    real stores — which the old name glob skipped without saying so."""
-    out: list[Path] = []
-    try:
-        with os.scandir(run_dir) as entries:
-            method_dirs = sorted(
-                (e for e in entries if e.is_dir()), key=lambda e: e.name
-            )
-    except OSError:
-        return out
-    for entry in method_dirs:
-        out.extend(sorted(Path(entry.path).glob("seed_*")))
-    return out
-
-
-def is_point_estimate_algorithm(algorithm: str) -> bool:
-    """Whether ``algorithm`` produces a point estimate rather than draws: IF2 and
-    the NLopt optimizers (``nl-sbplx``, ``nl-bobyqa``, ``nl-lbfgs``, …).
-
-    Needed only for a leaf that has not finished: once it has, ``mle_params.toml``
-    says so. camdl records the method's name in ``run.json`` but not which kind
-    of estimate it makes, so a running leaf can only be classified by name. The
-    ``nl-`` prefix is camdl's naming for every NLopt method, so a new one is
-    covered without a change here."""
-    return algorithm == "if2" or algorithm.startswith("nl-")
-
-
-def _read_run_json(seed_dir: Path) -> dict:
-    try:
-        rec = json.loads((seed_dir / "run.json").read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return rec if isinstance(rec, dict) else {}
-
-
-def leaf_algorithm(seed_dir: Path) -> str:
-    """The method a leaf runs: ``run.json``'s ``inputs.method``, which camdl
-    writes when the leaf starts, else the method directory's name."""
-    inputs = _read_run_json(seed_dir).get("inputs")
-    if isinstance(inputs, dict):
-        method = inputs.get("method")
-        if isinstance(method, str) and method:
-            return method
-    return _method_dir_algorithm(seed_dir.parent.name)
-
-
-def read_expected_starts(seed_dir: Path) -> int | None:
-    """How many starts (chains) the leaf was configured with — ``run.json``'s
-    ``inputs.n_chains``, else ``inputs.algorithm.chains`` — or ``None``.
-
-    A hint, not a promise: ``starts = "single"`` collapses a run to one start."""
-    inputs = _read_run_json(seed_dir).get("inputs")
-    if not isinstance(inputs, dict):
-        return None
-    algo = inputs.get("algorithm")
-    for v in (inputs.get("n_chains"), algo.get("chains") if isinstance(algo, dict) else None):
-        if isinstance(v, int) and not isinstance(v, bool) and v > 0:
-            return v
-    return None
-
-
-def mle_finished(seed_dir: Path) -> bool:
-    """camdl wrote the leaf's point estimate (``mle_params.toml``), its last act."""
-    return (seed_dir / "mle_params.toml").is_file()
-
-
-def _mle_seed_dirs(run_dir: Path) -> list[Path]:
-    """Every point-estimate leaf of a segment worth an entry, in directory then
-    seed order: one that finished (``mle_params.toml``); or an optimizer leaf
-    that is running now (a fresh heartbeat) or stopped after some starts
-    finished (rows in its restart table — a run killed partway, whose finished
-    starts are still results).
-
-    A finished leaf is classified by that artifact, not by name, and a
-    posterior leaf never writes it. An unfinished one is classified by its
-    method name (:func:`is_point_estimate_algorithm`). An optimizer that died
-    before any start finished leaves a stale heartbeat and no rows, and stays
-    hidden like any abandoned stub."""
-    out: list[Path] = []
-    for seed_dir in _method_seed_dirs(run_dir):
-        if mle_finished(seed_dir):
-            out.append(seed_dir)
-        elif is_point_estimate_algorithm(leaf_algorithm(seed_dir)) and (
-            _heartbeat_live(seed_dir) or mle_mod.has_restart_rows(seed_dir)
-        ):
-            out.append(seed_dir)
-    return out
-
-
-def _heartbeat_live(seed_dir: Path) -> bool:
-    prog = read_progress(seed_dir)
-    return prog is not None and prog.state == "running" and progress_is_fresh(prog)
-
-
-def _heartbeat_only_seed_dirs(run_dir: Path, claimed: set[Path]) -> list[Path]:
-    """Leaves running now (a fresh ``running`` heartbeat) that wrote nothing any
-    other rule recognises yet — a sampler before its first trace file, say.
-    Listed so a run is visible from its first heartbeat; any method. A stale
-    heartbeat with no results is a dead stub and is not listed."""
+def _entry_ids(problem: Path, runs: list[_Run]) -> list[str]:
+    """Entry ids for a problem's runs: the folder name when it holds one, else
+    ``<folder>~<seed dir>``, with the method dir added only when two runs share
+    a seed dir name (the same seed under two method settings)."""
+    if len(runs) == 1:
+        return [problem.name]
+    names = [r.leaf.name for r in runs]
     return [
-        sd for sd in _method_seed_dirs(run_dir)
-        if sd not in claimed and _heartbeat_live(sd)
-        and not _seed_chain_paths(sd) and not stage_completed(sd)
+        LEAF_SEP.join([problem.name, r.leaf.name]) if names.count(r.leaf.name) == 1
+        else LEAF_SEP.join([problem.name, r.leaf.parent.name, r.leaf.name])
+        for r in runs
     ]
 
 
-#: A pre-split method dir, ``<ordinal>-<stage name>-<hash>``. The hash is the
-#: last dash-free segment, so the stage name may itself contain dashes.
-_LEGACY_STAGE_DIR = re.compile(r"\d+-(?P<name>.+)-[^-]+")
+def _run_meta(
+    problem: store.Identity | None, run: _Run, entry_id: str, view: _StoreView, *,
+    problem_dir: Path, folder_default: bool, method_default: bool,
+) -> RunMeta:
+    leaf = run.leaf
+    meta = _read_json(leaf / "fit.meta.json")
+    method = read_method(leaf)
+    # Each sampler budgets its run in its own unit: PGAS counts ``sweeps``,
+    # PMMH/MH/IF2 ``iterations``, NUTS ``samples`` drawn after ``warmup``. They
+    # are the same number to a progress bar, so they collapse to one field.
+    target = method.get("sweeps") or method.get("iterations") or method.get("samples")
+    burn_in = method.get("burn_in", method.get("warmup"))
+    thin = method.get("thin")
+    try:
+        backend = Backend(str(method.get("backend") or "unknown"))
+    except ValueError:
+        backend = Backend.UNKNOWN
+    config = run.record.given.get("config")
+    config_path = config.get("path") if isinstance(config, dict) else None
+    model_ref = problem.body.get("model") if problem is not None else None
+    model_dir = view.models.get(model_ref.get("run_id")) if isinstance(model_ref, dict) else None
+    problem_names = view.names.get(problem.run_id, {}) if problem is not None else {}
+    return RunMeta(
+        run_id=entry_id,
+        problem_dir=problem_dir,
+        leaf_dir=leaf,
+        chain_paths=_nonempty(run.chain_paths) or run.chain_paths,
+        model=str(problem_names.get("model") or ""),
+        algorithm=run.algorithm or str(method.get("algorithm") or "unknown"),
+        backend=backend,
+        estimated=list(meta.get("estimated", [])),
+        target_sweeps=int(target) if target is not None else None,
+        declared_burn_in=int(burn_in) if burn_in is not None else None,
+        thin=int(thin) if thin is not None else 1,
+        config_stem=Path(config_path).stem if config_path else "",
+        user_label=view.labels.get(run.identity.run_id),
+        leaf_run_id=run.identity.run_id,
+        seed=run.seed,
+        folder_default=folder_default,
+        method_default=method_default,
+        fit_kind="mle" if run.point_estimate else "posterior",
+        docs=ModelDocs.from_meta({"docs": _read_json(model_dir / "docs.json")}) if model_dir else ModelDocs(),
+        schema=ObsSchema.from_meta(meta),
+        algorithm_config=_read_algorithm_config(leaf),
+        record_status=run.record.status,
+        owner_alive=run.owner_alive,
+        model_ir=model_dir / "model.ir.json" if model_dir else None,
+    )
 
 
-def _legacy_stage_name(dir_name: str) -> str:
-    """The stage name a pre-split method dir was given in ``[stages]``, or ``""``
-    for a current ``<algorithm>-<hash>`` dir, which has none."""
-    m = _LEGACY_STAGE_DIR.fullmatch(dir_name)
-    return m.group("name") if m else ""
+def _problem_entries(problem_dir: Path, view: _StoreView, *, include_warming: bool) -> list[RunMeta]:
+    runs = [
+        r for leaf in store.walk(problem_dir / RUNS_DIR, RUN_DEPTH)
+        if (r := _read_run(leaf, view)) is not None and _listed(r, include_warming=include_warming)
+    ]
+    if not runs:
+        return []
+    default = min(runs, key=_Run.default_rank)
+    runs = [default, *(r for r in runs if r is not default)]
+    method_defaults = {
+        md: min((r for r in runs if r.leaf.parent == md), key=_Run.default_rank)
+        for md in {r.leaf.parent for r in runs}
+    }
+    problem = store.read_identity(problem_dir)
+    return [
+        _run_meta(
+            problem, r, rid, view, problem_dir=problem_dir,
+            folder_default=(r is default), method_default=(method_defaults[r.leaf.parent] is r),
+        )
+        for r, rid in zip(runs, _entry_ids(problem_dir, runs))
+    ]
 
 
-def _method_dir_algorithm(dir_name: str) -> str:
-    """The algorithm a current method dir is named for — ``pgas-79d6825a`` ->
-    ``pgas``, ``nl-sbplx-4fd60eb3`` -> ``nl-sbplx`` — or ``""`` for a pre-split
-    dir, whose middle is a user-chosen stage name and not an algorithm.
+def discover_runs(root: Path, *, include_warming: bool = False) -> list[RunMeta]:
+    """Every fit run in the store at ``root``, one entry per run; a problem
+    folder holding several (fit seeds, two methods, a resume) yields several,
+    its default first. Empty when ``root`` is not a store.
 
-    Derived rather than matched against the eight algorithm labels camdl has
-    today, so a sampler added upstream is named correctly here without a
-    release."""
-    body = dir_name.rsplit("-", 1)[0] if "-" in dir_name else ""
-    if not body or body.split("-", 1)[0].isdigit():
-        return ""
-    return body
-
-
-def _method_table(toml: dict, method_dir_name: str = "") -> dict:
-    """The sampler settings for a fit: the ``[method]`` table current camdl
-    writes, else the pre-split ``[stages.<name>]`` entry.
-
-    One config declares one method, so ``[method]`` needs no name to look up.
-    The ``[stages]`` map needs one, and the leaf's own directory carries it
-    (``01-scout-9f2a`` -> ``[stages.scout]``). ``posterior`` is the fallback for
-    a leaf whose directory names no declared stage — which is what the reader
-    assumed unconditionally before, and why a stage a user called ``post`` or
-    ``fit`` came through with no algorithm, no backend and no sweep target."""
-    method = toml.get("method")
-    if isinstance(method, dict) and method:
-        return method
-    stages = toml.get("stages")
-    if not isinstance(stages, dict) or not stages:
-        return {}
-    for key in (_legacy_stage_name(method_dir_name), "posterior"):
-        entry = stages.get(key) if key else None
-        if isinstance(entry, dict):
-            return entry
-    return {}
+    With ``include_warming=True``, a run that is live but has written nothing
+    to show yet (a sampler in burn-in, an optimiser before its first finished
+    start) is listed too."""
+    root = Path(root)
+    if not store.is_store(root):
+        return []
+    view = _StoreView.read(root)
+    out: list[RunMeta] = []
+    for kind_dir in store.kind_dirs(root, FIT_KIND):
+        for problem_dir in store.walk(kind_dir, 1):
+            out.extend(_problem_entries(problem_dir, view, include_warming=include_warming))
+    return out
 
 
-def _live_stage_dir(run_dir: Path) -> Path | None:
-    """The seed dir of the stage sampling *right now*, or ``None`` if no stage
-    is. Freshest heartbeat wins if two stages claim to be running.
+def resolve_run(metas: list[RunMeta], run_id: str) -> RunMeta | None:
+    """The entry ``run_id`` names: an exact entry id; ``<folder>~<method dir>``,
+    which opens that method's default seed; or a problem folder's name, which
+    opens that folder's default run."""
+    exact = next((m for m in metas if m.run_id == run_id), None)
+    if exact is not None:
+        return exact
+    folder, sep, method = run_id.partition(LEAF_SEP)
+    if sep:
+        return next(
+            (m for m in metas if m.method_default and m.problem_dir.name == folder
+             and m.method == method), None,
+        )
+    return next(
+        (m for m in metas if m.folder_default and m.problem_dir.name == run_id), None
+    )
 
-    Liveness is decided only by a fresh ``running`` ``progress.json`` (camdl's
-    staleness contract, gh#278), never by the seed ``.lock``: a lock file is a
-    same-host PID that outlives the abandoned stub that wrote it, and letting an
-    abandoned stub speak for the run would drag a finished fit back to
-    ``stalled``. A stage with no heartbeat therefore can never claim liveness
-    away from the stage we read — which is what keeps pre-heartbeat runs
-    classifying exactly as they did before.
-    """
-    best: tuple[float, Path] | None = None
-    for seed_dir in _method_seed_dirs(run_dir):
-        prog = read_progress(seed_dir)
-        if prog is None or prog.state != "running" or not progress_is_fresh(prog):
-            continue
-        beat = float(prog.updated_at or 0.0)
-        if best is None or beat > best[0]:
-            best = (beat, seed_dir)
-    return best[1] if best is not None else None
+
+# ----------------------------------------------------------------------------
+# Tail-safe incremental read
+# ----------------------------------------------------------------------------
 
 
 #: Bytes read from the end of a trace to find its last complete row. Comfortably
@@ -714,434 +701,6 @@ def read_last_iter(path: Path) -> int | None:
     return None
 
 
-def _pick_posterior_dir(
-    run_dir: Path, *, include_warming: bool = False
-) -> tuple[Path, Path, dict[int, Path], bool] | None:
-    """Return (posterior_dir, seed_dir, chain_paths, has_draws) for the stage
-    whose draws we read, or ``None`` if there's nothing worth surfacing.
-
-    Prefer a stage that is *not abandoned* — one that wrote ``draws.tsv``, or
-    one that is sampling right now (:func:`_live_stage_dir`) — over any partial
-    stub, then the stage with the most non-empty chains, then the
-    most-recently-modified. A resume/relaunch leaves an empty ``trace.tsv`` stub
-    — those score zero non-empty chains and lose. A *crashed* relaunch can leave
-    a stub with as many started chains as the real run and a newer mtime; the
-    not-abandoned key keeps the finished stage from being masked by it.
-
-    A re-run under new settings is the same shape as that crashed stub — same
-    chain count, newer mtime — but it is alive, and its rows are the ones the
-    watcher exists to show. Reading the superseded stage while the status line
-    reads ``running`` would report the *old* fit's sweep count and traces as if
-    they were the live run's. So a live stage that has rows wins; a live stage
-    still in burn-in has nothing to show and yields to the completed sibling.
-
-    When no stage has any draws yet (every ``trace.tsv`` is empty, as during
-    burn-in), the run is hidden by default. With ``include_warming=True`` it is
-    surfaced *only if the sampler is still live* (``stage_is_live``), with
-    ``has_draws=False`` — that's a run warming up, not a killed stub. The
-    returned ``chain_paths`` are the (currently empty) trace files, so the
-    normal tail picks up rows the moment burn-in clears.
-    """
-    live_dir = _live_stage_dir(run_dir)
-    candidates: list[tuple[bool, int, float, Path, Path, dict[int, Path]]] = []
-    for seed_dir in _method_seed_dirs(run_dir):
-        paths = _seed_chain_paths(seed_dir)
-        ne = _nonempty(paths)
-        if not paths:
-            continue
-        mtime = max((p.stat().st_mtime for p in paths.values()), default=0.0)
-        # Rank not-abandoned first, then by #non-empty chains, then recency.
-        # Use the full path set for display when none are non-empty yet.
-        candidates.append(
-            (stage_completed(seed_dir) or seed_dir == live_dir,
-             len(ne), mtime, seed_dir.parent, seed_dir, ne or paths)
-        )
-    if not candidates:
-        return None
-    candidates.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
-    _kept, n_ne, _mtime, pdir, seed_dir, paths = candidates[0]
-    if n_ne > 0:
-        return pdir, seed_dir, paths, True
-    # No draws anywhere (burn-in, or a killed stub). A run can have several
-    # empty stage dirs from relaunches/resumes — surface the *live* one, not
-    # just the most-recent by mtime, so a relaunched fit isn't read off a dead
-    # sibling stub.
-    if include_warming:
-        for _c, _n, _mt, pd_, sd_, pth_ in candidates:
-            if stage_is_live(sd_):
-                return pd_, sd_, pth_, False
-    return None
-
-
-def _read_fit_toml(run_dir: Path) -> dict:
-    tp = run_dir / "fit.toml.original"
-    if not tp.exists():
-        return {}
-    try:
-        with tp.open("rb") as fh:
-            return tomllib.load(fh)
-    except (tomllib.TOMLDecodeError, OSError):
-        return {}
-
-
-def _read_meta(run_dir: Path) -> dict:
-    mp = run_dir / "fit.meta.json"
-    if not mp.exists():
-        return {}
-    try:
-        return json.loads(mp.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def _fit_toml_stem(meta: dict, run_dir: Path) -> str:
-    """The config stem: ``fit.meta.json`` records the originating
-    config path (``source_config``, or ``fit_toml_path`` in a version 1 record; e.g. ``natbc_dens_hierk_nc_pgas_long.toml``), the most
-    reliable source. Fall back to the run-dir name prefix before the hash."""
-    ftp = fitmeta.config_ref(meta)
-    if ftp:
-        return Path(ftp).stem
-    name = run_dir.name
-    return name.rsplit("-", 1)[0] if "-" in name else name
-
-
-class LeafIdentity(NamedTuple):
-    """What a leaf's ``run.json`` says about which run it is."""
-
-    run_id: str | None  # camdl's run_id; names the run's predict/ directory
-    label: str | None  # provenance.label, the run's own label
-
-
-def _read_leaf_identity(seed_dir: Path) -> LeafIdentity:
-    """The run's ``run_id`` and label, from the leaf's ``run.json``.
-
-    camdl (gh#896, 0.2.0) gives a label to exactly one run and records it on
-    that run's leaf (``provenance.label``), set by ``fit run --label L`` or
-    ``camdl label <run_id> L``. A problem folder holding several runs can hold
-    several labels, so the label is read from the leaf this entry shows, never
-    from the folder. Labels an older camdl kept on the folder
-    (``fit.meta.json``) are not read: camdl itself no longer reads them, and
-    showing one would name a run that ``@L`` does not resolve to.
-
-    Both fields are ``None`` when ``run.json`` is absent or unreadable (a leaf
-    still warming up); ``label`` is ``None`` for an unlabelled run."""
-    try:
-        rec = json.loads((seed_dir / "run.json").read_text())
-    except (OSError, json.JSONDecodeError):
-        return LeafIdentity(None, None)
-    if not isinstance(rec, dict):
-        return LeafIdentity(None, None)
-    run_id = rec.get("run_id")
-    prov = rec.get("provenance")
-    label = prov.get("label") if isinstance(prov, dict) else None
-    return LeafIdentity(
-        run_id if isinstance(run_id, str) and run_id else None,
-        label if isinstance(label, str) and label else None,
-    )
-
-
-def _mle_run_meta(
-    run_dir: Path, mle_seed: Path, run_id: str, *, folder_default: bool = True,
-    method_default: bool = True,
-) -> RunMeta:
-    """A ``RunMeta`` for an optimizer leaf, finished or not. ``posterior_dir`` is
-    reused to point at the optimizer's seed leaf (for status/progress);
-    ``chain_paths`` is empty since there are no draws."""
-    meta = _read_meta(run_dir)
-    toml = _read_fit_toml(run_dir)
-    model_path = fitmeta.model_ref(meta)
-    model = Path(model_path).stem if model_path else run_dir.name
-
-    config = _read_algorithm_config(mle_seed)
-    algorithm, backend, _settings = _resolve_method(toml, config, mle_seed.parent.name)
-    ident = _read_leaf_identity(mle_seed)
-
-    return RunMeta(
-        run_id=run_id,
-        run_dir=run_dir,
-        posterior_dir=mle_seed,
-        chain_paths={},
-        model=model,
-        algorithm=algorithm,
-        backend=backend,
-        estimated=list(meta.get("estimated", [])),
-        target_sweeps=None,
-        declared_burn_in=None,
-        thin=1,
-        fit_toml_stem=_fit_toml_stem(meta, run_dir),
-        user_label=ident.label,
-        leaf_run_id=ident.run_id,
-        seed=_leaf_seed(mle_seed),
-        folder_default=folder_default,
-        method_default=method_default,
-        docs=ModelDocs.from_meta(meta),
-        schema=ObsSchema.from_meta(meta),
-        fit_kind="mle",
-        algorithm_config=config,
-    )
-
-
-def _resolve_method(
-    toml: dict, config: dict, method_dir_name: str
-) -> tuple[str, Backend, dict]:
-    """What produced this leaf, and the settings that may be attributed to it:
-    ``(algorithm, backend, settings)``.
-
-    Three sources carry this, and only two of them are about *this* leaf. The
-    leaf's own ``run.json`` records the sampler and the settings that keyed the
-    run, but camdl writes that block when the leaf finishes — it is ``null`` for
-    the run you are watching. The method directory's name carries the algorithm
-    and is there from the first sweep. The segment's ``fit.toml.original``
-    carries what neither does (``burn_in``, ``thin``) but belongs to the
-    *segment*, not the leaf: one segment holds every leaf of one problem, and
-    the file on disk is whichever config was written into it last.
-
-    So the config is read only when it declares the algorithm this leaf actually
-    ran. Re-running one file after switching its algorithm leaves a PGAS leaf and
-    an IF2 leaf side by side under a fit.toml describing only the second — and
-    reporting that file's iteration budget and burn-in against the first fit
-    would be wrong in a way nothing on screen could contradict."""
-    leaf_algorithm = (
-        str(config.get("algorithm") or "") or _method_dir_algorithm(method_dir_name)
-    )
-    declared = _method_table(toml, method_dir_name)
-    if leaf_algorithm and str(declared.get("algorithm") or "") not in (
-        "", leaf_algorithm
-    ):
-        declared = {}
-    # The leaf's own record wins wherever the two overlap.
-    settings = {**declared, **config}
-    algorithm = leaf_algorithm or str(declared.get("algorithm") or "") or "unknown"
-    try:
-        backend = Backend(str(settings.get("backend") or "unknown"))
-    except ValueError:
-        backend = Backend.UNKNOWN
-    return algorithm, backend, settings
-
-
-#: Separates a problem folder's name from a leaf's in a seed run's id. Not a
-#: character camdl writes in a directory name, and safe in a URL path.
-LEAF_SEP = "~"
-
-_SEED_RE = re.compile(r"^seed_(\d+)")
-
-
-def _leaf_seed(seed_dir: Path) -> int | None:
-    m = _SEED_RE.match(seed_dir.name)
-    return int(m.group(1)) if m else None
-
-
-class _Leaf(NamedTuple):
-    pdir: Path
-    seed_dir: Path
-    chain_paths: dict[int, Path]
-
-
-def _posterior_leaves(run_dir: Path, *, include_warming: bool) -> list[_Leaf]:
-    """Every posterior run of a problem folder worth its own entry, the one a
-    bare folder name opens first.
-
-    The default is :func:`_pick_posterior_dir`'s choice, which keeps a live
-    re-run ahead of the finished stage it supersedes and an abandoned stub
-    behind both. Among finished replicate seeds of one method directory, which
-    finished last is an accident of scheduling, so the default is the lowest
-    seed instead. Every other leaf that finished (``draws.tsv``) or is live is
-    listed after it, by method directory then seed; abandoned stubs are not."""
-    picked = _pick_posterior_dir(run_dir, include_warming=include_warming)
-    if picked is None:
-        return []
-    pdir, seed_dir, paths, _has_draws = picked
-    default = _Leaf(pdir, seed_dir, paths)
-    live = _live_stage_dir(run_dir)
-    others: list[_Leaf] = []
-    for sd in _method_seed_dirs(run_dir):
-        if sd == seed_dir:
-            continue
-        all_paths = _seed_chain_paths(sd)
-        ne = _nonempty(all_paths)
-        if stage_completed(sd) and ne:
-            others.append(_Leaf(sd.parent, sd, ne))
-        elif sd == live and all_paths and (ne or include_warming):
-            others.append(_Leaf(sd.parent, sd, ne or all_paths))
-    if stage_completed(seed_dir) and seed_dir != live:
-        replicates = [o for o in others if o.pdir == pdir and stage_completed(o.seed_dir)
-                      and len(o.chain_paths) >= len(paths)]
-        lowest = min([default, *replicates],
-                     key=lambda lf: (_leaf_seed(lf.seed_dir) is None, _leaf_seed(lf.seed_dir) or 0))
-        if lowest is not default:
-            others = [default, *(o for o in others if o is not lowest)]
-            default = lowest
-    others.sort(key=lambda lf: (lf.pdir.name, _leaf_seed(lf.seed_dir) or 0, lf.seed_dir.name))
-    return [default, *others]
-
-
-def _leaf_ids(run_dir: Path, leaves: list[_Leaf]) -> list[str]:
-    """Entry ids for a folder's leaves: the folder name when it holds one run,
-    else ``<folder>~<seed dir>``, with the method dir added only when two
-    leaves share a seed dir name (the same seed under two method settings)."""
-    if len(leaves) == 1:
-        return [run_dir.name]
-    names = [lf.seed_dir.name for lf in leaves]
-    return [
-        LEAF_SEP.join([run_dir.name, lf.seed_dir.name]) if names.count(lf.seed_dir.name) == 1
-        else LEAF_SEP.join([run_dir.name, lf.pdir.name, lf.seed_dir.name])
-        for lf in leaves
-    ]
-
-
-def _posterior_run_meta(
-    run_dir: Path, leaf: _Leaf, run_id: str, *, folder_default: bool,
-    method_default: bool, live_stage_dir: Path | None,
-) -> RunMeta:
-    pdir, seed_dir, chain_paths = leaf
-    meta = _read_meta(run_dir)
-    toml = _read_fit_toml(run_dir)
-
-    model_path = fitmeta.model_ref(meta)
-    model = Path(model_path).stem if model_path else run_dir.name
-    estimated = list(meta.get("estimated", []))
-
-    config = _read_algorithm_config(seed_dir)
-    algorithm, backend, settings = _resolve_method(toml, config, pdir.name)
-    # Each sampler budgets its run in its own unit: PGAS counts ``sweeps``,
-    # PMMH/MH/IF2 ``iterations``, NUTS ``samples`` drawn after ``warmup``.
-    # They are the same number to a progress bar — how many iterations this
-    # run is aiming for — so they collapse to one field.
-    target = (
-        settings.get("sweeps")
-        or settings.get("iterations")
-        or settings.get("samples")
-    )
-    burn_in = settings.get("burn_in")
-    if burn_in is None:
-        burn_in = settings.get("warmup")
-    thin = settings.get("thin")
-    ident = _read_leaf_identity(seed_dir)
-
-    return RunMeta(
-        run_id=run_id,
-        run_dir=run_dir,
-        posterior_dir=seed_dir,
-        live_stage_dir=live_stage_dir,
-        chain_paths=chain_paths,
-        model=model,
-        algorithm=algorithm,
-        backend=backend,
-        estimated=estimated,
-        target_sweeps=int(target) if target is not None else None,
-        declared_burn_in=int(burn_in) if burn_in is not None else None,
-        thin=int(thin) if thin is not None else 1,
-        fit_toml_stem=_fit_toml_stem(meta, run_dir),
-        user_label=ident.label,
-        leaf_run_id=ident.run_id,
-        seed=_leaf_seed(seed_dir),
-        folder_default=folder_default,
-        method_default=method_default,
-        docs=ModelDocs.from_meta(meta),
-        schema=ObsSchema.from_meta(meta),
-        column_roles=read_column_roles(seed_dir),
-        algorithm_config=config,
-    )
-
-
-def _method_defaults(leaves: list[_Leaf]) -> list[bool]:
-    """Which leaf each method directory opens by default: the folder's default
-    when it is in that directory, else the lowest finished seed (``leaves``
-    past the first are in seed order), else the first listed."""
-    chosen: dict[Path, _Leaf] = {leaves[0].pdir: leaves[0]} if leaves else {}
-    for pdir in {lf.pdir for lf in leaves} - chosen.keys():
-        mine = [lf for lf in leaves if lf.pdir == pdir]
-        chosen[pdir] = next((lf for lf in mine if stage_completed(lf.seed_dir)), mine[0])
-    return [chosen[lf.pdir] is lf for lf in leaves]
-
-
-def resolve_run(metas: list[RunMeta], run_id: str) -> RunMeta | None:
-    """The entry ``run_id`` names: an exact entry id; ``<folder>~<method dir>``,
-    which opens that sampler configuration's default seed; or a problem folder's
-    name, which opens that folder's default run. A link written before a folder
-    held several runs keeps working, and opens what the folder now defaults to."""
-    exact = next((m for m in metas if m.run_id == run_id), None)
-    if exact is not None:
-        return exact
-    folder, sep, method = run_id.partition(LEAF_SEP)
-    if sep:
-        return next(
-            (m for m in metas if m.method_default and m.run_dir.name == folder
-             and m.method == method), None,
-        )
-    return next(
-        (m for m in metas if m.folder_default and m.run_dir.name == run_id), None
-    )
-
-
-def discover_runs(store: Path, *, include_warming: bool = False) -> list[RunMeta]:
-    """Scan ``store`` for runs — one entry per run, so a problem folder holding
-    several (fit seeds, re-runs under changed settings, a sampler beside an
-    optimizer) yields several, its default first.
-
-    A folder's entries are, in order: its posterior leaves with draws
-    (:func:`_posterior_leaves`); its optimizer leaves, finished or not
-    (:func:`_mle_seed_dirs`); and, with ``include_warming=True``, any other leaf
-    running now that has written nothing recognisable yet
-    (:func:`_heartbeat_only_seed_dirs`), which is listed as an optimizer or a
-    posterior by its method's name.
-
-    With ``include_warming=True``, posterior leaves whose sampler is live but
-    has written no draws (burn-in) are listed too. Killed-mid-burn-in stubs
-    (same empty files, stale heartbeat or dead PID) stay hidden.
-    """
-    store = Path(store)
-    out: list[RunMeta] = []
-    if not store.is_dir():
-        return out
-    for run_dir in sorted(store.iterdir()):
-        if not run_dir.is_dir():
-            continue
-        out.extend(_folder_entries(run_dir, include_warming=include_warming))
-    return out
-
-
-def _folder_entries(run_dir: Path, *, include_warming: bool) -> list[RunMeta]:
-    posterior = _posterior_leaves(run_dir, include_warming=include_warming)
-    mle_seeds = _mle_seed_dirs(run_dir)
-    claimed = {lf.seed_dir for lf in posterior} | set(mle_seeds)
-    pending = _heartbeat_only_seed_dirs(run_dir, claimed) if include_warming else []
-    # A pending leaf of an optimizer is an optimizer entry; any other method's
-    # is a posterior entry with no chains yet.
-    pending_mle = [sd for sd in pending if is_point_estimate_algorithm(leaf_algorithm(sd))]
-    pending_post = [_Leaf(sd.parent, sd, {}) for sd in pending if sd not in pending_mle]
-    mle_seeds = sorted(set(mle_seeds) | set(pending_mle), key=lambda sd: (sd.parent.name, _leaf_seed(sd) or 0, sd.name))
-
-    leaves = posterior + pending_post + [_Leaf(sd.parent, sd, {}) for sd in mle_seeds]
-    if not leaves:
-        return []
-    ids = _leaf_ids(run_dir, leaves)
-    method_defaults = _method_defaults(leaves)
-    mle_set = set(mle_seeds)
-    # A live stage listed as its own entry speaks for itself; otherwise (a
-    # re-run still in burn-in, not surfaced) the default entry reports it, so
-    # the folder does not read as idle while it samples.
-    live = _live_stage_dir(run_dir)
-    live_listed = any(lf.seed_dir == live for lf in leaves)
-    out: list[RunMeta] = []
-    for i, (leaf, rid) in enumerate(zip(leaves, ids)):
-        if leaf.seed_dir in mle_set:
-            out.append(_mle_run_meta(
-                run_dir, leaf.seed_dir, rid, folder_default=(i == 0),
-                method_default=method_defaults[i],
-            ))
-        else:
-            out.append(_posterior_run_meta(
-                run_dir, leaf, rid, folder_default=(i == 0),
-                method_default=method_defaults[i],
-                live_stage_dir=(live if i == 0 and not live_listed else None),
-            ))
-    return out
-
-
-# ----------------------------------------------------------------------------
-# Tail-safe incremental read
-# ----------------------------------------------------------------------------
 
 
 def _normalize_header(cols: list[str]) -> list[str]:
@@ -1424,38 +983,20 @@ def _resolve_ir_for_param(
     return ir[best] if best is not None else None
 
 
-def _model_file(run_dir: Path, meta_json: dict) -> Path:
-    """The model ``.camdl`` to parse for IR priors: the leaf-archived copy
-    (``model.camdl.original``, gh#353 — path-independent and always present on
-    recent fits) when available, else the live source the record names, resolved
-    by the rule of its ``schema_version`` (:mod:`camdl_scope.fitmeta`). Reading a
-    recorded relative path as-is fails from any other CWD, which silently
-    dropped every model-declared prior to Flat."""
-    archived = run_dir / "model.camdl.original"
-    if archived.is_file():
-        return archived
-    try:
-        live = fitmeta.source_model_path(meta_json, run_dir, run_dir.parent)
-    except UnsupportedSchema:
-        live = None
-    return live if live is not None else Path("")
-
-
 def extract_priors(meta: RunMeta) -> dict[str, PriorSpec]:
     """Resolve the prior family+args for every estimated coordinate.
 
     Strategy (most reliable first):
       1. ``fit.meta.json`` ``resolved_priors`` tells us the *source* per param
          (``fit_toml`` | ``model_ir``).
-      2. For ``fit_toml`` params, parse the ``[estimate]`` block of
-         ``fit.toml.original``.
+      2. For ``fit_toml`` params, parse the ``[estimate]`` block of the run's
+         ``fit.toml``.
       3. For ``model_ir`` params, parse the ``parameters {}`` block of the
-         model ``.camdl`` file (expanding indexed params).
+         problem's ``model.camdl`` (expanding indexed params).
       4. Fall back to a FLAT prior on the declared bounds, else Normal(0,1).
     """
-    run_dir = meta.run_dir
-    toml = _read_fit_toml(run_dir)
-    meta_json = _read_meta(run_dir)
+    toml = _read_toml(meta.leaf_dir / "fit.toml")
+    meta_json = _read_json(meta.leaf_dir / "fit.meta.json")
     estimate = (toml.get("estimate", {}) or {})
 
     sources = {
@@ -1464,7 +1005,7 @@ def extract_priors(meta: RunMeta) -> dict[str, PriorSpec]:
         if isinstance(d, dict) and "param" in d
     }
 
-    ir = _parse_ir_params(_model_file(run_dir, meta_json))
+    ir = _parse_ir_params(meta.problem_dir / "model.camdl")
 
     out: dict[str, PriorSpec] = {}
     for param in meta.estimated:

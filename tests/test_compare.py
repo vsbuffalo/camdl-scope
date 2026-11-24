@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from camdl_scope import compare
+from tests.storekit import StoreKit
 
 
 def _write_prequential(path: Path, level: float, n: int = 60) -> None:
@@ -34,12 +35,16 @@ def _write_prequential(path: Path, level: float, n: int = 60) -> None:
     ))
 
 
-def test_find_prequential_at_bounded_depth(tmp_path):
-    # camdl writes it under a posterior stage's seed dir (depth 2 below run_dir).
-    target = tmp_path / "01-posterior-aaaa" / "seed_0-bbbb" / "prequential.json"
+def test_find_prequential_reads_the_runs_own_folder_only(tmp_path):
+    kit = StoreKit.create(tmp_path)
+    leaf = kit.fit_run(kit.problem(), algorithm="pfilter")
+    target = leaf / "prequential.json"
     _write_prequential(target, level=-2.0)
-    found = compare.find_prequential(tmp_path)
-    assert found == target
+    assert compare.find_prequential(leaf) == target
+    # A score inside one of the run's results (a prediction) is not the run's.
+    other = kit.fit_run(kit.problem("seir"), algorithm="pfilter")
+    _write_prequential(other / "predict" / "x" / "prequential.json", level=-2.0)
+    assert compare.find_prequential(other) is None
 
 
 def test_find_prequential_absent_is_none(tmp_path):
@@ -88,26 +93,37 @@ def test_standalone_pfilter_runs_are_compare_candidates(tmp_path, monkeypatch):
     """camdl writes one [method] per config, so a particle-filter scoring run is
     a run folder of its own with no draws or estimate. The run list omits it;
     the Compare picker must still offer it, and /api/compare must resolve it."""
-    store = tmp_path / "results" / "fits"
-    for label, level in (("pf_pois-2dc18961", -2.0), ("pf_nb-c0ede1ae", -2.5)):
-        _write_prequential(
-            store / label / "pfilter-d7e5f501" / "seed_1-39ae1d69" / "prequential.json", level
-        )
-    found = {r.run_id: r.label for r in compare.discover_scored(store)}
-    assert found == {"pf_pois-2dc18961": "pf_pois", "pf_nb-c0ede1ae": "pf_nb"}
+    store = tmp_path / "camdl-store"
+    kit = StoreKit.create(store)
+    scoring = {}
+    for model, level in (("pf_pois", -2.0), ("pf_nb", -2.5)):
+        problem = kit.problem(model)
+        leaf = kit.fit_run(problem, algorithm="pfilter", config=f"{model}.toml")
+        _write_prequential(leaf / "prequential.json", level)
+        scoring[f"{problem.name}~{leaf.name}"] = model
+    # A listed posterior run with a score of its own, and one without.
+    scored_mh = kit.fit_run(kit.problem("sir_mh"), config="sir_mh.toml")
+    _write_prequential(scored_mh / "prequential.json", -2.2)
+    kit.fit_run(kit.problem("sir_plain"), config="sir_plain.toml")
 
-    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(store))
+    found = {r.run_id: r.label for r in compare.discover_scored(store)}
+    assert found == scoring
+
+    monkeypatch.setenv("CAMDL_STORE", str(store))
     from fastapi.testclient import TestClient
     from camdl_scope.api.app import app
 
     c = TestClient(app)
+    listed = {r["run_id"] for r in c.get("/api/runs").json()}
+    # The run list omits the scoring runs and shows the two posterior runs.
+    assert len(listed) == 2 and not (listed & set(scoring))
+    mh_id = scored_mh.parents[2].name  # its problem folder, which holds one run
     got = c.get("/api/compare/candidates").json()
-    assert {x["run_id"] for x in got["candidates"]} == set(found)
-    assert got["n_without_prequential"] == 0
-    assert c.get("/api/runs").json() == []  # the run list still omits them
+    assert {x["run_id"] for x in got["candidates"]} == {*scoring, mh_id}
+    assert got["n_without_prequential"] == 1
     if shutil.which(compare.CAMDL_BIN) is None:
         pytest.skip("camdl not on PATH")
-    r = c.get("/api/compare", params=[("runs", "pf_pois-2dc18961"), ("runs", "pf_nb-c0ede1ae")])
+    r = c.get("/api/compare", params=[("runs", rid) for rid in scoring])
     assert r.status_code == 200, r.text
     assert {row["label"] for row in r.json()["rows"]} == {"pf_pois", "pf_nb"}
 
@@ -130,3 +146,13 @@ def test_json_caveats_and_row_warnings_become_notes():
         "lag-1 autocorrelation of the per-step Δelpd vs baseline: b +0.84",
         "b: starts at prior",
     ]
+
+
+def test_notes_name_runs_by_label_unless_two_share_one():
+    from camdl_scope.api.routes import _name_runs
+
+    labels = {"sir-aa~seed_1-bb": "pf_pois", "sir_nb-cc~seed_1-dd": "pf_nb"}
+    assert _name_runs("sir_nb-cc~seed_1-dd: starts at prior", labels) == "pf_nb: starts at prior"
+    same = {"sir-aa~seed_1-bb": "pf", "sir-aa~seed_2-ee": "pf"}
+    # Two runs called "pf" would make the note ambiguous; the ids stay.
+    assert _name_runs("sir-aa~seed_2-ee: starts at prior", same) == "sir-aa~seed_2-ee: starts at prior"

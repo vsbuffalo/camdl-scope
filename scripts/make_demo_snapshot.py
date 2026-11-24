@@ -13,7 +13,7 @@ only — the demo build disables those live controls.
 
 Usage::
 
-    CAMDL_SCOPE_STORE=/path/to/results/fits \
+    CAMDL_STORE=/path/to/camdl-store \
         uv run python -m scripts.make_demo_snapshot --out demo-snapshot \
         --posterior 4 --mle 1 --sims 3
 
@@ -75,7 +75,7 @@ def _camdl_render(run_id: str, fmt: str) -> dict | None:
     if the model source or the ``camdl`` binary is unavailable."""
     if shutil.which("camdl") is None:
         return None
-    model = Path(os.environ["CAMDL_SCOPE_STORE"]) / run_id / "model.camdl.original"
+    model = Path(os.environ["CAMDL_STORE"]) / run_id / "model.camdl.original"
     if not model.is_file():
         return None
     try:
@@ -168,8 +168,10 @@ def _capture_run(client: TestClient, out: Path, run_id: str, dropped: list[dict]
 
 
 def _stem(run_id: str) -> str:
-    """Model stem = run-dir name without the trailing content hash."""
-    return run_id.rsplit("-", 1)[0] if "-" in run_id else run_id
+    """Model stem = the problem folder's name (before any ``~<run>``) without
+    its trailing content hash."""
+    folder = run_id.split("~", 1)[0]
+    return folder.rsplit("-", 1)[0] if "-" in folder else folder
 
 
 def _curate(
@@ -241,7 +243,7 @@ def build(
     store: Path, out: Path, n_posterior: int, n_mle: int, n_sims: int,
     include: list[str] | None = None, all_models: bool = False,
 ) -> dict:
-    os.environ["CAMDL_SCOPE_STORE"] = str(store)
+    os.environ["CAMDL_STORE"] = str(store)
     # The demo shows derived labels, not the labels a modeller gave their runs:
     # keep each leaf's run_id (it locates the run's predict output) and drop
     # its label.
@@ -300,7 +302,7 @@ def build(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--store", type=Path, default=Path(os.environ.get("CAMDL_SCOPE_STORE", "results/fits")))
+    ap.add_argument("--store", type=Path, default=Path(os.environ.get("CAMDL_STORE", "camdl-store")))
     ap.add_argument("--out", type=Path, default=Path("demo-snapshot"))
     ap.add_argument("--posterior", type=int, default=4)
     ap.add_argument("--mle", type=int, default=1)

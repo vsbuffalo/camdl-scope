@@ -47,6 +47,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
+from . import store
+
 EVENTS_SCHEMA = "camdl.events/v1"
 #: Summary schema versions this reader accepts. 5 is the current grammar; 4 is
 #: accepted because its only difference that matters here is the ambiguous null.
@@ -231,8 +233,10 @@ class Events:
 def read_events(leaf: Path) -> Events | None:
     """``leaf/events.jsonl``, or ``None`` when the file is absent.
 
-    Every line must carry ``schema == "camdl.events/v1"``; a line of another
-    schema refuses the file, naming the version found. A final line that does
+    The store writes each line as ``{"format": 1, "n", "at", "event"}``, the
+    ``event`` being camdl's own record, which must carry
+    ``schema == "camdl.events/v1"``; a line of another format or schema refuses
+    the file, naming the version found. A final line that does
     not parse is a write in progress (camdl writes each line whole, but the
     reader may arrive between two) and is skipped; an unparseable line anywhere
     else is an error."""
@@ -252,6 +256,11 @@ def read_events(leaf: Path) -> Events | None:
             raise ValueError(f"{path}: line {i + 1} is not JSON ({e})") from e
         if not isinstance(ev, dict):
             raise ValueError(f"{path}: line {i + 1} is not an object")
+        if ev.get("format") != 1 or not isinstance(ev.get("event"), dict):
+            raise UnsupportedSchema(
+                f"{path}: line {i + 1} is not a store event line (format {ev.get('format')!r})"
+            )
+        ev = ev["event"]
         if ev.get("schema") != EVENTS_SCHEMA:
             raise UnsupportedSchema(
                 f"{path}: line {i + 1} has schema {ev.get('schema')!r}; "
@@ -398,30 +407,24 @@ def summary_for_leaf(leaf: Path) -> LeafEntry | None:
 
 
 def read_run_status(leaf: Path) -> str:
-    """``completed`` / ``running`` / ``failed`` as the leaf's ``run.json`` records
+    """``completed`` / ``running`` / ``failed`` as the run's ``run.json`` records
     it, or ``unknown`` when it is absent or unreadable."""
     try:
-        rec = json.loads((leaf / "run.json").read_text())
-    except (OSError, json.JSONDecodeError):
+        rec = store.read_run_record(leaf)
+    except store.UnsupportedRecord:
         return "unknown"
-    s = rec.get("status") if isinstance(rec, dict) else None
-    return s if s in ("completed", "running", "failed") else "unknown"
+    return rec.status if rec is not None else "unknown"
 
 
 def read_run_failure(leaf: Path) -> str | None:
-    """``failure.message`` from a leaf's ``run.json`` when it records
-    ``status: failed``: the error camdl stopped on, written before it exited.
-    ``None`` otherwise, including a ``failed`` record with no ``failure`` (a
-    camdl before the field, or a panic)."""
+    """The reason camdl recorded for a failed run (``run.json``
+    ``failure.reason``), or ``None`` — including a run dropped with no
+    reason."""
     try:
-        rec = json.loads((leaf / "run.json").read_text())
-    except (OSError, json.JSONDecodeError):
+        rec = store.read_run_record(leaf)
+    except store.UnsupportedRecord:
         return None
-    if not isinstance(rec, dict) or rec.get("status") != "failed":
-        return None
-    f = rec.get("failure")
-    msg = f.get("message") if isinstance(f, dict) else None
-    return msg if isinstance(msg, str) and msg else None
+    return rec.failure if rec is not None and rec.status == "failed" else None
 
 
 def leaf_verdict(leaf: Path, *, ask_camdl: bool = True) -> Verdict:
@@ -471,45 +474,36 @@ class LeafRow:
     verdict: Verdict
 
 
-def _method_of(leaf: Path) -> str:
-    """The method label: the leaf's method dir name up to its hash suffix
-    (``pmmh-83841c1b`` is ``pmmh``). Display only; the verdict never depends
-    on it."""
-    name = leaf.parent.name
-    head, _, tail = name.rpartition("-")
-    return head if head and len(tail) == 8 else name
-
-
-def leaf_rows(folder: Path) -> list[LeafRow]:
-    """Every method leaf under a problem folder: completed, running or failed,
-    each with its own status and verdict. None is chosen over another; a folder
-    holding an IF2 run and a PMMH run lists both."""
+def leaf_rows(problem: Path) -> list[LeafRow]:
+    """Every fit run of a problem folder (``runs/<method>/<seed>/``): completed,
+    running, stalled (running, but its owner on this host has exited) or failed,
+    each with its own verdict. None is chosen over another; a problem holding an
+    IF2 run and a PMMH run lists both."""
     rows: list[LeafRow] = []
-    try:
-        method_dirs = sorted(e for e in folder.iterdir() if e.is_dir())
-    except OSError:
-        return rows
-    for md in method_dirs:
-        for sd in sorted(md.glob("seed_*")):
-            if not sd.is_dir():
-                continue
-            try:
-                rid = json.loads((sd / "run.json").read_text()).get("run_id")
-            except (OSError, json.JSONDecodeError, AttributeError):
-                rid = None
-            verdict = leaf_verdict(sd, ask_camdl=False)
-            status = read_run_status(sd)
-            # camdl's end-of-run report is authoritative about a failure: a
-            # leaf that failed during init keeps ``status = "running"`` in its
-            # run.json (seen with camdl 0.1.0+0553b5a1) while events.jsonl
-            # records the failed method_report.
-            if verdict.kind == "failed":
-                status = "failed"
-            rows.append(LeafRow(
-                leaf=f"{md.name}/{sd.name}", method=_method_of(sd),
-                run_id=rid if isinstance(rid, str) else None,
-                status=status, verdict=verdict,
-            ))
+    liveness = store.Liveness.read(problem.parents[2])
+    for sd in store.walk(problem / "runs", 2):
+        try:
+            ident = store.read_identity(sd)
+        except store.UnsupportedRecord:
+            ident = None
+        method = (ident.body.get("chain") or {}).get("method") or {} if ident else {}
+        verdict = leaf_verdict(sd, ask_camdl=False)
+        try:
+            rec = store.read_run_record(sd)
+        except store.UnsupportedRecord:
+            rec = None
+        status = rec.status if rec is not None else "unknown"
+        if status == "running" and liveness.alive(rec.owner) is False:
+            status = "stalled"
+        # camdl's end-of-run report is authoritative about a failure even
+        # before the record says so.
+        if verdict.kind == "failed":
+            status = "failed"
+        rows.append(LeafRow(
+            leaf=f"{sd.parent.name}/{sd.name}", method=str(method.get("algorithm") or sd.parent.name),
+            run_id=ident.run_id if ident else None,
+            status=status, verdict=verdict,
+        ))
     return rows
 
 

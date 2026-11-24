@@ -18,15 +18,16 @@ from fastapi.testclient import TestClient
 
 from camdl_scope import verdict as V
 from camdl_scope.state import Finding, Severity
-from tests.fixtures.make_golden_store import POSTERIOR_DIR, RUN_DIR, SEED_DIR, build
+from tests.fixtures.make_golden_store import RUN_DIR, build, leaf_path
+from tests.storekit import StoreKit, events_jsonl
 
 EV = {"schema": "camdl.events/v1"}
 
 
 def _write_events(leaf: Path, *events: dict) -> None:
     leaf.mkdir(parents=True, exist_ok=True)
-    lines = [json.dumps({**EV, "seq": i, "elapsed": float(i), **e}) for i, e in enumerate(events)]
-    (leaf / "events.jsonl").write_text("\n".join(lines) + "\n")
+    (leaf / "events.jsonl").write_text(
+        events_jsonl([{**EV, "seq": i, "elapsed": float(i), **e} for i, e in enumerate(events)]))
 
 
 def _report(verdict: dict, **extra) -> dict:
@@ -173,21 +174,30 @@ def test_log_without_report_is_running_not_a_verdict(tmp_path):
 def test_a_line_being_written_is_skipped_but_a_corrupt_one_is_not(tmp_path):
     _write_events(tmp_path / "a", {"event": "begin", "method": "pgas"})
     with (tmp_path / "a" / "events.jsonl").open("a") as f:
-        f.write('{"schema": "camdl.events/v1", "seq": 1, "ev')
+        f.write('{"format": 1, "n": 2, "event": {"schema": "camdl.events/v1", "seq": 1, "ev')
     assert V.leaf_verdict(tmp_path / "a").kind == "running"
 
     (tmp_path / "b").mkdir()
     (tmp_path / "b" / "events.jsonl").write_text(
-        'not json\n' + json.dumps({**EV, "seq": 1, "event": "begin"}) + "\n")
+        'not json\n' + events_jsonl([{**EV, "seq": 1, "event": "begin"}]))
     assert V.leaf_verdict(tmp_path / "b").kind == "unreadable"
 
 
 def test_unknown_events_schema_is_refused_naming_it(tmp_path):
     tmp_path.mkdir(exist_ok=True)
     (tmp_path / "events.jsonl").write_text(
-        json.dumps({"schema": "camdl.events/v2", "seq": 0, "event": "begin"}) + "\n")
+        events_jsonl([{"schema": "camdl.events/v2", "seq": 0, "event": "begin"}]))
     v = V.leaf_verdict(tmp_path)
     assert v.kind == "unreadable" and "camdl.events/v2" in v.text
+
+
+def test_a_line_not_in_the_stores_wrapper_is_refused(tmp_path):
+    """camdl's run store numbers each event line; a bare event (the layout
+    before the store) is not read as one."""
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps({"schema": "camdl.events/v1", "seq": 0, "event": "begin"}) + "\n")
+    v = V.leaf_verdict(tmp_path)
+    assert v.kind == "unreadable" and "not a store event line" in v.text
 
 
 def test_optimizer_leaf_takes_camdls_gate_not_a_rhat_verdict(tmp_path):
@@ -198,8 +208,10 @@ def test_optimizer_leaf_takes_camdls_gate_not_a_rhat_verdict(tmp_path):
 
 def test_no_events_and_no_camdl_is_not_recorded_never_ok(tmp_path, monkeypatch):
     monkeypatch.setattr(V.shutil, "which", lambda _: None)
-    (tmp_path / "run.json").write_text(json.dumps({"status": "completed"}))
-    v = V.leaf_verdict(tmp_path)
+    kit = StoreKit.create(tmp_path)
+    leaf = kit.fit_run(kit.problem())
+    assert V.read_run_status(leaf) == "completed"
+    v = V.leaf_verdict(leaf)
     assert v.kind == "not_recorded" and v.status == "neutral"
 
 
@@ -228,22 +240,40 @@ def test_an_unknown_summary_version_from_camdl_is_shown_as_refused(tmp_path, mon
 
 
 def test_leaf_rows_lists_completed_failed_and_running_leaves(tmp_path):
-    ok = tmp_path / "pgas-11111111" / "seed_1-aaaaaaaa"
-    bad = tmp_path / "pmmh-22222222" / "seed_1-bbbbbbbb"
-    live = tmp_path / "if2-33333333" / "seed_1-cccccccc"
+    kit = StoreKit.create(tmp_path)
+    problem = kit.problem()
+    ok = kit.fit_run(problem, algorithm="pgas")
+    bad = kit.fit_run(problem, algorithm="pmmh", status="failed")
+    live = kit.fit_run(problem, algorithm="if2", status="running")
     _write_events(ok, _report({"kind": "converged", "max_rhat": 1.01, "param": "b"}))
-    (ok / "run.json").write_text(json.dumps({"run_id": "rid-ok", "status": "completed"}))
     _write_events(bad, {"event": "method_report", "outcome": "failed", "error": "boom"})
-    (bad / "run.json").write_text(json.dumps({"run_id": "rid-bad", "status": "failed"}))
     _write_events(live, {"event": "begin", "method": "if2"})
-    (live / "run.json").write_text(json.dumps({"run_id": "rid-live", "status": "running"}))
-    rows = V.leaf_rows(tmp_path)
+    rows = V.leaf_rows(problem)
+    # Path order: the method folders are named for their algorithm.
     assert [(r.method, r.status, r.verdict.kind) for r in rows] == [
         ("if2", "running", "running"),
         ("pgas", "completed", "converged"),
         ("pmmh", "failed", "failed"),
     ]
-    assert {r.run_id for r in rows} == {"rid-ok", "rid-bad", "rid-live"}
+    assert rows[2].verdict.error == "boom"
+    assert [r.run_id for r in rows] == [_run_id(live), _run_id(ok), _run_id(bad)]
+    assert rows[1].leaf == f"{ok.parent.name}/{ok.name}"
+
+
+def test_a_running_leaf_whose_owner_exited_is_stalled(tmp_path):
+    """A killed camdl leaves its record ``running``; the row says what the run
+    list says, so the two never disagree about one run."""
+    kit = StoreKit.create(tmp_path)
+    problem = kit.problem()
+    kit.fit_run(problem, algorithm="mh", status="running", alive=False)
+    kit.fit_run(problem, algorithm="pgas", status="running", alive=True)
+    assert [(r.method, r.status) for r in V.leaf_rows(problem)] == [
+        ("mh", "stalled"), ("pgas", "running"),
+    ]
+
+
+def _run_id(leaf: Path) -> str:
+    return json.loads((leaf / "identity.json").read_text())["run_id"]
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +324,7 @@ def test_param_colour_reads_camdls_saved_band():
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     build(tmp_path)
-    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(tmp_path))
+    monkeypatch.setenv("CAMDL_STORE", str(tmp_path))
     return tmp_path
 
 
@@ -305,7 +335,7 @@ def _client() -> TestClient:
 
 
 def _seed(store: Path) -> Path:
-    return store / RUN_DIR / POSTERIOR_DIR / SEED_DIR
+    return leaf_path(store)
 
 
 def test_golden_run_shows_the_verdict_camdl_wrote(store):
@@ -377,26 +407,28 @@ def test_a_run_camdl_has_not_assessed_gets_no_local_findings(store):
 
 
 def test_a_failed_report_overrides_a_run_json_still_saying_running(tmp_path):
-    """camdl 0.1.0+0553b5a1 leaves ``status = "running"`` in the run.json of a
-    leaf that failed at chain init, while events.jsonl records the failed
-    method_report. The leaf is listed as failed."""
-    leaf = tmp_path / "pmmh-11111111" / "seed_1-aaaaaaaa"
+    """A run whose record still says ``running`` while events.jsonl records the
+    failed method_report (camdl 0.1.0+0553b5a1 left that state after a failure
+    at chain init) is listed as failed."""
+    kit = StoreKit.create(tmp_path)
+    problem = kit.problem()
+    leaf = kit.fit_run(problem, algorithm="pmmh", status="running")
     _write_events(leaf, {"event": "method_report", "outcome": "failed", "error": "boom"})
-    (leaf / "run.json").write_text(json.dumps({"run_id": "r", "status": "running"}))
-    [row] = V.leaf_rows(tmp_path)
+    [row] = V.leaf_rows(problem)
     assert row.status == "failed" and row.verdict.error == "boom"
 
 
 def test_run_json_failure_is_preferred_to_the_events_report(tmp_path):
-    leaf = tmp_path / "pmmh-11111111" / "seed_1-aaaaaaaa"
+    kit = StoreKit.create(tmp_path)
+    problem = kit.problem()
+    leaf = kit.fit_run(problem, algorithm="pmmh", status="failed", failure="from run.json")
     _write_events(leaf, {"event": "method_report", "outcome": "failed", "error": "from events"})
-    (leaf / "run.json").write_text(json.dumps({
-        "status": "failed", "failure": {"message": "from run.json", "operation": "pmmh"}}))
     v = V.leaf_verdict(leaf)
     assert v.kind == "failed" and v.error == "from run.json"
-    # a failed record with no failure falls back to the events report
-    (leaf / "run.json").write_text(json.dumps({"status": "failed"}))
-    assert V.leaf_verdict(leaf).error == "from events"
+    # a failed record with no reason falls back to the events report
+    dropped = kit.fit_run(problem, algorithm="pmmh", seed=2, status="failed")
+    _write_events(dropped, {"event": "method_report", "outcome": "failed", "error": "from events"})
+    assert V.leaf_verdict(dropped).error == "from events"
 
 
 def test_summary_leaf_state_is_read_when_there_is_no_verdict():
@@ -429,12 +461,13 @@ def test_a_band_in_the_method_report_colours_the_parameter(store):
     lines = (seed / "events.jsonl").read_text().splitlines()
     out = []
     for ln in lines:
-        ev = json.loads(ln)
+        line = json.loads(ln)
+        ev = line["event"]
         if ev.get("event") == "method_report":
             rep = ev["report"].setdefault("method_result", {})
             rep.setdefault("diagnostics", {}).setdefault("per_param", {})["beta"] = {
                 "rhat": {"value": 1.2}, "rhat_band": "not_converged"}
-        out.append(json.dumps(ev))
+        out.append(json.dumps(line))
     (seed / "events.jsonl").write_text("\n".join(out) + "\n")
     params = _client().get(f"/api/runs/{RUN_DIR}/diagnostics?warmup_pct=50").json()["params"]
     assert next(x for x in params if x["name"] == "beta")["rhat_status"] == "warn"

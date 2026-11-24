@@ -22,8 +22,11 @@ Three subcommands, each a make target:
 
 Mid-run states are derived, not captured: a live run cannot be frozen
 reliably. A finished run is truncated (finished starts or grid values removed,
-the end-of-run files deleted) and given a ``running`` heartbeat in camdl's
-shape. The file shapes are camdl's; the truncation is ours, and the manifest
+the end-of-run files deleted), its record set back to ``running`` and given a
+heartbeat in camdl's shape. Its owner is a process on another host (an owner
+here would need a live process id), which is also how a run on a cloud machine
+looks from a laptop: the beat file is present and the heartbeat's freshness
+decides. The file shapes are camdl's; the truncation is ours, and the manifest
 marks those scenarios ``derived``. A running heartbeat is re-stamped to the
 current time (:func:`touch_live`) before anything reads it, since a heartbeat
 older than 30 s reads as stalled.
@@ -32,6 +35,7 @@ older than 30 s reads as stalled.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 import os
@@ -41,8 +45,11 @@ import socket
 import subprocess
 import sys
 import time
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from camdl_scope import compare, ingest, profiles, store
 
 SCENARIOS = Path(__file__).resolve().parent
 INPUTS = SCENARIOS / "inputs"
@@ -50,6 +57,8 @@ SNAPSHOTS = SCENARIOS / "snapshots"
 REPO = SCENARIOS.parents[1]
 DEFAULT_OUT = REPO / "build" / "scenarios"
 CAMDL = os.environ.get("CAMDL_BIN", "camdl")
+#: The store camdl writes in the scenario directory (its default, ``./camdl-store``).
+STORE_DIR = "camdl-store"
 #: An old heartbeat time: a stalled run's last sign of life.
 STALE_AT = 1_000_000_000
 
@@ -124,17 +133,57 @@ def _camdl(args: list[str], cwd: Path) -> None:
         sys.exit(f"camdl {' '.join(args)} failed:\n{proc.stderr[-3000:]}")
 
 
-def _heartbeat(path: Path, state: object, fresh: bool) -> None:
-    path.write_text(json.dumps(
-        {"updated_at": int(time.time()) if fresh else STALE_AT, "pid": 0, "state": state}, indent=2
-    ) + "\n")
+#: The owner of a derived running result: a process on another host.
+REMOTE_OWNER = {"host": "scenario-remote", "pid": 1, "started": "2026-11-24T00:00:00.000Z"}
 
 
-def _truncate_fit(run_dir: Path, keep: int, beat: str) -> Path:
-    """Cut a finished optimizer leaf back to ``keep`` finished starts, as it
-    looked mid-run: the start table, run.json, the event log without its
-    end-of-run report, and a running heartbeat."""
-    [leaf] = run_dir.glob("*/seed_*")
+def _write(path: Path, obj: object) -> None:
+    path.write_text(json.dumps(obj, indent=2) + "\n")
+
+
+def _set_running(store_root: Path, record: Path) -> None:
+    """Set a ``run.json`` or invocation record back to running, owned by the
+    remote owner, whose beat file is put in ``.owners``."""
+    rec = json.loads(record.read_text())
+    rec["status"] = "running"
+    rec["owner"] = REMOTE_OWNER
+    for k in ("finished", "ended"):
+        if k in rec:
+            rec[k] = None
+    _write(record, rec)
+    _write(store_root / ".owners" / f"{REMOTE_OWNER['host']}-1.json", {"format": 1, **REMOTE_OWNER, "beat": 1})
+
+
+def _progress(path: Path, snapshot: dict, fresh: bool) -> None:
+    """A progress file as camdl wraps it: ``{"format", "at", "snapshot"}``."""
+    when = time.time() if fresh else STALE_AT
+    _write(path, {"format": 1, "at": _iso(when), "snapshot": snapshot | (
+        {"updated_at": int(when), "pid": 1} if "state" in snapshot else {})})
+
+
+def _iso(t: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(t))
+
+
+def _latest_invocation(root: Path) -> dict:
+    seqs = [int(p.stem) for p in (root / ".invocations").glob("*.json") if p.stem.isdigit()]
+    return json.loads((root / ".invocations" / f"{max(seqs)}.json").read_text())
+
+
+def _fit_run_folder(root: Path, run_id: str) -> Path:
+    for kd in store.kind_dirs(root, "fit"):
+        for problem in store.walk(kd, 1):
+            for leaf in store.walk(problem / "runs", 2):
+                ident = store.read_identity(leaf)
+                if ident is not None and ident.run_id == run_id:
+                    return leaf
+    sys.exit(f"no fit run {run_id} in {root}")
+
+
+def _truncate_fit(root: Path, leaf: Path, keep: int, beat: str) -> Path:
+    """Cut a finished optimizer run back to ``keep`` finished starts, as it
+    looked mid-run: the start table, the event log without its end-of-run
+    report, the per-search trace, its records and a running heartbeat."""
     rows = (leaf / "chain_results.tsv").read_text().splitlines()
     (leaf / "chain_results.tsv").write_text("\n".join(rows[: 1 + keep]) + "\n")
     done = {r.split("\t")[0] for r in rows[1 : 1 + keep]}
@@ -150,30 +199,56 @@ def _truncate_fit(run_dir: Path, keep: int, beat: str) -> Path:
         trace.write_text("\n".join([head, *kept]) + "\n")
     events = [ln for ln in (leaf / "events.jsonl").read_text().splitlines() if "method_report" not in ln]
     (leaf / "events.jsonl").write_text("\n".join(events) + ("\n" if events else ""))
+    # What camdl has written by then: the records, the configs it was given,
+    # and the files a method appends as it goes.
+    keep_files = {"identity.json", "run.json", "events.jsonl", "chain_results.tsv", "opt_trace.tsv",
+                  "method.toml", "fit.toml", "fit.meta.json"}
     for f in leaf.iterdir():
-        if f.name not in {"run.json", "events.jsonl", "chain_results.tsv", "opt_trace.tsv"}:
+        if f.name not in keep_files:
             shutil.rmtree(f) if f.is_dir() else f.unlink()
-    state = {"running": {"phase": "optimizing", "step": 1400, "total": 5000}}
-    _heartbeat(leaf / "progress.json", state, beat == "fresh")
+    _set_running(root, leaf / "run.json")
+    state = {"state": {"running": {"phase": "optimizing", "step": 1400, "total": 5000}}}
+    _progress(leaf / "progress.json", state, beat == "fresh")
     return leaf / "progress.json"
 
 
-def _truncate_profile(base: Path, drop: int, beat: str) -> Path:
-    """Cut a finished profile back to a mid-run state: the last ``drop`` grid
-    values have no finished start, the first keeps one start, the rest are
-    complete; the invocation's heartbeat says running."""
-    [inv] = base.glob("invocations/*/invocation.json")
-    record = json.loads(inv.read_text())
-    dirs = [p["dir"] for p in record["points"]]
-    for d in dirs[len(dirs) - drop :]:
-        shutil.rmtree(base / d, ignore_errors=True)
-    starts = sorted((base / dirs[0]).glob("*/*/*"))
-    for s in starts[1:]:
-        shutil.rmtree(s)
-    left = sum(1 for _ in base.glob("*/*/*/*/run.json"))
-    state = {"running": {"phase": "profiling", "step": left, "total": record["total_jobs"]}}
-    _heartbeat(inv.parent / "progress.json", state, beat == "fresh")
-    return inv.parent / "progress.json"
+def _points_by_cell(root: Path, seq: int, names: list[str]) -> dict[tuple, list[Path]]:
+    """The profile points invocation ``seq`` computed, by grid cell."""
+    out: dict[tuple, list[Path]] = {}
+    for kd in store.kind_dirs(root, profiles.POINT_KIND):
+        for folder in store.walk(kd, profiles.POINT_DEPTH):
+            rec = store.read_run_record(folder)
+            if rec is None or rec.invocation != seq:
+                continue
+            focal = tomllib.loads((folder / "mle.toml").read_text())["focal"]
+            out.setdefault(tuple(focal[n] for n in names), []).append(folder)
+    return out
+
+
+def _truncate_profile(root: Path, seq: int, drop: int, beat: str) -> Path:
+    """Cut a finished profile command back to a mid-run state: the last
+    ``drop`` grid values have no finished start, the first keeps one start, the
+    rest are complete; its invocation record is running and lists no points
+    yet, as camdl's does, and its progress file says how many starts are in."""
+    inv_path = root / ".invocations" / f"{seq}.json"
+    inv = json.loads(inv_path.read_text())
+    sweep = inv["given"]["args"]["sweep"]
+    names = [s["name"] for s in sweep]
+    grid = list(itertools.product(*(profiles.expand_grid(s["grid"]) for s in sweep)))
+    first, dropped = grid[0], set(grid[len(grid) - drop :])
+    by_cell = _points_by_cell(root, seq, names)
+    for cell, folders in by_cell.items():
+        doomed = folders if cell in dropped else sorted(folders)[1:] if cell == first else []
+        for f in doomed:
+            shutil.rmtree(f)
+    left = sum(len(fs) for fs in _points_by_cell(root, seq, names).values())
+    inv["results"] = []
+    _write(inv_path, inv)
+    _set_running(root, inv_path)
+    total = len(grid) * int(inv["given"]["args"]["n_starts"])
+    progress = root / ".invocations" / f"{seq}.progress.json"
+    _progress(progress, {"phase": "profiling", "step": left, "total": total}, beat == "fresh")
+    return progress
 
 
 def generate(out: Path) -> None:
@@ -183,36 +258,42 @@ def generate(out: Path) -> None:
     for f in INPUTS.iterdir():
         if f.is_file() and not f.name.startswith("."):
             shutil.copy2(f, out / f.name)
-    fits_root = out / "results" / "fits"
-    prof_root = out / "results" / "profiles"
+    root = out / STORE_DIR
     live: list[str] = []
+    fit_runs: dict[str, str] = {}
     fits_m: dict[str, dict[str, object]] = {}
     profs_m: dict[str, dict[str, object]] = {}
 
     for fit in FITS:
         print(f"fit {fit.config}", flush=True)
         _camdl(["fit", "run", f"{fit.config}.toml", "--seed", str(fit.seed), "--parallel", "4", "--progress", "none"], out)
-        [run_dir] = fits_root.glob(f"{fit.config}-*")
-        entry = {"run_id": run_dir.name, "kind": fit.kind, "note": fit.note, "derived": fit.truncate is not None}
+        [run_id] = [r["run_id"] for r in _latest_invocation(root)["results"] if r["kind"] == "fit_run"]
+        fit_runs[fit.config] = run_id
         if fit.truncate:
-            hb = _truncate_fit(run_dir, *fit.truncate)
+            hb = _truncate_fit(root, _fit_run_folder(root, run_id), *fit.truncate)
             if fit.truncate[1] == "fresh":
                 live.append(str(hb.relative_to(out)))
-        fits_m[fit.config] = entry
 
     for prof in PROFILES:
         print(f"profile {prof.name}", flush=True)
-        before = set(prof_root.glob("*")) if prof_root.exists() else set()
         sweeps = [a for name, grid in prof.sweeps for a in ("--sweep", f"{name}={grid}")]
         _camdl(["profile", "sir.camdl", "--fit", f"{prof.config}.toml", *sweeps, "--algorithm", "nl-sbplx",
                 "--backend", "ode", "--n-starts", str(prof.n_starts), "--parallel", "4", "--no-progress"], out)
-        [base] = set(prof_root.glob("*")) - before
+        seq = int(_latest_invocation(root)["seq"])
         if prof.truncate:
-            hb = _truncate_profile(base, *prof.truncate)
+            hb = _truncate_profile(root, seq, *prof.truncate)
             if prof.truncate[1] == "fresh":
                 live.append(str(hb.relative_to(out)))
-        profs_m[prof.name] = {
-            "base_id": base.name, "note": prof.note, "derived": prof.truncate is not None}
+        profs_m[prof.name] = {"base_id": str(seq), "note": prof.note, "derived": prof.truncate is not None}
+
+    # Entry ids depend on every run a problem holds, so they are read once all
+    # are in.
+    entry = {m.leaf_run_id: m.run_id for m in ingest.discover_runs(root, include_warming=True)}
+    scored = {s.leaf.name: s.run_id for s in compare.discover_scored(root)}
+    for fit in FITS:
+        leaf = _fit_run_folder(root, fit_runs[fit.config])
+        rid = entry.get(fit_runs[fit.config]) or scored[leaf.name]
+        fits_m[fit.config] = {"run_id": rid, "kind": fit.kind, "note": fit.note, "derived": fit.truncate is not None}
 
     manifest = {"camdl": _version(), "fits": fits_m, "profiles": profs_m, "live_heartbeats": live}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -231,11 +312,14 @@ def load_manifest(out: Path) -> dict:
 
 def touch_live(out: Path) -> None:
     """Re-stamp every derived running heartbeat to now, so it reads as live."""
+    now = time.time()
     for rel in load_manifest(out)["live_heartbeats"]:
         p = out / rel
-        hb = json.loads(p.read_text())
-        hb["updated_at"] = int(time.time())
-        p.write_text(json.dumps(hb, indent=2) + "\n")
+        rec = json.loads(p.read_text())
+        rec["at"] = _iso(now)
+        if "updated_at" in rec["snapshot"]:
+            rec["snapshot"]["updated_at"] = int(now)
+        _write(p, rec)
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +381,7 @@ def _scrub(x: object, store: str) -> object:
 
 
 def _record(out: Path) -> dict[str, object]:
-    os.environ["CAMDL_SCOPE_STORE"] = str(out / "results" / "fits")
+    os.environ["CAMDL_STORE"] = str(out / STORE_DIR)
     from fastapi.testclient import TestClient
 
     from camdl_scope.api.app import app
@@ -368,7 +452,7 @@ def gallery(out: Path) -> None:
     if not dist.exists():
         sys.exit("web/dist is missing: run `make build` first")
     port = _free_port()
-    env = {**os.environ, "CAMDL_SCOPE_STORE": str(out / "results" / "fits")}
+    env = {**os.environ, "CAMDL_STORE": str(out / STORE_DIR)}
     server = subprocess.Popen([sys.executable, "-m", "camdl_scope", "--port", str(port), "--host", "127.0.0.1"],
                               env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     shots = out / "gallery"
@@ -381,9 +465,11 @@ def gallery(out: Path) -> None:
                 break
             except OSError:
                 time.sleep(0.2)
-        touch_live(out)
         vs = views(out)
         for v in vs:
+            # Re-stamped per view: the whole gallery takes longer than the 30 s
+            # a heartbeat stays fresh.
+            touch_live(out)
             for theme, scheme in (("light", 1), ("dark", 0)):
                 png = shots / f"{v.name}-{theme}.png"
                 subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars",

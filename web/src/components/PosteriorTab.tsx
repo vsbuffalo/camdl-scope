@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
  * Scalar generated quantities (R0, Reff, …) inline on the posterior page.
  * These are posterior distributions of *derived estimands*, so they read
  * naturally as a banded section right below the sampled parameters — but they
- * are not streamed by the sampler: `camdl fit predict` evaluates them post-fit
+ * are not streamed by the sampler: `camdl predict` evaluates them post-fit
  * (re-simulating from the posterior), so the section only exists once predict
  * has run. Shows the as-fitted scenario only; scenario overlays, series
  * ribbons, and censoring detail stay in the Quantities tab.
@@ -47,7 +47,7 @@ function QuantityScalarSection({ runId }: { runId: string }) {
     <>
       <div className="flex items-baseline justify-between border-y border-line bg-sunken px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-faint">
         <span>generated quantities</span>
-        <span>from camdl fit predict</span>
+        <span>from camdl predict</span>
       </div>
       <div className="divide-y divide-hairline">
         {rows.map((r) => {

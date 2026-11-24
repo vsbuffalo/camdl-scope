@@ -1,39 +1,26 @@
-"""Profile-likelihood core — pure functions over the ``profiles/`` CAS tree.
+"""Profile likelihoods — pure functions over camdl's stored profile points.
 
-``camdl profile`` writes a tree *separate* from ``fits/``::
+``camdl profile`` stores each (grid cell, seed, start) as a ``profile_point``
+result of its own (camdl run-store proposal, "A profile")::
 
-    profiles/<base>/<point>/<stage>/<seed>/<start>/run.json
+    <build>/profile_point/<problem>/<focal values>/<method>/seed_<n>-start_<i>-<12 hex>/
+        mle.toml          # [focal] the cell's exact values, [mle] the nuisance MLE
+        provenance.json   # best_loglik, method, loglik_type
+        identity.json  run.json
 
-- ``base``  — the inference *problem* and its focal grid (label e.g.
-  ``ctl_binom``): camdl's ``ProfileBase`` hashes the resolved grid, so a
-  different grid is a different base. Invocations share a base when they rerun
-  the same grid, with other seeds or other method settings; we aggregate them.
-- ``point`` — one focal grid cell. Its level label names the profiled params:
-  1D is ``g=0.0300``; a 2D grid cell is ``g=0.0316__Cscale=0.2000`` (params
-  joined by ``__``). The label rounds each value to 4 decimals (grid value
-  ``0.23125`` is labelled ``0.2313``), so the coordinate is read exactly from a
-  start's ``mle.toml`` ``[focal]`` table, and from the label only when that is
-  unreadable. ``inputs.grid_point`` is only the grid *index*, not the value. A profile can be over one param (a
-  curve) or two (a likelihood surface); higher-D is read but not rendered.
-- ``stage`` — the optimizer method (``nlopt(sbplx)`` / ``if2`` / ``pmmh``).
-- ``seed`` / ``start`` — one optimization restart each; ``inputs.best_loglik``
-  is its optimized log-likelihood. The profile point's loglik is the MAX over
-  restarts (the best optimum found), matching how ``camdl`` reports it.
-
-A start's leaf appears only when that start finishes, so the tree alone cannot
-say which grid values an invocation will run or whether it is still running.
-camdl records both per invocation, outside every hash::
-
-    profiles/<base>/invocations/<invocation_id>/invocation.json   # the grid, n_starts, seeds
-    profiles/<base>/invocations/<invocation_id>/progress.json     # heartbeat, as fits write it
+A point is reused by any later command that asks for it, so the stored object
+is a point and a *profile* is one command: the points that command asked for.
+That is how camdl itself renders a profile table, one per command. A finished
+command's invocation record lists every point it asked for, computed or
+reused; while it runs, its points are those whose ``run.json`` names it as
+their invocation, and the grid it will run is the ``--sweep`` it was given
+(``given.args.sweep``), expanded as camdl's ``Grid::expand`` expands it.
 
 From those, a grid value with no finished start is shown as pending, each value
 reports how many of its starts have finished, and a value whose starts are not
 all in is *partial*: its log-likelihood is the max over the starts so far, so
 it can only rise, and the MLE and interval are computed from complete values
-only and marked provisional until the grid is complete. A profile written by a
-camdl that kept no invocation record reads as before, with every point treated
-as complete.
+only and marked provisional until the grid is complete.
 
 A profile curve is loglik vs the profiled value; the MLE is the argmax and the
 95% CI is the set where loglik ≥ max − 1.92 (½·χ²₁,₀.₉₅), interpolated at the
@@ -43,6 +30,7 @@ threshold crossings — ``None`` on a side where the grid never drops below it
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import time
@@ -50,8 +38,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .ingest import progress_is_fresh, read_progress
-from .state import RunProgress
+from . import store
 
 # The profile-loglik drop for a 95% confidence set, ½·χ²(df, 0.95): df = number
 # of profiled params. 1D → ½·3.8415 (a CI); 2D → ½·5.9915 (a joint region).
@@ -63,9 +50,13 @@ CI_LEVEL = 0.95
 # them (a mix of real and sentinel points would otherwise interpolate nonsense).
 SENTINEL_LOGLIK = -1e99
 
-#: Where camdl keeps each invocation's record under a profile base.
-INVOCATIONS_DIR = "invocations"
-INVOCATION_SCHEMA = "camdl.profile-invocation/v1"
+#: A profile point's kind, and the depth of its folder below the kind's
+#: directory (problem, focal values, method, then the point).
+POINT_KIND = "profile_point"
+POINT_DEPTH = 4
+#: A running command's progress file is rewritten every few seconds; this many
+#: seconds without one reads as stopped, for an owner on another host.
+PROGRESS_STALE_S = 30.0
 
 
 @dataclass(frozen=True)
@@ -77,8 +68,8 @@ class ProfilePoint:
     # the optimizer settled on with the profiled coords held fixed (from the
     # winning restart's mle.toml [mle] table). Empty if unreadable.
     nuisance: dict[str, float]
-    # Starts this cell is expected to have (n_starts × seeds of the invocations
-    # that list it), or None when no invocation record names it.
+    # Starts this cell is expected to have (n_starts × seeds of the command),
+    # or None when the cell is not on the command's grid.
     n_expected: int | None = None
     # Spread (max − min) of the finished starts' log-likelihoods, failed
     # starts excluded; None with fewer than two. A wide spread at a complete
@@ -93,64 +84,29 @@ class ProfilePoint:
 
 @dataclass(frozen=True)
 class PendingPoint:
-    """A grid cell an invocation will run that has no finished start yet."""
+    """A grid cell the command will run that has no finished start yet."""
 
     coords: tuple[float, ...]
     n_expected: int
 
 
 @dataclass(frozen=True)
-class ExpectedPoint:
-    coords: tuple[float, ...]  # exact focal values, in the invocation's param order
-    dir: str  # the <point> directory its leaves are written under
-
-
-@dataclass(frozen=True)
-class ProfileInvocation:
-    """One ``camdl profile`` invocation's record and heartbeat."""
-
-    invocation_id: str
-    started_at: float | None
-    label: str | None
-    algorithm: str
-    params: tuple[str, ...]
-    points: tuple[ExpectedPoint, ...]
-    # The <method> directory under each point this invocation writes into;
-    # None when the record does not name one.
-    method_dir: str | None
-    n_starts: int
-    seeds: tuple[int, ...]
-    progress: RunProgress | None
-
-    @property
-    def starts_per_point(self) -> int:
-        return self.n_starts * max(1, len(self.seeds))
-
-    def status(self, now: float | None = None) -> str:
-        """``running`` (fresh heartbeat) | ``stalled`` (a ``running`` heartbeat
-        gone stale: killed partway) | ``done`` | ``failed`` | ``unknown`` (no
-        heartbeat)."""
-        prog = self.progress
-        if prog is None:
-            return "unknown"
-        if prog.state == "running":
-            return "running" if progress_is_fresh(prog, now) else "stalled"
-        if prog.state in ("done", "failed"):
-            return prog.state
-        return "unknown"
-
-
-@dataclass(frozen=True)
 class ProfileCurve:
-    base_id: str  # profiles/<base_id> dir name, e.g. ctl_binom-e7b69bc0
-    label: str  # human label from the base level, e.g. ctl_binom
+    #: The command's invocation sequence number, as a string: what the API and
+    #: a ``?profile=`` link name it by.
+    base_id: str
+    label: str  # the command's --label, else the model's name
     params: tuple[str, ...]  # profiled param names, e.g. ('g',) or ('g', 'Cscale')
     method: str  # optimizer, e.g. nl-sbplx
     loglik_type: str  # e.g. ode_marginal
     points: list[ProfilePoint]  # 1D: ascending by value; ND: grid order
-    # Grid cells an invocation will run with no finished start yet.
+    # Grid cells the command will run with no finished start yet.
     pending: list[PendingPoint] = field(default_factory=list)
-    invocations: list[ProfileInvocation] = field(default_factory=list)
+    #: ``running`` | ``stalled`` (the command stopped without ending: killed
+    #: partway) | ``done`` | ``failed`` (some point failed).
+    run_status: str = "done"
+    #: When the running command last reported progress (unix seconds).
+    heartbeat_at: float | None = None
 
     @property
     def ndim(self) -> int:
@@ -180,19 +136,12 @@ class ProfileCurve:
         pts = self.estimate_points or self.points
         return max(pts, key=lambda p: p.loglik) if pts else None
 
-    def status(self, now: float | None = None) -> str:
-        """``running`` if any invocation's heartbeat is fresh, else the latest
-        invocation's status; ``unknown`` when camdl kept no invocation record."""
-        if not self.invocations:
-            return "unknown"
-        if any(inv.status(now) == "running" for inv in self.invocations):
-            return "running"
-        latest = max(self.invocations, key=lambda inv: inv.started_at or 0.0)
-        return latest.status(now)
+    def status(self) -> str:
+        return self.run_status
 
     def starts_progress(self) -> tuple[int, int] | None:
-        """(finished, expected) starts over the cells an invocation names, or
-        None when no invocation record says what to expect."""
+        """(finished, expected) starts over the command's grid, or None when
+        no cell is on it."""
         cells = [p for p in self.points if p.n_expected is not None]
         if not cells and not self.pending:
             return None
@@ -236,267 +185,221 @@ class ProfileCurve:
         return lo, hi
 
 
-def profiles_root(store: Path) -> Path:
-    """The ``profiles/`` tree — a sibling of the fit store (``results/fits`` →
-    ``results/profiles``)."""
-    return store.parent / "profiles"
-
-
-def _load_json(path: Path) -> dict | None:
+def _read_toml(path: Path) -> dict:
     try:
-        obj = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return None
-    return obj if isinstance(obj, dict) else None
-
-
-def _level_label(rec: dict, name: str) -> str | None:
-    for lv in rec.get("levels", []):
-        if isinstance(lv, dict) and lv.get("name") == name:
-            lbl = lv.get("label")
-            return str(lbl) if lbl is not None else None
-    return None
-
-
-def _parse_coords(
-    label: str | None, seg: str
-) -> tuple[tuple[str, ...], tuple[float, ...]] | None:
-    """(param names, values) from the point level label, N-D aware: a 1D point is
-    ``g=0.0300`` and a 2D grid cell is ``g=0.0316__Cscale=0.2000`` (params joined
-    by ``__``). The label is authoritative for the param *names* (the dir segment
-    lower-cases them); fall back to the dir segment ``g_0.0316__cscale_0.2000-<hash>``
-    only when the label is missing or malformed."""
-    if label and "=" in label:
-        params: list[str] = []
-        values: list[float] = []
-        for part in label.split("__"):
-            k, _, v = part.partition("=")
-            try:
-                values.append(float(v))
-            except ValueError:
-                params = []
-                break
-            params.append(k.strip())
-        if params and len(params) == len(values):
-            return tuple(params), tuple(values)
-    # Fallback: g_0.0316__cscale_0.2000-<hash>
-    body = seg.rsplit("-", 1)[0]
-    params, values = [], []
-    for part in body.split("__"):
-        k, _, v = part.partition("_")
-        if not v:
-            return None
-        try:
-            values.append(float(v))
-        except ValueError:
-            return None
-        params.append(k)
-    return (tuple(params), tuple(values)) if params else None
-
-
-def _read_focal(leaf: Path, names: tuple[str, ...]) -> tuple[float, ...] | None:
-    """The exact grid values of ``names`` from a start's ``mle.toml``
-    ``[focal]`` table, or ``None`` if the table is unreadable or lacks one."""
-    try:
-        obj = tomllib.loads((leaf / "mle.toml").read_text())
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
-    focal = obj.get("focal")
-    if not isinstance(focal, dict):
-        return None
-    out: list[float] = []
-    for n in names:
-        v = focal.get(n)
-        if isinstance(v, bool) or not isinstance(v, (int, float)):
-            return None
-        out.append(float(v))
-    return tuple(out)
-
-
-def _read_nuisance(leaf: Path) -> dict[str, float]:
-    """The conditional-MLE nuisance params from a restart leaf's ``mle.toml``
-    ``[mle]`` table (the coords held fixed live under ``[focal]``, not here).
-    Empty on any read/parse failure or if the leaf wrote no such table."""
-    try:
-        obj = tomllib.loads((leaf / "mle.toml").read_text())
+        obj = tomllib.loads(path.read_text())
     except (OSError, tomllib.TOMLDecodeError):
         return {}
-    mle = obj.get("mle")
-    if not isinstance(mle, dict):
+    return obj if isinstance(obj, dict) else {}
+
+
+def _floats(table: object) -> dict[str, float]:
+    if not isinstance(table, dict):
         return {}
     return {
-        str(k): float(v) for k, v in mle.items() if isinstance(v, (int, float))
+        str(k): float(v) for k, v in table.items()
+        if isinstance(v, (int, float)) and not isinstance(v, bool)
     }
 
 
-def _read_invocation(d: Path) -> ProfileInvocation | None:
-    """One invocation's record, or ``None`` if it is missing, unreadable or of
-    a schema this reader does not know (which is skipped, not guessed at)."""
-    rec = _load_json(d / "invocation.json")
-    if rec is None or rec.get("schema") != INVOCATION_SCHEMA:
-        return None
-    focal = rec.get("focal")
-    if not isinstance(focal, list) or not focal:
-        return None
-    params = tuple(str(f.get("name")) for f in focal if isinstance(f, dict) and f.get("name"))
-    if len(params) != len(focal):
-        return None
-    points: list[ExpectedPoint] = []
-    for pt in rec.get("points") or []:
-        if not isinstance(pt, dict) or not isinstance(pt.get("dir"), str):
-            continue
-        coords = pt.get("coords") if isinstance(pt.get("coords"), dict) else {}
-        vals: list[float] = []
-        for n in params:
-            v = coords.get(n)
-            if isinstance(v, bool) or not isinstance(v, (int, float)):
-                break
-            vals.append(float(v))
-        if len(vals) == len(params):
-            points.append(ExpectedPoint(tuple(vals), pt["dir"]))
-    n_starts = rec.get("n_starts")
-    seeds = rec.get("seeds")
-    started = rec.get("started_at")
-    label = rec.get("label")
-    return ProfileInvocation(
-        invocation_id=str(rec.get("invocation_id") or d.name),
-        started_at=float(started) if isinstance(started, (int, float)) else None,
-        label=label if isinstance(label, str) else None,
-        algorithm=str(rec.get("algorithm") or ""),
-        params=params,
-        points=tuple(points),
-        method_dir=rec.get("method_dir") if isinstance(rec.get("method_dir"), str) else None,
-        n_starts=n_starts if isinstance(n_starts, int) and n_starts > 0 else 1,
-        seeds=tuple(x for x in seeds if isinstance(x, int)) if isinstance(seeds, list) else (),
-        progress=read_progress(d),
-    )
+@dataclass(frozen=True)
+class _Start:
+    """One finished start at one grid cell, from its ``profile_point`` folder."""
+
+    focal: dict[str, float]  # the cell's exact values ([focal])
+    loglik: float
+    nuisance: dict[str, float]  # the conditional MLE of the other params ([mle])
+    method: str
+    loglik_type: str
 
 
-def read_invocations(base_dir: Path) -> list[ProfileInvocation]:
-    """Every readable invocation record under a profile base, oldest first."""
-    root = base_dir / INVOCATIONS_DIR
+def _read_start(folder: Path) -> _Start | None:
+    mle = _read_toml(folder / "mle.toml")
+    focal = _floats(mle.get("focal"))
     try:
-        dirs = sorted(d for d in root.iterdir() if d.is_dir())
-    except OSError:
-        return []
-    invs = [inv for d in dirs if (inv := _read_invocation(d)) is not None]
-    invs.sort(key=lambda inv: inv.started_at or 0.0)
-    return invs
-
-
-def load_profile(store: Path, base_id: str) -> ProfileCurve | None:
-    """The full profile (1D curve or 2D grid) for one base, or ``None`` if it has
-    neither a readable finished point nor an invocation record naming one. A
-    running profile returns the points computed so far plus the cells still
-    pending, each with how many of its starts have finished."""
-    base_dir = profiles_root(store) / base_id
-    if not base_dir.is_dir():
+        prov = json.loads((folder / "provenance.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        prov = {}
+    ll = prov.get("best_loglik", mle.get("final_loglik"))
+    if not focal or isinstance(ll, bool) or not isinstance(ll, (int, float)) or not math.isfinite(ll):
         return None
-
-    invocations = read_invocations(base_dir)
-    # Starts expected per cell directory: the most any invocation asks of it.
-    expected: dict[str, int] = {}
-    expected_coords: dict[str, tuple[float, ...]] = {}
-    # The method directories whose leaves count towards a cell's expected
-    # starts. Another invocation with other method settings may have written
-    # leaves into the same cell; those are results too (the curve takes the
-    # best of all), but they are not this invocation's starts. None: some
-    # invocation naming the cell did not say, so every leaf counts.
-    counted: dict[str, set[str] | None] = {}
-    for inv in invocations:
-        for ep in inv.points:
-            expected[ep.dir] = max(expected.get(ep.dir, 0), inv.starts_per_point)
-            expected_coords.setdefault(ep.dir, ep.coords)
-            prior = counted.get(ep.dir, set())
-            counted[ep.dir] = (
-                None if inv.method_dir is None or prior is None
-                else prior | {inv.method_dir}
-            )
-
-    label = base_id
-    params: tuple[str, ...] = ()
-    method = ""
-    loglik_type = ""
-    points: list[ProfilePoint] = []
-    seen_dirs: set[str] = set()
-
-    for point_dir in sorted(base_dir.iterdir()):
-        if not point_dir.is_dir() or point_dir.name == INVOCATIONS_DIR:
-            continue
-        best = -math.inf
-        n = 0
-        n_counted = 0  # leaves in the method directories the record counts
-        methods = counted.get(point_dir.name)
-        finished: list[float] = []
-        coords: tuple[float, ...] | None = None
-        best_leaf: Path | None = None
-        for run_json in point_dir.rglob("run.json"):
-            rec = _load_json(run_json)
-            if rec is None or rec.get("kind") != "profile_point":
-                continue
-            inp = rec.get("inputs") or {}
-            if coords is None:
-                parsed = _parse_coords(_level_label(rec, "point"), point_dir.name)
-                if parsed is not None:
-                    names, coords = parsed
-                    coords = _read_focal(run_json.parent, names) or coords
-                    if not params:
-                        params = names
-                base_lbl = _level_label(rec, "profile")
-                if base_lbl:
-                    label = base_lbl
-                method = str(inp.get("method", method) or method)
-                loglik_type = str(inp.get("loglik_type", loglik_type) or loglik_type)
-            ll = inp.get("best_loglik")
-            if isinstance(ll, (int, float)) and math.isfinite(ll):
-                fll = float(ll)
-                if fll > SENTINEL_LOGLIK:
-                    finished.append(fll)
-                if fll > best:  # track the argmax restart for its nuisance MLE
-                    best = fll
-                    best_leaf = run_json.parent
-                n += 1
-                if methods is None or run_json.relative_to(point_dir).parts[0] in methods:
-                    n_counted += 1
-        if coords is not None and n > 0:
-            seen_dirs.add(point_dir.name)
-            points.append(ProfilePoint(
-                # A cell an invocation names counts that invocation's starts;
-                # any other cell counts every finished leaf, as before.
-                coords=coords, loglik=best,
-                n_starts=n_counted if point_dir.name in expected else n,
-                nuisance=_read_nuisance(best_leaf) if best_leaf else {},
-                n_expected=expected.get(point_dir.name),
-                loglik_spread=(max(finished) - min(finished)) if len(finished) >= 2 else None,
-            ))
-
-    pending = [
-        PendingPoint(coords=expected_coords[d], n_expected=k)
-        for d, k in expected.items() if d not in seen_dirs
-    ]
-    if not params and invocations:
-        params = invocations[-1].params
-    if not method and invocations:
-        method = invocations[-1].algorithm
-    if (not points and not pending) or not params:
-        return None
-    # 1D reads best as a sorted curve; a 2D grid stays in discovery order.
-    if len(params) == 1:
-        points.sort(key=lambda p: p.coords[0])
-        pending.sort(key=lambda p: p.coords[0])
-    return ProfileCurve(
-        base_id=base_id, label=label, params=params,
-        method=method, loglik_type=loglik_type, points=points,
-        pending=pending, invocations=invocations,
+    return _Start(
+        focal=focal, loglik=float(ll), nuisance=_floats(mle.get("mle")),
+        method=str(prov.get("method") or ""), loglik_type=str(prov.get("loglik_type") or ""),
     )
 
 
-def discover_profiles(store: Path) -> list[ProfileCurve]:
-    """Every readable profile under ``profiles/``, newest base first by mtime."""
-    root = profiles_root(store)
-    if not root.is_dir():
+def expand_grid(spec: object) -> list[float]:
+    """One ``--sweep`` grid as camdl recorded it in ``given`` (``{"list": [...]}``,
+    ``{"linear": {min, max, n}}`` or ``{"log10": {min, max, n}}``), expanded as
+    camdl's ``Grid::expand`` does (``cli/src/args/types.rs``): end points
+    inclusive, and ``n = 1`` is ``[min]``."""
+    if not isinstance(spec, dict) or len(spec) != 1:
         return []
-    bases = [d for d in root.iterdir() if d.is_dir()]
-    bases.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-    curves = [load_profile(store, d.name) for d in bases]
+    (kind, body), = spec.items()
+    if kind == "list":
+        return [float(v) for v in body] if isinstance(body, list) else []
+    if kind not in ("linear", "log10") or not isinstance(body, dict):
+        return []
+    lo, hi, n = float(body["min"]), float(body["max"]), int(body["n"])
+    if n == 1:
+        return [lo]
+    if kind == "linear":
+        return [lo + (hi - lo) * (i / (n - 1)) for i in range(n)]
+    llo, lhi = math.log10(lo), math.log10(hi)
+    return [10.0 ** (llo + (lhi - llo) * (i / (n - 1))) for i in range(n)]
+
+
+def _cell_key(coords: tuple[float, ...]) -> tuple[float, ...]:
+    """Coordinates rounded to 12 significant digits: two commands can reach one
+    grid value by different arithmetic (``0.3`` listed, ``0.30000000000000004``
+    from a linear grid), which camdl stores as two cells and a curve shows as
+    one."""
+    return tuple(float(f"{c:.12g}") for c in coords)
+
+
+@dataclass(frozen=True)
+class _Command:
+    """What a ``camdl profile`` command asked for, from its ``given`` arguments."""
+
+    params: tuple[str, ...]
+    grid: list[tuple[float, ...]]
+    starts_per_cell: int
+    model: str
+
+    @classmethod
+    def of(cls, inv: store.Invocation) -> "_Command | None":
+        args = inv.given.get("args")
+        if not isinstance(args, dict):
+            return None
+        sweeps = [s for s in args.get("sweep") or [] if isinstance(s, dict) and s.get("name")]
+        if not sweeps:
+            return None
+        params = tuple(str(s["name"]) for s in sweeps)
+        axes = [expand_grid(s.get("grid")) for s in sweeps]
+        seeds = args.get("seeds")
+        n_seeds = len(seeds) if isinstance(seeds, list) and seeds else 1
+        n_starts = args.get("n_starts")
+        n_starts = n_starts if isinstance(n_starts, int) and n_starts > 0 else 1
+        model = str(args.get("model") or "")
+        return cls(
+            params=params,
+            grid=list(itertools.product(*axes)),
+            starts_per_cell=n_starts * n_seeds,
+            model=Path(model).stem if model else "",
+        )
+
+
+def _status(
+    inv: store.Invocation, liveness: store.Liveness, beat: float | None, now: float,
+) -> str:
+    if inv.status == "ended":
+        return "failed" if any(r.outcome == "failed" for r in inv.results) else "done"
+    if inv.status == "interrupted":
+        return "stalled"
+    alive = liveness.alive(inv.owner)
+    if alive is None:
+        alive = beat is not None and now - beat <= PROGRESS_STALE_S
+    return "running" if alive else "stalled"
+
+
+@dataclass(frozen=True)
+class _StoredPoints:
+    """Every stored profile point, read once per request: its folder by run id,
+    and which invocation claimed it (``run.json`` ``invocation``)."""
+
+    by_id: dict[str, Path]
+    by_invocation: dict[int, list[Path]]
+
+    @classmethod
+    def read(cls, root: Path) -> "_StoredPoints":
+        by_id: dict[str, Path] = {}
+        by_inv: dict[int, list[Path]] = {}
+        for kd in store.kind_dirs(root, POINT_KIND):
+            for folder in store.walk(kd, POINT_DEPTH):
+                ident = store.read_identity(folder)
+                rec = store.read_run_record(folder)
+                if ident is None or rec is None or rec.status != "completed":
+                    continue
+                by_id[ident.run_id] = folder
+                if rec.invocation is not None:
+                    by_inv.setdefault(rec.invocation, []).append(folder)
+        return cls(by_id, by_inv)
+
+    def of(self, inv: store.Invocation) -> list[Path]:
+        """The points a command asked for: those its record lists, and those
+        it computed (which a running command has not listed yet)."""
+        listed = [self.by_id[r.run_id] for r in inv.results
+                  if r.kind == POINT_KIND and r.run_id in self.by_id]
+        return list(dict.fromkeys([*listed, *self.by_invocation.get(inv.seq, [])]))
+
+
+def _curve(
+    root: Path, inv: store.Invocation, points: _StoredPoints, liveness: store.Liveness, now: float,
+) -> ProfileCurve | None:
+    cmd = _Command.of(inv)
+    if cmd is None:
+        return None
+    by_cell: dict[tuple[float, ...], list[_Start]] = {}
+    for folder in points.of(inv):
+        st = _read_start(folder)
+        if st is None or any(p not in st.focal for p in cmd.params):
+            continue
+        coords = tuple(st.focal[p] for p in cmd.params)
+        by_cell.setdefault(_cell_key(coords), []).append(st)
+    grid = {_cell_key(c): c for c in cmd.grid}
+    out: list[ProfilePoint] = []
+    for key, starts in by_cell.items():
+        best = max(starts, key=lambda s: s.loglik)
+        finished = [s.loglik for s in starts if s.loglik > SENTINEL_LOGLIK]
+        out.append(ProfilePoint(
+            coords=grid.get(key, tuple(best.focal[p] for p in cmd.params)),
+            loglik=best.loglik, n_starts=len(starts), nuisance=best.nuisance,
+            n_expected=cmd.starts_per_cell if key in grid else None,
+            loglik_spread=(max(finished) - min(finished)) if len(finished) >= 2 else None,
+        ))
+    pending = [PendingPoint(c, cmd.starts_per_cell) for k, c in grid.items() if k not in by_cell]
+    if not out and not pending:
+        return None
+    if len(cmd.params) == 1:
+        out.sort(key=lambda p: p.coords[0])
+        pending.sort(key=lambda p: p.coords[0])
+    prog = store.invocation_progress(root, inv.seq) if inv.status == "running" else None
+    beat = prog.at if prog else None
+    any_start = next((s for ss in by_cell.values() for s in ss), None)
+    args = inv.given.get("args") if isinstance(inv.given.get("args"), dict) else {}
+    return ProfileCurve(
+        base_id=str(inv.seq),
+        label=inv.label or cmd.model,
+        params=cmd.params,
+        method=any_start.method if any_start else str(args.get("algorithm") or ""),
+        loglik_type=any_start.loglik_type if any_start else "",
+        points=out, pending=pending,
+        run_status=_status(inv, liveness, beat, now),
+        heartbeat_at=beat,
+    )
+
+
+def _profile_invocations(root: Path) -> list[store.Invocation]:
+    return [inv for inv in store.read_invocations(root) if inv.command == "profile"]
+
+
+def discover_profiles(root: Path) -> list[ProfileCurve]:
+    """Every profile command in the store, newest first."""
+    if not store.is_store(root):
+        return []
+    points = _StoredPoints.read(root)
+    liveness = store.Liveness.read(root)
+    now = time.time()
+    curves = [_curve(root, inv, points, liveness, now) for inv in reversed(_profile_invocations(root))]
     return [c for c in curves if c is not None]
+
+
+def load_profile(root: Path, base_id: str) -> ProfileCurve | None:
+    """The profile of the command whose sequence number is ``base_id``."""
+    if not store.is_store(root):
+        return None
+    inv = next((i for i in _profile_invocations(root) if str(i.seq) == base_id), None)
+    if inv is None:
+        return None
+    return _curve(root, inv, _StoredPoints.read(root), store.Liveness.read(root), time.time())

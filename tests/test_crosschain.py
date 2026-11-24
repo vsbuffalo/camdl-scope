@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from camdl_scope import crosschain
+from tests.storekit import StoreKit
 
 
 def _write(seed: Path, chains, M, **extra) -> Path:
@@ -135,17 +136,19 @@ def test_nonfinite_cells_are_counted_and_kept_out_of_the_numbers(tmp_path):
     assert c.centred[0][0] == 0.0  # the row's own diagonal still centres
 
 
-def test_find_compat_locates_the_stage_seed_directory(tmp_path):
-    ids = [1, 2]
-    seed = tmp_path / "01-posterior-abcd" / "seed_1-ef01"
-    _write(seed, ids, np.array([[-1.0, -3.0], [-4.0, -2.0]]))
-    c = crosschain.find_compat(tmp_path)
+def test_read_compat_reads_the_fit_runs_own_folder(tmp_path):
+    kit = StoreKit.create(tmp_path)
+    leaf = kit.fit_run(kit.problem(), algorithm="pgas")
+    _write(leaf, [1, 2], np.array([[-1.0, -3.0], [-4.0, -2.0]]))
+    c = crosschain.read_compat(leaf)
     assert c is not None and c.chains == [1, 2]
+    assert c.centred[1][0] == -2.0
 
 
-def test_find_compat_is_none_for_a_run_without_one(tmp_path):
-    (tmp_path / "01-posterior-abcd" / "seed_1-ef01").mkdir(parents=True)
-    assert crosschain.find_compat(tmp_path) is None
+def test_read_compat_is_none_for_a_fit_run_without_one(tmp_path):
+    kit = StoreKit.create(tmp_path)
+    leaf = kit.fit_run(kit.problem(), algorithm="pgas")
+    assert crosschain.read_compat(leaf) is None
 
 
 def test_an_impossible_cell_still_clusters_but_an_unknown_one_does_not(tmp_path):

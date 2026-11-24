@@ -282,7 +282,7 @@ export function StoreWorkspace() {
             title={scan?.state === 'scanning' ? 'Walking the store' : 'No scan yet'}
             detail={
               scan?.state === 'scanning'
-                ? `A full results/ tree is millions of files and takes minutes. ${fmtInt(scan.files)} files and ${fmtInt(scan.dirs)} directories so far, ${fmtBytes(scan.total_bytes)} of data occupying ${fmtBytes(scan.total_alloc)}.`
+                ? `A full store is millions of files and takes minutes. ${fmtInt(scan.files)} files and ${fmtInt(scan.dirs)} directories so far, ${fmtBytes(scan.total_bytes)} of data occupying ${fmtBytes(scan.total_alloc)}.`
                 : isPending
                   ? 'Loading.'
                   : 'Hit rescan to walk the store.'

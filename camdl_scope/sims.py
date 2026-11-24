@@ -1,40 +1,42 @@
-"""Forward-simulation runs — the ``sims/`` CAS tree.
+"""Forward-simulation runs — ``camdl simulate`` results in the run store.
 
-A ``camdl simulate`` run is a sibling kind of the fit store, laid out as::
+Each simulation cell is a ``sim`` result (camdl run-store proposal, "On disk")::
 
-    sims/<model>-<hash>/<config>-<hash>/<params>-<hash>/<scenario>-<hash>/<seed>-<hash>/
-        run.json      # kind="sim", output_schema, levels, status
-        traj.tsv      # WIDE trajectory: one row per time t, a column per
-                      # (state|flow × stratum), fully expanded
+    <build>/sim/<model>/<settings>/<params>/<scenario>/seed_<n>-<12 hex>/
+        identity.json  # the cell: its model, settings, params.values, scenario, seed
+        run.json       # status, and the invocation that claimed it
+        traj.tsv       # WIDE trajectory: one row per time t, a column per
+                       # (state|flow × stratum), fully expanded
 
-The ``<params>`` level (``base-*``) is the **sweep**: several param points under
-one model form the overlay members. ``output_schema`` tags each ``traj.tsv``
-column with a role (``time`` / ``state`` / ``flow``); the columns carry no
-per-column stratum breakdown, so a compartment *total* is obtained by summing
-the columns that share a compartment base name (see :func:`compartment_bases`).
+A *sim* here is one ``camdl simulate`` command, and its members are the cells
+it asked for: the ones its finished record lists, and while it runs, those whose
+``run.json`` names it. A sweep's members differ in their parameter values, and
+each is labelled by the values that vary. The store records no role for a
+``traj.tsv`` column, so roles follow camdl's naming: the time columns, the
+``flow_`` columns, and every other column a state (:func:`resolve_roles`); a
+compartment *total* sums the columns that share a compartment's name (see
+:func:`compartment_bases`).
 
-Pure readers over the tree — no dependency on the fit ingest, no cycle. Time is
-dated via the fit-level calendar (:func:`camdl_scope.predictive.read_calendar`),
-which is the same origin across a project's runs.
+Pure readers over the store — no dependency on the fit ingest. Time is dated via
+the model's calendar (:func:`read_sim_model`).
 """
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import polars as pl
 
-SIMS_DIRNAME = "sims"
+from . import store
 
-
-def sims_root(store: Path) -> Path:
-    """The ``sims/`` tree — a sibling of the fit store (``results/fits`` →
-    ``results/sims``); ``store/sims`` when the store isn't the ``fits`` leaf."""
-    store = Path(store)
-    return (store.parent if store.name == "fits" else store) / SIMS_DIRNAME
+#: A simulation cell's kind, and the depth of its folder below the kind's
+#: directory (model, settings, params, scenario, then the cell).
+SIM_KIND = "sim"
+SIM_DEPTH = 5
+#: The time columns of a wide trajectory.
+TIME_COLUMNS = ("t", "t_start", "t_stop", "time")
 
 
 @dataclass(frozen=True)
@@ -47,48 +49,23 @@ class SimMember:
     scenario: str
     seed: str
     traj_path: Path
-    schema: dict  # output_schema for traj.tsv: {"role":..., "columns":[...]}
-    params: dict[str, str] = field(default_factory=dict)  # from provenance argv
+    params: dict[str, str] = field(default_factory=dict)  # the cell's parameter values
 
 
 @dataclass(frozen=True)
 class SimMeta:
-    """A discoverable sim (the top ``sims/<model>-<hash>`` dir) and its sweep
-    members. ``updated_at`` is the newest member trajectory mtime."""
+    """One ``camdl simulate`` command and its members. ``sim_id`` is the
+    command's invocation sequence number; ``updated_at`` is the newest member
+    trajectory mtime."""
 
     sim_id: str
-    sim_dir: Path
     model: str
+    #: ``running`` | ``stalled`` | ``done`` | ``failed`` (some cell failed).
     status: str
     members: list[SimMember] = field(default_factory=list)
     updated_at: float = 0.0
-    source_path: str = ""  # provenance model source, relative to the project root
-
-
-def _leaf_run_jsons(sim_dir: Path) -> list[Path]:
-    """Every ``run.json`` under a sim (one per leaf), sorted by path for a stable
-    member order."""
-    return sorted(sim_dir.rglob("run.json"))
-
-
-def _member_levels(levels: list[dict]) -> tuple[str, str, str]:
-    """(params, scenario, seed) labels from a run.json ``levels`` list — the CAS
-    hierarchy [model, config, params, scenario, seed]."""
-    by_name = {lv.get("name"): str(lv.get("label") or "") for lv in levels}
-    return by_name.get("params", ""), by_name.get("scenario", ""), by_name.get("seed", "")
-
-
-def _member_params(provenance: dict) -> dict[str, str]:
-    """The ``--param k=v`` pairs from a sim's provenance ``argv`` — the actual
-    parameter point simulated (what the sweep varies)."""
-    argv = provenance.get("argv") or []
-    out: dict[str, str] = {}
-    for i, a in enumerate(argv):
-        if a == "--param" and i + 1 < len(argv):
-            k, _, v = str(argv[i + 1]).partition("=")
-            if k:
-                out[k] = v
-    return out
+    #: The compiled model's folder (``source.camdl``, ``model.ir.json``).
+    model_dir: Path | None = None
 
 
 def _sweep_labels(param_sets: list[dict[str, str]], fallbacks: list[str]) -> list[str]:
@@ -108,64 +85,83 @@ def _sweep_labels(param_sets: list[dict[str, str]], fallbacks: list[str]) -> lis
     ]
 
 
-def discover_sims(store: Path) -> list[SimMeta]:
-    """Every simulation run under ``sims/``, newest first. Each top model dir is
-    one sim; its leaves are the sweep members. Best-effort: a malformed leaf is
-    skipped, never fatal."""
-    root = sims_root(store)
-    if not root.is_dir():
+@dataclass(frozen=True)
+class _Cell:
+    folder: Path
+    params: dict[str, str]
+    scenario: str
+    seed: str
+    model_run_id: str
+
+
+def _read_cell(folder: Path) -> _Cell | None:
+    ident = store.read_identity(folder)
+    if ident is None or ident.kind != SIM_KIND or not (folder / "traj.tsv").is_file():
+        return None
+    body = ident.body
+    values = (body.get("params") or {}).get("values") or {}
+    names = (body.get("scenario") or {}).get("names") or []
+    seed = (body.get("seed") or {}).get("seed")
+    model = body.get("model") or {}
+    return _Cell(
+        folder=folder,
+        params={str(k): f"{v:g}" if isinstance(v, (int, float)) else str(v) for k, v in values.items()},
+        scenario=",".join(str(n) for n in names),
+        seed="" if seed is None else str(seed),
+        model_run_id=str(model.get("run_id") or ""),
+    )
+
+
+def _sim_status(inv: store.Invocation, liveness: store.Liveness) -> str:
+    if inv.status == "ended":
+        return "failed" if any(r.outcome == "failed" for r in inv.results) else "done"
+    if inv.status == "interrupted":
+        return "stalled"
+    return "stalled" if liveness.alive(inv.owner) is False else "running"
+
+
+def discover_sims(root: Path) -> list[SimMeta]:
+    """Every ``camdl simulate`` command in the store with a finished cell,
+    newest first."""
+    if not store.is_store(root):
         return []
+    by_id: dict[str, Path] = {}
+    by_inv: dict[int, list[Path]] = {}
+    for kd in store.kind_dirs(root, SIM_KIND):
+        for folder in store.walk(kd, SIM_DEPTH):
+            ident = store.read_identity(folder)
+            rec = store.read_run_record(folder)
+            if ident is None or rec is None or rec.status != "completed":
+                continue
+            by_id[ident.run_id] = folder
+            if rec.invocation is not None:
+                by_inv.setdefault(rec.invocation, []).append(folder)
+    models = store.folders_by_id(root, "compiled_model", 1)
+    liveness = store.Liveness.read(root)
     sims: list[SimMeta] = []
-    for sim_dir in sorted(root.iterdir()):
-        if not sim_dir.is_dir():
+    for inv in store.read_invocations(root):
+        if inv.command != "simulate":
             continue
-        # Collect leaves, then label members by the swept param(s).
-        raw: list[dict] = []
-        newest = 0.0
-        status = "unknown"
-        source_path = ""
-        for rj_path in _leaf_run_jsons(sim_dir):
-            leaf = rj_path.parent
-            traj = leaf / "traj.tsv"
-            if not traj.is_file():
-                continue
-            try:
-                rj = json.loads(rj_path.read_text())
-            except (OSError, ValueError):
-                continue
-            prov = rj.get("provenance") or {}
-            params, scenario, seed = _member_levels(rj.get("levels") or [])
-            raw.append({
-                "schema": (rj.get("output_schema") or {}).get("traj.tsv") or {},
-                "scenario": scenario, "seed": seed, "traj": traj,
-                "fallback": params or leaf.parent.parent.name,
-                "params": _member_params(prov),
-            })
-            status = str(rj.get("status") or status)
-            srcs = prov.get("source_paths") or []
-            if srcs and not source_path:
-                source_path = str(srcs[0])
-            try:
-                newest = max(newest, traj.stat().st_mtime)
-            except OSError:
-                pass
-        if not raw:
+        listed = [by_id[r.run_id] for r in inv.results if r.kind == SIM_KIND and r.run_id in by_id]
+        folders = list(dict.fromkeys([*listed, *by_inv.get(inv.seq, [])]))
+        cells = [c for f in folders if (c := _read_cell(f)) is not None]
+        if not cells:
             continue
-        labels = _sweep_labels([r["params"] for r in raw], [r["fallback"] for r in raw])
+        labels = _sweep_labels([c.params for c in cells], [c.folder.parent.parent.name for c in cells])
         members = [
-            SimMember(
-                label=labels[i], scenario=r["scenario"], seed=r["seed"],
-                traj_path=r["traj"], schema=r["schema"], params=r["params"],
-            )
-            for i, r in enumerate(raw)
+            SimMember(label=labels[i], scenario=c.scenario, seed=c.seed,
+                      traj_path=c.folder / "traj.tsv", params=c.params)
+            for i, c in enumerate(cells)
         ]
-        sims.append(
-            SimMeta(
-                sim_id=sim_dir.name, sim_dir=sim_dir,
-                model=sim_dir.name.rsplit("-", 1)[0], status=status,
-                members=members, updated_at=newest, source_path=source_path,
-            )
-        )
+        newest = max(((c.folder / "traj.tsv").stat().st_mtime for c in cells), default=0.0)
+        model_dir = models.get(cells[0].model_run_id)
+        args = inv.given.get("args") if isinstance(inv.given.get("args"), dict) else {}
+        model = str(args.get("model") or "")
+        sims.append(SimMeta(
+            sim_id=str(inv.seq), model=Path(model).stem if model else "",
+            status=_sim_status(inv, liveness), members=members, updated_at=newest,
+            model_dir=model_dir,
+        ))
     sims.sort(key=lambda s: s.updated_at, reverse=True)
     return sims
 
@@ -186,19 +182,14 @@ _TIME_UNIT_RE = re.compile(r"time_unit\s*=\s*'?([A-Za-z_]+)")
 _COMPARTMENTS_RE = re.compile(r"compartments\s*\{([^}]*)\}")
 
 
-def read_sim_model(store: Path, sim: SimMeta) -> SimModel:
-    """Parse the sim's source model (``provenance.source_paths``, resolved under
-    the project root) for its origin/time_unit and compartment list. Read-only,
-    self-contained (no ``camdl`` subprocess); returns an empty :class:`SimModel`
-    when the source can't be resolved or read."""
-    if not sim.source_path:
-        return SimModel()
-    root = store.parent.parent if store.name == "fits" else store.parent
-    src = root / sim.source_path
-    if not src.is_file():
+def read_sim_model(sim: SimMeta) -> SimModel:
+    """Parse the sim's model source (the compiled model's ``source.camdl``) for
+    its origin/time_unit and compartment list. Read-only, self-contained (no
+    ``camdl`` subprocess); an empty :class:`SimModel` when it cannot be read."""
+    if sim.model_dir is None:
         return SimModel()
     try:
-        text = src.read_text()
+        text = (sim.model_dir / "source.camdl").read_text()
     except OSError:
         return SimModel()
     text = re.sub(r"#.*", "", text)  # strip comments before matching
@@ -215,21 +206,6 @@ def read_sim_model(store: Path, sim: SimMeta) -> SimModel:
     )
 
 
-def _infer_roles(columns: list[str]) -> dict[str, str]:
-    """Column → role when a run carries no ``output_schema`` (older sims): the
-    first column (``t``/``time``/``sweep``/``step``) is time, ``flow_*`` columns
-    are flows, everything else is a state. Matches camdl's wide-trajectory naming."""
-    roles: dict[str, str] = {}
-    for i, c in enumerate(columns):
-        if i == 0 or c in ("t", "time", "sweep", "step"):
-            roles[c] = "time"
-        elif c.startswith("flow_"):
-            roles[c] = "flow"
-        else:
-            roles[c] = "state"
-    return roles
-
-
 def _read_header(path: Path) -> list[str]:
     try:
         return pl.read_csv(path, separator="\t", n_rows=0).columns
@@ -238,13 +214,19 @@ def _read_header(path: Path) -> list[str]:
 
 
 def resolve_roles(member: SimMember) -> dict[str, str]:
-    """Column → role for a member's trajectory: from ``output_schema`` when the
-    run declared one, else inferred from the ``traj.tsv`` header. Columns are the
-    same across a sim's members (only params sweep), so callers resolve once."""
-    cols = member.schema.get("columns")
-    if cols:
-        return {c["name"]: c.get("role", "state") for c in cols}
-    return _infer_roles(_read_header(member.traj_path))
+    """Column → role for a member's trajectory, by camdl's naming: a time
+    column (``t``, ``t_start``, ``t_stop``), a ``flow_`` column, or a state.
+    Columns are the same across a sim's members (only params sweep), so callers
+    resolve once."""
+    roles: dict[str, str] = {}
+    for c in _read_header(member.traj_path):
+        if c in TIME_COLUMNS:
+            roles[c] = "time"
+        elif c.startswith("flow_"):
+            roles[c] = "flow"
+        else:
+            roles[c] = "state"
+    return roles
 
 
 def _cols_by_role(roles: dict[str, str], role: str) -> list[str]:

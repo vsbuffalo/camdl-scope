@@ -1,12 +1,11 @@
 """What is on disk under a camdl store, and what it is costing.
 
-The watcher indexes one run kind (``results/fits`` by default), but the disk is
-spent elsewhere: on the ebola project that subtree is 4.7 GB of a 36 GB
-``results/`` tree, with ``sims/`` holding 25 GB of it. A size view scoped to the
-runs the app can open would therefore answer the wrong question, so the scan
-root is the *store family* — the parent holding ``fits``/``sims``/``ensembles``
-/``pfilters``/``surveys`` — and the run-level detail is reported for the
-watcher's own store within it.
+The scan covers the whole store: every build's kind directories (``fit``,
+``sim``, ``profile_point``, ``compiled_model``…) and the store's own entries
+(``.invocations``, ``.index``…). A size view scoped to the fits the app can
+open would answer the wrong question: on the ebola project the simulations held
+25 GB of a 36 GB store. Run-level detail is reported for the fit problems, which
+are what the app opens.
 
 Two properties this walk has to have, both forced by that 36 GB:
 
@@ -37,33 +36,12 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-#: Directories a camdl store keeps its run kinds in. Used only to recognise a
-#: store family — an unknown sibling is still scanned and reported, since the
-#: point of the view is to find what nobody remembered was there.
-RUN_KIND_DIRS: tuple[str, ...] = (
-    "fits",
-    "sims",
-    "ensembles",
-    "pfilters",
-    "surveys",
-)
+from . import store as store_mod
 
 #: Filenames whose roll-up is worth naming in the UI. Everything else lands in
 #: its own bucket by name anyway; this only pins the reading order for the ones
 #: that dominate (trace/draws/trajectories are 97% of a fits tree).
 _TOP_KINDS = 14
-
-
-def resolve_scan_root(store: Path) -> Path:
-    """The store *family* to scan, given the store the watcher indexes.
-
-    ``<results>/fits`` → ``<results>``, so the view can see the sibling run
-    kinds that hold most of the bytes. A store that is not a recognised run-kind
-    directory is its own root — pointing the watcher at an arbitrary directory
-    must not silently walk its parent, which could be a home directory.
-    """
-    store = Path(store).resolve()
-    return store.parent if store.name in RUN_KIND_DIRS else store
 
 
 @dataclass
@@ -102,7 +80,9 @@ class FileKind:
 
 @dataclass(frozen=True)
 class DirRollup:
-    """One top-level child of the scan root (``sims``, ``fits``, …)."""
+    """One part of the store: a build's kind directory
+    (``0.1.0_de896b47c-8fd5625dd2f8/sim``) or one of the store's own entries
+    (``.invocations``)."""
 
     name: str
     bytes: int
@@ -113,12 +93,12 @@ class DirRollup:
 
 @dataclass(frozen=True)
 class RunRollup:
-    """One directory directly under the watcher's own store.
+    """One fit problem folder (``<build>/fit/<model>-<12 hex>``).
 
-    ``run_id`` is the directory name. Whether it is a run the app can *open* is
-    the caller's join — a directory here with no matching run is the interesting
-    case (debris the watcher cannot read), and conflating "not a run" with
-    "status unknown" would hide it.
+    ``run_id`` is the folder's name. Whether it is a run the app can *open* is
+    the caller's join — a folder here with no matching run is the interesting
+    case (runs that never finished, which the app does not list), and
+    conflating "not a run" with "status unknown" would hide it.
     """
 
     run_id: str
@@ -211,13 +191,30 @@ def _walk(
     return total, alloc, files, dirs, bad
 
 
+def _parts(root: Path) -> list[tuple[str, Path]]:
+    """The store's parts, as ``(name, path)``: each build's kind directories,
+    then each of the store's own entries."""
+    out: list[tuple[str, Path]] = []
+    for e in sorted(os.scandir(root), key=lambda e: e.name):
+        if not e.is_dir(follow_symlinks=False):
+            continue
+        if e.name.startswith("."):
+            out.append((e.name, Path(e.path)))
+            continue
+        try:
+            kinds = [k for k in os.scandir(e.path) if k.is_dir(follow_symlinks=False)]
+        except OSError:
+            kinds = []
+        out.extend((f"{e.name}/{k.name}", Path(k.path)) for k in sorted(kinds, key=lambda k: k.name))
+    return out
+
+
 def scan(
     store: Path, progress: ScanProgress | None = None, top_kinds: int = _TOP_KINDS
 ) -> StoreSnapshot:
-    """Walk the store family and roll it up. Minutes on a large tree — call from
-    a background thread, never from a request handler."""
-    store = Path(store).resolve()
-    root = resolve_scan_root(store)
+    """Walk the store and roll it up. Minutes on a large store — call from a
+    background thread, never from a request handler."""
+    root = Path(store).resolve()
     t0 = time.time()
     if progress is not None:
         progress.state = "scanning"
@@ -229,70 +226,39 @@ def scan(
     kinds: dict[str, list[int]] = {}
     children: list[DirRollup] = []
     total = alloc = files = dirs = bad = 0
-
-    # One pass per top-level child, so a child's own roll-up is a by-product of
-    # the total rather than a second walk.
     try:
-        entries = sorted(os.scandir(root), key=lambda e: e.name)
+        parts = _parts(root)
     except OSError as exc:
         if progress is not None:
             progress.state = "failed"
             progress.error = str(exc)
         raise
 
-    for e in entries:
-        try:
-            if not e.is_dir(follow_symlinks=False):
-                if e.is_file(follow_symlinks=False):
-                    st = e.stat(follow_symlinks=False)
-                    on_disk = st.st_blocks * 512
-                    files += 1
-                    total += st.st_size
-                    alloc += on_disk
-                    b = kinds.setdefault(e.name, [0, 0, 0])
-                    b[0] += st.st_size
-                    b[1] += on_disk
-                    b[2] += 1
-                continue
-        except OSError:
-            bad += 1
-            continue
-        cb, ca, f, d, u = _walk(
-            Path(e.path), progress, kinds, (files, dirs, total, alloc)
-        )
-        children.append(
-            DirRollup(name=e.name, bytes=cb, alloc_bytes=ca, files=f, dirs=d + 1)
-        )
+    # One pass per part, so a part's own roll-up is a by-product of the total
+    # rather than a second walk.
+    for name, path in parts:
+        cb, ca, f, d, u = _walk(path, progress, kinds, (files, dirs, total, alloc))
+        children.append(DirRollup(name=name, bytes=cb, alloc_bytes=ca, files=f, dirs=d + 1))
         total += cb
         alloc += ca
         files += f
         dirs += d + 1
         bad += u
 
-    # Run-level detail for the watcher's own store only. The sibling kinds are
-    # reported as one line each: `sims` has millions of directories, and a
-    # per-run row for each would be a table nobody can read and a payload
-    # nobody should ship.
+    # Run-level detail for the fit problems only. The other kinds are one line
+    # each: a simulation sweep has millions of folders, and a row for each would
+    # be a table nobody can read and a payload nobody should ship.
     runs: list[RunRollup] = []
-    if store.is_dir():
-        try:
-            run_dirs = [e for e in os.scandir(store) if e.is_dir(follow_symlinks=False)]
-        except OSError:
-            run_dirs = []
-        for e in run_dirs:
-            # No progress: this is a re-walk of a subtree already counted in the
-            # totals, and feeding it back would double the reported files.
-            rb, ra, rf, _, _ = _walk(Path(e.path), None, {})
+    for kd in store_mod.kind_dirs(root, "fit"):
+        for problem in store_mod.walk(kd, 1):
+            # No progress: a re-walk of a subtree already counted in the totals.
+            rb, ra, rf, _, _ = _walk(problem, None, {})
             try:
-                mtime = e.stat(follow_symlinks=False).st_mtime
+                mtime = problem.stat().st_mtime
             except OSError:
                 mtime = 0.0
-            runs.append(
-                RunRollup(
-                    run_id=e.name, bytes=rb, alloc_bytes=ra, files=rf, mtime=mtime
-                )
-            )
-        runs.sort(key=lambda r: r.alloc_bytes, reverse=True)
+            runs.append(RunRollup(run_id=problem.name, bytes=rb, alloc_bytes=ra, files=rf, mtime=mtime))
+    runs.sort(key=lambda r: r.alloc_bytes, reverse=True)
 
     # Ranked by what it OCCUPIES, not by apparent size, because that is the
     # number the view leads with — and the two orders genuinely differ: 640k
@@ -308,7 +274,7 @@ def scan(
     )
     snapshot = StoreSnapshot(
         root=str(root),
-        store=str(store),
+        store=str(root),
         scanned_at=t0,
         duration_s=time.time() - t0,
         total_bytes=total,

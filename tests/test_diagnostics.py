@@ -23,8 +23,9 @@ from camdl_scope.state import (
     Severity,
 )
 from camdl_scope.state import Backend
+from tests.storekit import events_jsonl
 
-STORE = Path(os.environ.get("CAMDL_SCOPE_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
+STORE = Path(os.environ.get("CAMDL_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
 
 
 def _load_run(prefix: str) -> RunState:
@@ -110,7 +111,7 @@ def test_summarize_findings_aggregates_repetition():
 
 
 def _run_with_summary(summary):
-    meta = RunMeta(run_id="s", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+    meta = RunMeta(run_id="s", problem_dir=Path("/tmp"), leaf_dir=Path("/tmp"), chain_paths={},
                    model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,
                    estimated=["R0"], target_sweeps=None, declared_burn_in=None)
     rs = RunState(meta=meta)
@@ -159,7 +160,7 @@ def test_per_chain_mixing_ids_come_from_the_run_not_the_position():
 
 def test_per_chain_mixing_live_renewal_when_no_summary():
     # No summary, PGAS trace -> trajectory renewal per chain, no band.
-    meta = RunMeta(run_id="s", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+    meta = RunMeta(run_id="s", problem_dir=Path("/tmp"), leaf_dir=Path("/tmp"), chain_paths={},
                    model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,
                    estimated=["R0"], target_sweeps=None, declared_burn_in=None)
     rs = RunState(meta=meta)
@@ -235,7 +236,7 @@ def test_plateau_test_memory_is_bounded_on_long_traces():
 def test_sampler_telemetry_panel_sums_counters_and_means_rates():
     """Divergences are events: summing is the only reduction that shows them.
     A mean over 10 draws turns 3 divergences into 0.3 and reads as healthy."""
-    meta = RunMeta(run_id="s", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+    meta = RunMeta(run_id="s", problem_dir=Path("/tmp"), leaf_dir=Path("/tmp"), chain_paths={},
                    model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,
                    estimated=["R0"], target_sweeps=None, declared_burn_in=None)
     rs = RunState(meta=meta)
@@ -259,7 +260,7 @@ def test_sampler_telemetry_panel_sums_counters_and_means_rates():
 def test_unknown_diagnostic_column_still_surfaces():
     """A sampler column the watcher has never heard of must appear (mean, no
     note) rather than be dropped — that silence is what hid divergences."""
-    meta = RunMeta(run_id="s", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+    meta = RunMeta(run_id="s", problem_dir=Path("/tmp"), leaf_dir=Path("/tmp"), chain_paths={},
                    model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,
                    estimated=["R0"], target_sweeps=None, declared_burn_in=None)
     rs = RunState(meta=meta)
@@ -296,7 +297,7 @@ def test_block_acceptance_panel_shown_when_blocks_actually_differ():
 
 
 def _run_with_param(values: np.ndarray, spec: PriorSpec) -> RunState:
-    meta = RunMeta(run_id="s", run_dir="/tmp", posterior_dir="/tmp", chain_paths={},
+    meta = RunMeta(run_id="s", problem_dir=Path("/tmp"), leaf_dir=Path("/tmp"), chain_paths={},
                    model="m", algorithm="pgas", backend=Backend.CHAIN_BINOMIAL,
                    estimated=["R0"], target_sweeps=None, declared_burn_in=None)
     rs = RunState(meta=meta)
@@ -337,9 +338,9 @@ def test_an_infinite_bound_is_not_a_bound():
 def _events_begin(leaf, acceptance):
     import json as _json
     leaf.mkdir(parents=True, exist_ok=True)
-    (leaf / "events.jsonl").write_text(_json.dumps(
+    (leaf / "events.jsonl").write_text(events_jsonl([
         {"schema": "camdl.events/v1", "seq": 0, "elapsed": 0.0, "event": "begin",
-         "method": "pmmh", "header": {}, "acceptance": acceptance}) + "\n")
+         "method": "pmmh", "header": {}, "acceptance": acceptance}]))
 
 
 def test_acceptance_band_prefers_begin_then_finding_then_none(tmp_path):

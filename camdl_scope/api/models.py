@@ -398,22 +398,20 @@ class RunDetail(BaseModel):
 class SourceFile(BaseModel):
     """One source artifact: syntax-highlighted ``html`` to render and raw
     ``text`` for the copy button. ``present`` is false when the file couldn't be
-    read (e.g. the model moved since the fit). ``origin`` records where the bytes
-    came from: ``leaf`` = archived in the self-contained fit run leaf,
-    ``live`` = read live from the recorded checkout path."""
+    read. ``origin`` records where the bytes came from: ``leaf`` = stored with
+    the fit in the run store, which is the only source camdl keeps."""
 
     path: str | None = None
     present: bool
-    origin: Literal["leaf", "live"] | None = None
+    origin: Literal["leaf"] | None = None
     html: str = ""
     text: str = ""
 
 
 class SourceResponse(BaseModel):
-    """The fit's sources: the ``.camdl`` model (preferably the copy archived in
-    the run leaf; older fits fall back to the recorded checkout path) and the
-    ``fit.toml`` (always archived in the run leaf). ``highlight_css`` is the
-    Pygments token stylesheet to inject once."""
+    """The fit's sources, both stored with it: the problem's ``.camdl`` model
+    and the run's ``fit.toml``. ``highlight_css`` is the Pygments token
+    stylesheet to inject once."""
 
     run_id: str
     model: SourceFile
@@ -1329,16 +1327,17 @@ class ProfileResponse(BaseModel):
 
 
 class StoreDirRow(BaseModel):
-    """One top-level child of the scan root — a run kind (``sims``, ``fits``)
-    or whatever else is sitting there."""
+    """One part of the store: a build's kind directory
+    (``0.1.0_de896b47c-8fd5625dd2f8/sim``) or one of the store's own entries
+    (``.invocations``)."""
 
     name: str
     bytes: int
     alloc_bytes: int
     files: int
     dirs: int
-    #: Whether this is the run kind the watcher itself indexes, i.e. the only
-    #: child whose contents also appear in ``runs``.
+    #: Whether this is a build's ``fit`` directory, the kind the app opens and
+    #: the only one whose contents also appear in ``runs``.
     is_store: bool = False
 
 

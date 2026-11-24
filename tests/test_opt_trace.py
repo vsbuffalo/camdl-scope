@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from camdl_scope import ingest
 from camdl_scope.mle import read_mle, read_opt_trace
-from tests.test_mle_live import HEADER, _beat, _folder, _leaf
+from tests.test_mle_live import HEADER, _beat, _leaf, _problem
 
 TRACE_HEADER = "chain\teval\tloglik\tbest_loglik\ta\tb\n"
 
@@ -26,12 +26,15 @@ C1 = _rows(1, [(1, "-inf", "", "", ""), (25, "-55.0", "-55.0", "1.2", "2.8")])
 C2 = _rows(2, [(1, "nan", "", "", "")])
 
 
-def _running(tmp_path, trace: str):
-    store = tmp_path / "fits"
-    leaf = _leaf(_folder(store))
+def _running(tmp_path, trace: str, *, alive: bool = True):
+    """A running optimiser with no start finished and ``trace`` as its live
+    ``opt_trace.tsv``; ``alive=False`` gives it an owner that has exited."""
+    store = tmp_path / "camdl-store"
+    kit, problem = _problem(store)
+    leaf = _leaf(kit, problem, alive=alive)
     (leaf / "chain_results.tsv").write_text(HEADER)
     (leaf / "opt_trace.tsv").write_text(trace)
-    _beat(leaf, step=50, total=400)
+    _beat(kit, leaf, step=50, total=400)
     return store, leaf
 
 
@@ -85,7 +88,6 @@ def test_finished_run_keeps_its_traces(tmp_path):
     _, leaf = _running(tmp_path, TRACE_HEADER + C0)
     (leaf / "chain_results.tsv").write_text(HEADER + "0\t-12.5\txtol_reached\t50\t1.5\t2.5\n")
     (leaf / "mle_params.toml").write_text("a = 1.5\nb = 2.5\n\n[provenance]\nlog_likelihood = -12.5\n")
-    _beat(leaf, state="done")
     fit = read_mle(leaf, ["a", "b"])
     assert not fit.provisional and [t.chain for t in fit.searches] == [0]
     assert fit.searches[0].best_loglik == fit.loglik
@@ -94,7 +96,7 @@ def test_finished_run_keeps_its_traces(tmp_path):
 def test_endpoint_carries_searches_and_marks_finished(tmp_path, monkeypatch):
     store, leaf = _running(tmp_path, TRACE_HEADER + C0 + C1 + C2)
     (leaf / "chain_results.tsv").write_text(HEADER + "1\t-50.0\tftol_reached\t60\t1.2\t2.8\n")
-    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(store))
+    monkeypatch.setenv("CAMDL_STORE", str(store))
     from camdl_scope.api.app import app
 
     c = TestClient(app)
@@ -109,9 +111,8 @@ def test_endpoint_carries_searches_and_marks_finished(tmp_path, monkeypatch):
     assert d["loglik"] == -12.5 and d["provisional_from_running"]
 
 
-def test_stale_heartbeat_reads_as_stalled_with_its_traces(tmp_path):
-    store, leaf = _running(tmp_path, TRACE_HEADER + C0)
-    _beat(leaf, age=3600, step=50, total=400)
+def test_dead_owner_reads_as_stalled_with_its_traces(tmp_path):
+    store, leaf = _running(tmp_path, TRACE_HEADER + C0, alive=False)
     (leaf / "chain_results.tsv").write_text(HEADER + "1\t-50.0\tftol_reached\t60\t1.2\t2.8\n")
     [meta] = ingest.discover_runs(store, include_warming=True)
     from camdl_scope.assembly import build_run_overview

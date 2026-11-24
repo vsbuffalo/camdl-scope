@@ -17,10 +17,10 @@ around:
     written to the spec's shape by this generator, not captured from a camdl
     run: the verdict it carries is a fixed ``converged`` whose ``max_rhat`` is
     the largest R-hat of the synthetic summary beside it;
-  * ``predictive``/``observed`` TSVs for the ``cases`` stream, in the run's
-    default-options predict directory ``predict/<run_id12>/``, plus one
-    option-keyed predict ``predict/<run_id12>-<opts8>/`` (a longer horizon) so
-    the predict picker has two to choose between.
+  * ``predictive``/``observed`` TSVs for the ``cases`` stream, in two
+    free-forward predictions stored inside the run (``predict/<mode>-<12 hex>/``),
+    the second with a longer horizon, so the predict picker has two to choose
+    between.
 
 Deterministic: a fixed RNG seed and fixed content hashes, so re-running writes
 byte-identical files. Run via ``make fixture`` or ``python -m
@@ -35,16 +35,16 @@ from pathlib import Path
 
 import numpy as np
 
+from tests.storekit import BUILD, StoreKit, events_jsonl
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_OUT = _REPO_ROOT / "tests" / "fixtures" / "golden-store"
 
-RUN_DIR = "seir_patch_demo-a1b2c3d4"
-# The layout camdl writes today: one `[method]` per config, and a method
-# directory named for the algorithm with no ordinal and no stage name. The
-# pre-split `NN-<stage name>-<hash>` shape still exists in real stores and is
-# covered by the unit tests, which build it directly.
-POSTERIOR_DIR = "pgas-b2c3d4e5"
-SEED_DIR = "seed_1-c3d4e5f6"
+#: The fit problem's folder name, which is the run's entry id (it holds one run).
+RUN_DIR = "seir_patch_demo-a1b2c3d4e5f6"
+#: The run's method folder and its own folder inside ``<problem>/runs/``.
+POSTERIOR_DIR = "pgas-b2c3d4e5f6a7"
+SEED_DIR = "seed_1-c3d4e5f6a7b8"
 
 # (param, posterior mean, sd, chain-offset) — the offset gives R̂ a touch above 1.
 PARAMS: list[tuple[str, float, float, float]] = [
@@ -137,16 +137,13 @@ MODEL_GRAPH = {
 }
 
 FIT_META = {
-    "model_path": "models/seir_patch_demo.ir.json",  # relative placeholder, no CAS
     "model_identity": "demo0000000000000000000000000000",
-    "fit_toml_path": "fits/seir_patch_demo.toml",
     "fit_toml_hash": "demo0000",
     "data_hashes": {"cases": "demo0001"},
     "estimated": PARAM_NAMES,
     "fixed": {"N0": 1_000_000.0},
     "resolved_priors": [{"param": p, "source": "fit_toml"} for p in PARAM_NAMES],
     "parameters_provenance": {},
-    "docs": DOCS,
     "schema": SCHEMA,
 }
 
@@ -249,42 +246,19 @@ def _summary(rng: np.random.Generator) -> dict:
     }
 
 
-#: The leaf's own record. ``levels`` names the middle level ``method`` (it was
-#: ``stage`` before the split), and ``inputs`` is populated only once the leaf
-#: finishes — it is ``null`` while a run is in flight, which is why nothing in
-#: the reader may depend on it to classify a leaf.
-#: The leaf's camdl run_id; ``fit predict`` files its output under the first 12
-#: hex characters (camdl gh#896).
-RUN_ID = "d4e5f6a7" * 8
-#: The option-keyed predict's directory suffix and the options it records.
-KEYED_OPTS8 = "e5f6a7b8"
+#: The option-keyed prediction's folder and the options it records.
+DEFAULT_PREDICT = "free_forward-d4e5f6a7d4e5"
+KEYED_PREDICT = "free_forward-e5f6a7b8c9d0"
 KEYED_OPTIONS = {"horizon": 30, "n_draws": 200}
 
-RUN_JSON = {
-    "format_version": 1,
-    "kind": "fit_method",
-    "run_id": RUN_ID,
-    "levels": [
-        {"name": "fit", "label": "seir_patch_demo", "hash": "a1b2c3d4" * 8,
-         "schema_version": 1},
-        {"name": "method", "label": "pgas", "hash": "b2c3d4e5" * 8,
-         "schema_version": 1},
-        {"name": "seed", "label": "seed_1", "hash": "c3d4e5f6" * 8,
-         "schema_version": 1},
-    ],
-    "status": "completed",
-    "inputs": {
-        "algorithm": {"algorithm": "pgas", "backend": "chain_binomial",
-                      "chains": N_CHAINS, "particles": 256, "sweeps": N_SWEEPS},
-        "backend": "chain_binomial",
-        "method": "pgas",
-        "stage": "pgas",
-        "n_chains": N_CHAINS,
-        "seed": 1,
-        "starts": "from_prior",
-        "chain_starts_kind": "spread",
-    },
-}
+#: The sampler settings camdl resolved for the run (``run_inputs.json``).
+ALGORITHM = {"algorithm": "pgas", "backend": "chain_binomial",
+             "chains": N_CHAINS, "particles": 256, "sweeps": N_SWEEPS}
+
+
+def leaf_path(store: Path) -> Path:
+    """The golden run's own folder in a store built by :func:`build`."""
+    return store / BUILD / "fit" / RUN_DIR / "runs" / POSTERIOR_DIR / SEED_DIR
 
 
 def _events(summary: dict) -> str:
@@ -310,7 +284,7 @@ def _events(summary: dict) -> str:
                     "verdict": {"kind": "converged", "max_rhat": rhat[worst],
                                 "param": worst}}},
     ]
-    return "".join(json.dumps(x) + "\n" for x in lines)
+    return events_jsonl(lines)
 
 
 def _predictive_observed(
@@ -338,40 +312,37 @@ def _predictive_observed(
     _write_tsv(pdir / "observed" / "cases.tsv", ohead, orows)
     for name in ("predictive.json", "observed.json"):
         (pdir / name).write_text(json.dumps(
-            {"run_id": RUN_ID, "options": options}, indent=2) + "\n")
+            {"schema": "camdl.predictive/v4", "options": {"mode": "free_forward", **options}},
+            indent=2) + "\n")
 
 
 def build(out: Path) -> Path:
-    """Write the golden store under ``out`` and return the run directory."""
+    """Write the golden store under ``out`` and return the run's own folder."""
     rng = np.random.default_rng(0)
-    run_dir = out / RUN_DIR
-    seed_dir = run_dir / POSTERIOR_DIR / SEED_DIR
-    seed_dir.mkdir(parents=True, exist_ok=True)
-
-    (run_dir / "fit.meta.json").write_text(json.dumps(FIT_META, indent=2,
-                                                      ensure_ascii=False) + "\n")
-    (run_dir / "fit.toml.original").write_text(FIT_TOML)
-    (run_dir / "model.graph.json").write_text(
+    kit = StoreKit.create(out)
+    problem = kit.problem("seir_patch_demo", name=RUN_DIR, docs=DOCS)
+    (problem / "model.graph.json").write_text(
         json.dumps(MODEL_GRAPH, indent=2, ensure_ascii=False) + "\n")
+    seed_dir = kit.fit_run(
+        problem, algorithm="pgas", seed=1, method_dir=POSTERIOR_DIR, seed_dir=SEED_DIR,
+        method={"backend": "chain_binomial", "chains": N_CHAINS, "sweeps": N_SWEEPS, "burn_in": 300},
+        estimated=PARAM_NAMES, meta=FIT_META, fit_toml=FIT_TOML, config="seir_patch_demo.toml",
+    )
 
     header = ["sweep", *PARAM_NAMES, "log_likelihood", "log_posterior"]
     for c in range(N_CHAINS):
         rows = _trace_for_chain(rng, c)
         _write_tsv(seed_dir / f"chain_{c}" / "trace.tsv", header, rows)
 
-    (seed_dir / "progress.json").write_text(json.dumps({
-        "state": "done", "updated_at": 1_700_000_000, "pid": 0,
-    }) + "\n")
-    (seed_dir / "run.json").write_text(json.dumps(RUN_JSON, indent=2) + "\n")
+    kit.beat(seed_dir, state="done")
+    (seed_dir / "run_inputs.json").write_text(json.dumps({"algorithm": ALGORITHM}, indent=2) + "\n")
     summary = _summary(rng)
     (seed_dir / "pgas_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     (seed_dir / "events.jsonl").write_text(_events(summary))
-    # camdl writes predict output per run, in the problem folder (gh#896).
-    predict = run_dir / "predict"
-    _predictive_observed(rng, predict / RUN_ID[:12], {}, 20)
-    _predictive_observed(
-        rng, predict / f"{RUN_ID[:12]}-{KEYED_OPTS8}", KEYED_OPTIONS, 30)
-    return run_dir
+    _predictive_observed(rng, kit.prediction(seed_dir, name=DEFAULT_PREDICT), {}, 20)
+    _predictive_observed(rng, kit.prediction(seed_dir, name=KEYED_PREDICT, options=KEYED_OPTIONS),
+                         KEYED_OPTIONS, 30)
+    return seed_dir
 
 
 def main() -> None:

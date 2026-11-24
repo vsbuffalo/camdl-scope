@@ -22,5 +22,5 @@ from tests.scenarios import scenarios
 )
 @pytest.mark.skipif(shutil.which(scenarios.CAMDL) is None, reason="camdl not on PATH")
 def test_api_matches_scenario_snapshots(monkeypatch):
-    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(scenarios.DEFAULT_OUT / "results" / "fits"))
+    monkeypatch.setenv("CAMDL_STORE", str(scenarios.DEFAULT_OUT / scenarios.STORE_DIR))
     assert scenarios.snapshot(scenarios.DEFAULT_OUT, check=True) == 0

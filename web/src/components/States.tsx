@@ -36,7 +36,7 @@ export function MutedNotice({
  * Empty-state for a posterior-dependent tab (Predictive, Quantities) that has
  * nothing to show. The message depends on *why* the posterior is absent: a
  * stalled or failed run never produced one, and a warming run hasn't yet — so
- * pointing the user at `camdl fit predict` (the `whenDone` case) would be wrong,
+ * pointing the user at `camdl predict` (the `whenDone` case) would be wrong,
  * predict has nothing to draw from. Falls back to `whenDone` for a finished run
  * that simply hasn't had predict run, or whose model declares no such artifact.
  */
@@ -75,7 +75,7 @@ export function NoPosteriorNotice({
         detail={
           <>
             Posterior-predictive checks appear once the fit finishes and you run{' '}
-            <span className="font-mono">camdl fit predict</span>.
+            <span className="font-mono">camdl predict &lt;run&gt;</span>.
           </>
         }
       />

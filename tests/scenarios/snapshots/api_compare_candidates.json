@@ -4,11 +4,11 @@
   "candidates": [
    {
     "label": "pf_nb",
-    "run_id": "pf_nb-a62c9f33"
+    "run_id": "sir_nb-8ebccb1fffa0~seed_1-a391b01df044"
    },
    {
     "label": "pf_pois",
-    "run_id": "pf_pois-0ec41a3d"
+    "run_id": "sir-b9ed29d5285a~seed_1-c05dc9b8a9e6"
    }
   ],
   "n_without_prequential": 8

@@ -156,9 +156,8 @@ export interface paths {
         };
         /**
          * Get Source
-         * @description The fit's sources: the highlighted ``.camdl`` model (the copy archived in
-         *     the run leaf when present, else read live from the recorded path) and the
-         *     ``fit.toml`` (always archived in the run leaf).
+         * @description The fit's sources, both stored with it: the problem's ``model.camdl`` and
+         *     the run's ``fit.toml``, highlighted.
          */
         get: operations["get_source_api_runs__run_id__source_get"];
         put?: never;
@@ -383,9 +382,8 @@ export interface paths {
         };
         /**
          * Compare Candidates
-         * @description Runs that can be compared: listed runs with a ``prequential.json`` under
-         *     them, plus run folders the run list omits because they hold only a
-         *     particle-filter score (camdl's one-method-per-config layout).
+         * @description Runs that can be compared: listed runs with a ``prequential.json``, plus
+         *     the particle-filter scoring runs the run list omits.
          */
         get: operations["compare_candidates_api_compare_candidates_get"];
         put?: never;
@@ -433,7 +431,7 @@ export interface paths {
         };
         /**
          * List Profiles
-         * @description Every profile-likelihood run under ``profiles/`` — the selector list.
+         * @description Every ``camdl profile`` command in the store — the selector list.
          */
         get: operations["list_profiles_api_profiles_get"];
         put?: never;
@@ -2384,9 +2382,8 @@ export interface components {
          * SourceFile
          * @description One source artifact: syntax-highlighted ``html`` to render and raw
          *     ``text`` for the copy button. ``present`` is false when the file couldn't be
-         *     read (e.g. the model moved since the fit). ``origin`` records where the bytes
-         *     came from: ``leaf`` = archived in the self-contained fit run leaf,
-         *     ``live`` = read live from the recorded checkout path.
+         *     read. ``origin`` records where the bytes came from: ``leaf`` = stored with
+         *     the fit in the run store, which is the only source camdl keeps.
          */
         SourceFile: {
             /** Path */
@@ -2394,7 +2391,7 @@ export interface components {
             /** Present */
             present: boolean;
             /** Origin */
-            origin?: ("leaf" | "live") | null;
+            origin?: "leaf" | null;
             /**
              * Html
              * @default
@@ -2408,10 +2405,9 @@ export interface components {
         };
         /**
          * SourceResponse
-         * @description The fit's sources: the ``.camdl`` model (preferably the copy archived in
-         *     the run leaf; older fits fall back to the recorded checkout path) and the
-         *     ``fit.toml`` (always archived in the run leaf). ``highlight_css`` is the
-         *     Pygments token stylesheet to inject once.
+         * @description The fit's sources, both stored with it: the problem's ``.camdl`` model
+         *     and the run's ``fit.toml``. ``highlight_css`` is the Pygments token
+         *     stylesheet to inject once.
          */
         SourceResponse: {
             /** Run Id */
@@ -2425,8 +2421,9 @@ export interface components {
         };
         /**
          * StoreDirRow
-         * @description One top-level child of the scan root — a run kind (``sims``, ``fits``)
-         *     or whatever else is sitting there.
+         * @description One part of the store: a build's kind directory
+         *     (``0.1.0_de896b47c-8fd5625dd2f8/sim``) or one of the store's own entries
+         *     (``.invocations``).
          */
         StoreDirRow: {
             /** Name */
@@ -2820,7 +2817,7 @@ export interface operations {
     get_run_api_runs__run_id__get: {
         parameters: {
             query?: {
-                /** @description Which `fit predict` output of the run to read: a key from RunDetail.predicts. Omitted, the default-options predict. */
+                /** @description Which prediction of the run to read: a key from RunDetail.predicts. Omitted, the default one. */
                 predict?: string | null;
             };
             header?: never;
@@ -3047,7 +3044,7 @@ export interface operations {
     get_predictive_api_runs__run_id__predictive__stream__get: {
         parameters: {
             query?: {
-                /** @description Which `fit predict` output of the run to read: a key from RunDetail.predicts. Omitted, the default-options predict. */
+                /** @description Which prediction of the run to read: a key from RunDetail.predicts. Omitted, the default one. */
                 predict?: string | null;
             };
             header?: never;
@@ -3082,7 +3079,7 @@ export interface operations {
     get_quantity_series_api_runs__run_id__quantity_series__name__get: {
         parameters: {
             query?: {
-                /** @description Which `fit predict` output of the run to read: a key from RunDetail.predicts. Omitted, the default-options predict. */
+                /** @description Which prediction of the run to read: a key from RunDetail.predicts. Omitted, the default one. */
                 predict?: string | null;
             };
             header?: never;
@@ -3117,7 +3114,7 @@ export interface operations {
     get_quantity_scalars_api_runs__run_id__quantity_scalars_get: {
         parameters: {
             query?: {
-                /** @description Which `fit predict` output of the run to read: a key from RunDetail.predicts. Omitted, the default-options predict. */
+                /** @description Which prediction of the run to read: a key from RunDetail.predicts. Omitted, the default one. */
                 predict?: string | null;
             };
             header?: never;
@@ -3186,7 +3183,7 @@ export interface operations {
     get_prior_predictive_api_runs__run_id__prior_predictive__stream__get: {
         parameters: {
             query?: {
-                /** @description Which `fit predict` output of the run to read: a key from RunDetail.predicts. Omitted, the default-options predict. */
+                /** @description Which prediction of the run to read: a key from RunDetail.predicts. Omitted, the default one. */
                 predict?: string | null;
             };
             header?: never;

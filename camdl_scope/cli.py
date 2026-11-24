@@ -1,8 +1,9 @@
 """camdl-scope CLI — launch the browser results viewer.
 
-A thin ``defopt`` wrapper over :func:`uvicorn.run`. ``--store`` maps to the
-``CAMDL_SCOPE_STORE`` env var (the app's public override), set before the app is
-imported so it reads the chosen store. The server hosts the JSON API under
+A thin ``defopt`` wrapper over :func:`uvicorn.run`. The store is chosen as camdl
+chooses it — ``--store``, then ``$CAMDL_STORE``, then ``./camdl-store`` — and
+``--store`` is passed to the app as ``CAMDL_STORE``, set before the app is
+imported. The server hosts the JSON API under
 ``/api`` and, when ``web/dist`` has been built, the React frontend at ``/``.
 
 For frontend development, run the API with reload and the Vite dev server
@@ -68,22 +69,25 @@ def main(
 ) -> None:
     """Launch the camdl-scope results viewer.
 
-    Serves the JSON API (and the built frontend, if present) for a camdl fit
+    Serves the JSON API (and the built frontend, if present) for a camdl run
     store. Bind ``--host 0.0.0.0`` to reach it from a phone over LAN / Tailscale.
 
-    :param store: camdl fit store to read (the directory of run dirs).
-        Defaults to ``results/fits`` under the current working directory.
+    :param store: camdl run store to read (the directory holding ``store.json``).
+        Defaults to ``$CAMDL_STORE``, else ``camdl-store`` under the current
+        working directory.
     :param host: Network interface to bind.
     :param port: TCP port to serve on.
     """
     if store is not None:
-        os.environ["CAMDL_SCOPE_STORE"] = str(store)
+        os.environ["CAMDL_STORE"] = str(store)
 
     # Announce BEFORE the imports: pulling in the app (arviz → xarray → pandas →
     # scipy) takes seconds, and on a cold cache tens of seconds, during which
     # uvicorn has printed nothing. Silence for that long reads as a hang, so the
     # URL goes to stdout first — uvicorn's own banner goes to stderr later.
-    resolved = Path(os.environ.get("CAMDL_SCOPE_STORE", "results/fits")).resolve()
+    from .store import is_store, locate
+
+    resolved = locate().resolve()
     shown_host = "localhost" if host in ("0.0.0.0", "::") else host
 
     # Refuse a held port instead of announcing one we will not get. uvicorn
@@ -107,14 +111,14 @@ def main(
         "camdl-scope: starting … (first launch takes a few seconds)",
         flush=True,
     )
-    if not resolved.is_dir():
+    if not is_store(resolved):
         print(
-            f"camdl-scope: note — {resolved} does not exist yet; "
+            f"camdl-scope: note — {resolved} is not a camdl store (no store.json) yet; "
             "run from your camdl project root or pass --store.",
             flush=True,
         )
 
-    # Import after setting the env var: the app reads CAMDL_SCOPE_STORE at import.
+    # Import after setting the env var: the app reads CAMDL_STORE.
     import uvicorn
 
     uvicorn.run("camdl_scope.api.app:app", host=host, port=port, reload=False)

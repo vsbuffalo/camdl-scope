@@ -12,11 +12,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import json
 
 from camdl_scope import predictive
+from tests.storekit import StoreKit
 
 _PRED_HEADER = (
     "time\tpatch\thorizon\ttreatment\tfit_rhat_max\tfit_ess_min\tn_draws"
@@ -126,39 +125,54 @@ def test_read_calendar_ignores_calendar_without_origin(tmp_path: Path):
     assert predictive.read_calendar(tmp_path) is None
 
 
-def _predict(run_dir: Path, key: str, options: dict | None = None) -> Path:
-    d = run_dir / "predict" / key
-    (d / "predictive").mkdir(parents=True)
-    if options is not None:
-        (d / "predictive.json").write_text(json.dumps({"options": options}))
-    return d
+def _run(root: Path) -> tuple[StoreKit, Path]:
+    kit = StoreKit.create(root)
+    return kit, kit.fit_run(kit.problem())
 
 
-def test_predict_dirs_are_the_runs_own_default_first(tmp_path):
-    rid = "abcdef012345" + "6" * 52
-    keyed = _predict(tmp_path, "abcdef012345-11112222", {"horizon": 30})
-    default = _predict(tmp_path, "abcdef012345", {})
-    _predict(tmp_path, "999999999999")  # another run of the same problem
-    dirs = predictive.predict_dirs(tmp_path, rid)
+def test_predict_dirs_list_free_forward_first_then_folder_order(tmp_path):
+    kit, leaf = _run(tmp_path)
+    one_step = kit.prediction(leaf, "one_step", name="one_step-000000000001")
+    long = kit.prediction(leaf, options={"horizon": 30}, name="free_forward-bbbbbbbbbbbb")
+    short = kit.prediction(leaf, name="free_forward-aaaaaaaaaaaa")
+    dirs = predictive.predict_dirs(leaf)
     assert [(d.key, d.default) for d in dirs] == [
-        ("abcdef012345", True), ("abcdef012345-11112222", False),
+        (short.name, True), (long.name, False), (one_step.name, False),
     ]
-    assert dirs[1].options == {"horizon": 30}
-    assert predictive.resolve_predict_dir(tmp_path, rid) == default
-    assert predictive.resolve_predict_dir(tmp_path, rid, keyed.name) == keyed
-    # Another run's key is not found, never substituted with this run's default.
-    assert predictive.resolve_predict_dir(tmp_path, rid, "999999999999") is None
+    assert dirs[1].options == {"mode": "free_forward", "horizon": 30}
+    assert predictive.resolve_predict_dir(leaf) == short
+    assert predictive.resolve_predict_dir(leaf, long.name) == long
 
 
-def test_only_keyed_predict_is_shown_by_default(tmp_path):
-    rid = "abcdef012345" + "0" * 52
-    keyed = _predict(tmp_path, "abcdef012345-11112222", {"horizon": 30})
-    assert predictive.resolve_predict_dir(tmp_path, rid) == keyed
+def test_another_runs_prediction_is_not_found(tmp_path):
+    kit, leaf = _run(tmp_path)
+    other = kit.fit_run(kit.problem("seir"))
+    theirs = kit.prediction(other)
+    kit.prediction(leaf)
+    # Never substituted with this run's default.
+    assert predictive.resolve_predict_dir(leaf, theirs.name) is None
 
 
-def test_no_run_id_or_folder_level_output_reads_nothing(tmp_path):
-    # Output an older camdl wrote at the folder level names no run: not read.
-    (tmp_path / "predictive").mkdir()
-    (tmp_path / "predictive" / "cases.tsv").write_text("time\tq50\n0\t1\n")
-    assert predictive.predict_dirs(tmp_path, "abcdef012345" + "0" * 52) == []
-    assert predictive.predict_dirs(tmp_path, None) == []
+def test_a_run_with_only_a_one_step_prediction_opens_it(tmp_path):
+    kit, leaf = _run(tmp_path)
+    one_step = kit.prediction(leaf, "one_step")
+    assert predictive.resolve_predict_dir(leaf) == one_step
+
+
+def test_only_completed_predictions_are_listed(tmp_path):
+    kit, leaf = _run(tmp_path)
+    done = kit.prediction(leaf, name="free_forward-bbbbbbbbbbbb")
+    # A prediction still being written: its record says running. StoreKit
+    # writes predictions completed, so the record is rewritten here.
+    running = kit.prediction(leaf, name="free_forward-aaaaaaaaaaaa")
+    rec = json.loads((running / "run.json").read_text())
+    (running / "run.json").write_text(json.dumps({**rec, "status": "running", "finished": None}))
+    # A folder with no records yet: a claim being made.
+    (leaf / "predict" / "free_forward-000000000000" / "predictive").mkdir(parents=True)
+    assert [d.key for d in predictive.predict_dirs(leaf)] == [done.name]
+
+
+def test_never_predicted_run_reads_nothing(tmp_path):
+    _kit, leaf = _run(tmp_path)
+    assert predictive.predict_dirs(leaf) == []
+    assert predictive.resolve_predict_dir(leaf) is None

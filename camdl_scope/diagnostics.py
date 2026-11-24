@@ -269,7 +269,7 @@ def camdl_acceptance_band(run: RunState) -> tuple[float, float] | None:
     """The healthy acceptance band camdl applied to the run's leaf (see
     :func:`camdl_scope.verdict.acceptance_band`), or ``None``."""
     findings = run.summary.findings if run.summary is not None else []
-    return acceptance_band(Path(run.meta.posterior_dir), findings)
+    return acceptance_band(Path(run.meta.leaf_dir), findings)
 
 
 def _headline_rhat_high(fs: list[Finding]) -> tuple[str, list[str]]:

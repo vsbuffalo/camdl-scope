@@ -11,7 +11,7 @@ import pytest
 from camdl_scope import ingest
 from camdl_scope.grouping import group_params
 
-STORE = Path(os.environ.get("CAMDL_SCOPE_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
+STORE = Path(os.environ.get("CAMDL_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
 
 
 def test_hierk_families_and_scalars():

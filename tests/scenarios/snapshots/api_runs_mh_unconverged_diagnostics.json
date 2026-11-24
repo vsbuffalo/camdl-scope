@@ -103,10 +103,27 @@
   "frozen_chains": [],
   "leaves": [
    {
-    "is_open": true,
-    "leaf": "mh-b366be28/seed_1-91d7d8da",
+    "is_open": false,
+    "leaf": "mh-0bed90cd9493/seed_1-2aa09aa93e11",
     "method": "mh",
-    "run_id": "465e7900dbc376315f13899cfde2d928f2f2e3b8b565700c6bc86ddc108ff8a0",
+    "run_id": "2aa09aa93e11b993f5e31be1909fe54e881e97137cd95b144cb63c35a5b9b41c",
+    "status": "completed",
+    "verdict": {
+     "band": null,
+     "chains": [],
+     "error": null,
+     "kind": "converged",
+     "max_rhat": "1.006",
+     "param": "beta",
+     "status": "ok",
+     "text": "converged: max R̂ 1.006 on beta"
+    }
+   },
+   {
+    "is_open": true,
+    "leaf": "mh-0f3710d7a463/seed_1-e499c749ab94",
+    "method": "mh",
+    "run_id": "e499c749ab94b2dc045a2c7aaaa6595a97a33c6fb23c2bb1729fde067df9ed4b",
     "status": "completed",
     "verdict": {
      "band": "severe",
@@ -200,7 +217,7 @@
    "renewal_profile": [],
    "stats": []
   },
-  "run_id": "mh_unconverged-fe806b6f",
+  "run_id": "sir-fde7d4346413~seed_1-e499c749ab94",
   "sampler_panels": [
    {
     "columns": [

@@ -1562,7 +1562,7 @@ export function PredictiveTab({ runId }: { runId: string }) {
           title: 'No predictive artifact',
           detail: (
             <>
-              Run <span className="font-mono">camdl fit predict</span> for this fit
+              Run <span className="font-mono">camdl predict &lt;run&gt;</span> for this fit
               to generate posterior-predictive checks.
             </>
           ),

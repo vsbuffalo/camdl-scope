@@ -1,136 +1,144 @@
-"""Ingest tests: tail-safety against torn lines, discovery against the real
-store, prior extraction."""
+"""Ingest tests: discovery of fit runs in a camdl run store, tail-safety
+against torn lines, prior extraction, and the run's own records (summary,
+algorithm config, wall time). Every store is built with
+:class:`tests.storekit.StoreKit`."""
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-import json
-
 from camdl_scope import diagnostics as diag_mod
 from camdl_scope import ingest
 from camdl_scope.state import ChainBuffer, PriorFamily, Severity
-
-STORE = Path(os.environ.get("CAMDL_SCOPE_STORE", Path(__file__).resolve().parents[3] / "results" / "fits"))
-
-
-def _pgas_run():
-    metas = {m.run_id: m for m in ingest.discover_runs(STORE)}
-    for k in metas:
-        if k.startswith("natbc_dens_hierk_nc_pgas_long"):
-            return metas[k]
-    pytest.skip("nc_pgas_long run not present")
+from tests.storekit import StoreKit
 
 
-def test_discover_finds_target_runs():
-    metas = {m.run_id: m for m in ingest.discover_runs(STORE)}
-    targets = [k for k in metas if k.startswith((
-        "natbc_dens_hierk_nc_pgas_long",
-        "natbc_dens_mh_long",
-        "natbc_mh_long",
-    ))]
-    # The store is a live working dir that gets pruned between sessions; skip
-    # (like the other store-backed tests) when the reference runs aren't present.
-    if not targets:
-        pytest.skip("reference runs not present in store")
-    for t in targets:
-        m = metas[t]
-        assert m.chain_paths, f"{t} has no chains"
-        for p in m.chain_paths.values():
-            assert p.stat().st_size > 0, f"{t} picked an empty trace"
+@pytest.fixture
+def kit(tmp_path: Path) -> StoreKit:
+    return StoreKit.create(tmp_path / "camdl-store")
 
 
-def test_discover_skips_empty_posterior_dir():
-    # mh_long runs have an empty 01-posterior-* stub; the non-empty one wins.
-    metas = {m.run_id: m for m in ingest.discover_runs(STORE)}
-    for k, m in metas.items():
-        if k.startswith("natbc_dens_mh_long"):
-            for p in m.chain_paths.values():
-                assert p.stat().st_size > 0
-            return
-    pytest.skip("natbc_dens_mh_long not present")
+def _trace(leaf: Path, cid: int, text: str) -> Path:
+    tp = leaf / f"chain_{cid}" / "trace.tsv"
+    tp.parent.mkdir(parents=True, exist_ok=True)
+    tp.write_text(text)
+    return tp
 
 
-def test_stage_is_live_pid(tmp_path: Path):
-    seed = tmp_path / "seed_1"
-    seed.mkdir()
-    lock = seed / ".lock"
-    # This test process is, by definition, alive.
-    lock.write_text(str(os.getpid()))
-    assert ingest.stage_is_live(seed) is True
-    # An (almost certainly) unused high PID -> dead.
-    lock.write_text("2147483646")
-    assert ingest.stage_is_live(seed) is False
-    # No lock at all -> not live.
-    lock.unlink()
-    assert ingest.stage_is_live(seed) is False
-    # Garbage lock -> not live (and no exception).
-    lock.write_text("not-a-pid")
-    assert ingest.stage_is_live(seed) is False
+def _run_id(leaf: Path) -> str:
+    """camdl's run id of the result in ``leaf`` (its ``identity.json``)."""
+    return json.loads((leaf / "identity.json").read_text())["run_id"]
 
 
-def test_pick_posterior_surfaces_only_live_burnin(tmp_path: Path):
-    """An empty (burn-in) trace is hidden by default and when dead, but
-    surfaced with has_draws=False when include_warming and the PID is live."""
-    run = tmp_path / "cfg-deadbeef"
-    seed = run / "01-posterior-abc12345" / "seed_1-06cbd6b3"
-    (seed / "chain_1").mkdir(parents=True)
-    (seed / "chain_1" / "trace.tsv").write_text("")  # 0 bytes, mid burn-in
-
-    # Default: empty stage is invisible regardless of liveness.
-    (seed / ".lock").write_text(str(os.getpid()))
-    assert ingest._pick_posterior_dir(run) is None
-
-    # include_warming + live PID -> surfaced as a no-draws (warming) stage.
-    picked = ingest._pick_posterior_dir(run, include_warming=True)
-    assert picked is not None
-    _pdir, _seed, paths, has_draws = picked
-    assert has_draws is False
-    assert 1 in paths and paths[1].name == "trace.tsv"
-
-    # include_warming but dead PID -> still hidden (killed-mid-burn-in stub).
-    (seed / ".lock").write_text("2147483646")
-    assert ingest._pick_posterior_dir(run, include_warming=True) is None
+def _by_id(root: Path, **kw) -> dict:
+    return {m.run_id: m for m in ingest.discover_runs(root, **kw)}
 
 
-def test_pick_posterior_prefers_drawn_over_warming(tmp_path: Path):
-    """A stage with draws always wins and reports has_draws=True, even with a
-    live empty sibling stage present."""
-    run = tmp_path / "cfg-cafef00d"
-    drawn = run / "01-posterior-aaaa1111" / "seed_1-06cbd6b3" / "chain_1"
-    warming = run / "02-posterior-bbbb2222" / "seed_1-06cbd6b3" / "chain_1"
-    drawn.mkdir(parents=True)
-    warming.mkdir(parents=True)
-    (drawn / "trace.tsv").write_text("step\tR0\n0\t1.1\n1\t1.2\n")
-    (warming / "trace.tsv").write_text("")
-    (warming.parent / ".lock").write_text(str(os.getpid()))
+# A hierarchical PGAS fit: two priors overridden in the fit file, the rest
+# declared in the model, one of them indexed by patch.
+_PGAS_MODEL = """\
+parameters {
+  D50 : positive in [200.0, 20000.0] ~ log_normal(mu = 1.0, sigma = 1.0)
+  rho : probability in [0.0, 1.0]
+  mu_k : real in [-5.0, 5.0] ~ normal(mu = 1.8, sigma = 0.7)
+  tau_k : positive in [0.0, 5.0] ~ half_normal(sigma = 0.5)
+  k_raw[patch] : real in [-5.0, 5.0] ~ normal(mu = 0.0, sigma = 1.0)
+}
+"""
+_PGAS_FIT_TOML = """\
+[estimate]
+D50 = { bounds = [200.0, 20000.0], prior = { log_normal = { mu = 7.6, sigma = 0.6 } } }
+rho = { bounds = [0.0, 1.0], prior = { beta = { alpha = 4.0, beta = 12.0 } } }
+"""
+_PGAS_ESTIMATED = ["D50", "rho", "mu_k", "tau_k", "k_raw_Bo"]
+_PGAS_HEADER = "sweep\tlog_likelihood\tlog_posterior\ttrajectory_renewal\t" + "\t".join(_PGAS_ESTIMATED)
 
-    picked = ingest._pick_posterior_dir(run, include_warming=True)
-    assert picked is not None
-    _pdir, _seed, paths, has_draws = picked
-    assert has_draws is True
-    assert paths[1].stat().st_size > 0
+
+def _pgas_run(kit: StoreKit):
+    """A completed PGAS run with two chains of 30 sweeps; its entry."""
+    problem = kit.problem("natbc_dens_hierk", source=_PGAS_MODEL)
+    leaf = kit.fit_run(
+        problem, algorithm="pgas", config="configs/natbc_dens_hierk_nc_pgas_long.toml",
+        method={"backend": "chain_binomial", "chains": 2, "sweeps": 40000, "burn_in": 2000},
+        estimated=_PGAS_ESTIMATED, fit_toml=_PGAS_FIT_TOML,
+        meta={"resolved_priors": [
+            {"param": "D50", "source": "fit_toml"}, {"param": "rho", "source": "fit_toml"},
+            {"param": "mu_k", "source": "model_ir"}, {"param": "tau_k", "source": "model_ir"},
+            {"param": "k_raw_Bo", "source": "model_ir"},
+        ]},
+    )
+    row = "\t-100.0\t-110.0\t1\t" + "\t".join(["0.5"] * len(_PGAS_ESTIMATED))
+    for cid in (0, 1):
+        _trace(leaf, cid, _PGAS_HEADER + "\n" + "".join(f"{i}{row}\n" for i in range(30)))
+    (m,) = ingest.discover_runs(kit.root)
+    return m
 
 
-def test_tail_reads_pgas_chain():
-    m = _pgas_run()
+def test_discovery_reads_the_nonempty_traces(kit):
+    # A run with one chain still empty (it has not written its first row)
+    # lists only the chain with rows, so nothing downstream plots a header.
+    problem = kit.problem("sir")
+    leaf = kit.fit_run(problem, algorithm="mh", status="running")
+    _trace(leaf, 0, "step\tbeta\n0\t0.5\n1\t0.52\n")
+    _trace(leaf, 1, "")
+    (m,) = ingest.discover_runs(kit.root)
+    assert m.leaf_dir == leaf and m.problem_dir == problem
+    assert set(m.chain_paths) == {0}
+    assert all(p.stat().st_size > 0 for p in m.chain_paths.values())
+
+
+def test_live_burn_in_run_is_listed_only_with_include_warming(kit):
+    """A live run with nothing written yet is hidden by default, and listed
+    with ``include_warming``; once its owner is dead it is hidden either way."""
+    live = kit.fit_run(kit.problem("sir", name="warm-aaaa"), algorithm="pgas", status="running")
+    _trace(live, 0, "")  # created, mid burn-in
+    dead = kit.fit_run(kit.problem("sir", name="dead-bbbb"), algorithm="pgas",
+                       status="running", alive=False)
+    _trace(dead, 0, "")
+
+    assert ingest.discover_runs(kit.root) == []
+    (m,) = ingest.discover_runs(kit.root, include_warming=True)
+    assert m.run_id == "warm-aaaa" and m.leaf_dir == live
+    # The empty trace is still the chain's path, for the tail to follow.
+    assert m.chain_paths[0].name == "trace.tsv"
+    assert (m.record_status, m.owner_alive) == ("running", True)
+
+
+def test_run_with_rows_is_the_default_over_a_live_empty_sibling(kit):
+    """A run with draws opens by default, even with a live empty sibling."""
+    problem = kit.problem("sir", name="cfg-cafef00d")
+    # The empty run has the lower seed, so seed order alone would pick it.
+    drawn = kit.fit_run(problem, algorithm="pgas", seed=2)
+    _trace(drawn, 0, "step\tR0\n0\t1.1\n1\t1.2\n")
+    warming = kit.fit_run(problem, algorithm="pgas", seed=1, status="running")
+    _trace(warming, 0, "")
+    metas = ingest.discover_runs(kit.root, include_warming=True)
+    assert [m.leaf_dir for m in metas] == [drawn, warming]
+    assert metas[0].folder_default and not metas[1].folder_default
+    assert ingest.resolve_run(metas, "cfg-cafef00d").leaf_dir == drawn
+    assert metas[0].chain_paths[0].stat().st_size > 0
+
+
+def test_tail_reads_pgas_chain(kit):
+    m = _pgas_run(kit)
     cid, path = next(iter(m.chain_paths.items()))
     buf = ChainBuffer(cid=cid, path=path)
     n = ingest.tail_chain(buf)
-    assert n > 0
+    assert n == 30
     assert buf.header is not None
     # PGAS aux columns present, normalized iter col present.
     assert "log_likelihood" in buf.aux
     assert "log_posterior" in buf.aux
     assert "trajectory_renewal" in buf.aux
     assert buf.iters.shape[0] == n
-    # An estimated param made it into values.
-    assert "R0" in buf.values
-    assert buf.values["R0"].shape[0] == n
+    # An estimated param made it into values, not aux.
+    assert "D50" in buf.values and "D50" not in buf.aux
+    assert buf.values["D50"].shape[0] == n
 
 
 def test_tail_torn_last_line(tmp_path: Path):
@@ -170,16 +178,18 @@ def test_tail_incremental_matches_full(tmp_path: Path):
     assert np.allclose(buf.aux["accepted"], [1, 0, 1])
 
 
-def test_extract_priors_pgas():
-    m = _pgas_run()
+def test_extract_priors_pgas(kit):
+    m = _pgas_run(kit)
     priors = ingest.extract_priors(m)
-    # fit_toml-sourced
+    # fit_toml-sourced: the run's fit.toml overrides the model's D50 prior.
+    assert priors["D50"].source == "fit_toml"
     assert priors["D50"].family is PriorFamily.LOGNORMAL
     assert priors["D50"].args["mu"] == pytest.approx(7.6)
     assert priors["D50"].args["sigma"] == pytest.approx(0.6)
     assert priors["rho"].family is PriorFamily.BETA
     assert priors["rho"].args["alpha"] == pytest.approx(4.0)
-    # model_ir-sourced (parsed from .camdl)
+    # model_ir-sourced (parsed from the problem's model.camdl)
+    assert priors["mu_k"].source == "model_ir"
     assert priors["mu_k"].family is PriorFamily.NORMAL
     assert priors["mu_k"].args["mu"] == pytest.approx(1.8)
     assert priors["mu_k"].args["sigma"] == pytest.approx(0.7)
@@ -189,6 +199,7 @@ def test_extract_priors_pgas():
     assert priors["k_raw_Bo"].family is PriorFamily.NORMAL
     assert priors["k_raw_Bo"].args["mu"] == pytest.approx(0.0)
     assert priors["k_raw_Bo"].args["sigma"] == pytest.approx(1.0)
+    assert priors["k_raw_Bo"].bounds == (-5.0, 5.0)
 
 
 def test_parse_ir_params_survives_brace_in_comment(tmp_path: Path):
@@ -208,94 +219,88 @@ def test_parse_ir_params_survives_brace_in_comment(tmp_path: Path):
     assert ir["mu"][1]["mu"] == pytest.approx(-1.6)
 
 
-def test_extract_priors_reads_leaf_archived_model(tmp_path: Path):
+def test_extract_priors_reads_the_problems_model(kit):
     # The recorded model_path is *relative* (unresolvable from any other CWD), so
-    # a model-declared prior would fall to Flat unless we read the leaf-archived
-    # model.camdl.original instead.
-    seed = tmp_path / "fits" / "m-aa" / "01-posterior-hh" / "seed_1-hh"
-    (seed / "chain_1").mkdir(parents=True)
-    (seed / "chain_1" / "trace.tsv").write_text("draw\tabar_v1\n0\t10.0\n1\t11.0\n")
-    (tmp_path / "fits" / "m-aa" / "fit.meta.json").write_text(json.dumps({
-        "model_path": "fits/../models/does_not_resolve.camdl",
-        "estimated": ["abar_v1"],
-        "resolved_priors": [{"param": "abar_v1", "source": "model_ir"}],
-    }))
-    (tmp_path / "fits" / "m-aa" / "fit.toml.original").write_text(
-        "[estimate]\nabar_v1 = { start = 10.0 }\n"
-    )
-    (tmp_path / "fits" / "m-aa" / "model.camdl.original").write_text(
+    # a model-declared prior would fall to Flat unless it is read from the
+    # model.camdl camdl keeps in the problem folder.
+    problem = kit.problem("m", source=(
         "parameters {\n  abar[v] : count in [0.05, 500.0]"
         " ~ log_normal(mu = 2.3, sigma = 1.5)\n}\n"
+    ))
+    leaf = kit.fit_run(
+        problem, algorithm="mh", estimated=["abar_v1"],
+        fit_toml="[estimate]\nabar_v1 = { start = 10.0 }\n",
+        meta={"model_path": "fits/../models/does_not_resolve.camdl",
+              "resolved_priors": [{"param": "abar_v1", "source": "model_ir"}]},
     )
-    m = {r.run_id: r for r in ingest.discover_runs(tmp_path / "fits")}["m-aa"]
+    _trace(leaf, 0, "draw\tabar_v1\n0\t10.0\n1\t11.0\n")
+    (m,) = ingest.discover_runs(kit.root)
     spec = ingest.extract_priors(m)["abar_v1"]
     assert spec.family is PriorFamily.LOGNORMAL  # not Flat
+    assert spec.args == {"mu": pytest.approx(2.3), "sigma": pytest.approx(1.5)}
     assert spec.source == "model_ir" and spec.bounds == (0.05, 500.0)
 
 
-def test_derived_label_is_readable():
-    m = _pgas_run()
-    # config stem recovered from fit.meta.json's fit_toml_path
-    assert m.fit_toml_stem == "natbc_dens_hierk_nc_pgas_long"
+def test_derived_label_is_readable(kit):
+    m = _pgas_run(kit)
+    # The config stem comes from the run's recorded config path.
+    assert m.config_stem == "natbc_dens_hierk_nc_pgas_long"
+    assert m.model == "natbc_dens_hierk"
     lbl = m.derived_label
-    assert m.fit_toml_stem in lbl
-    assert m.algorithm in lbl  # e.g. "pgas"
-    assert m.backend.value in lbl  # e.g. "chain_binomial"
+    assert lbl == "natbc_dens_hierk_nc_pgas_long · pgas/chain_binomial"
     # no raw hash in the readable label
     assert m.hash not in lbl
-    assert m.hash  # but the hash is still recoverable from run_id
+    assert m.hash == m.problem_dir.name.rsplit("-", 1)[1]
 
 
-def test_display_label_prefers_user_label():
-    m = _pgas_run()
-    # No native label set on disk -> display falls back to derived.
-    assert m.display_label == (m.user_label or m.derived_label)
-    if m.user_label is None:
-        assert m.display_label == m.derived_label
+def _labelled_run(kit: StoreKit, problem: Path, seed: int, label: str | None) -> Path:
+    leaf = kit.fit_run(problem, algorithm="pgas", seed=seed, label=label)
+    _trace(leaf, 0, "sweep\tR0\n0\t1.1\n1\t1.2\n")
+    return leaf
 
 
-def _leaf(run: Path, method: str, label: str | None, trace: str) -> Path:
-    seed = run / method / "seed_1-06cbd6b3"
-    (seed / "chain_1").mkdir(parents=True)
-    (seed / "chain_1" / "trace.tsv").write_text(trace)
-    prov = {"argv": ["camdl", "fit", "run"]} | ({"label": label} if label else {})
-    (seed / "run.json").write_text(json.dumps({"run_id": method, "provenance": prov}))
-    return seed
+def test_label_is_each_runs_own(kit):
+    """A label names one run, through the invocation that carried
+    ``--label``. A folder with two runs holds two labels; each entry shows its
+    own run's, never a folder-level one."""
+    problem = kit.problem("sir", name="cfg-cafef00d")
+    long_run = _labelled_run(kit, problem, 1, "long")
+    short_run = _labelled_run(kit, problem, 2, "short")
+    # A folder-level label in a stray fit.meta.json is not read.
+    (problem / "fit.meta.json").write_text(json.dumps({"label": "stale"}))
+    by_leaf = {m.leaf_dir: m for m in ingest.discover_runs(kit.root)}
+    assert by_leaf[long_run].user_label == "long"
+    assert by_leaf[long_run].display_label == "long"
+    assert by_leaf[long_run].leaf_run_id == _run_id(long_run)
+    assert by_leaf[short_run].user_label == "short"
 
 
-def test_label_is_the_shown_leafs_own(tmp_path: Path):
-    """camdl gh#896: a label names one run and lives on that leaf's run.json
-    (``provenance.label``). A folder with two runs holds two labels; the entry
-    shows the label of the leaf it reads, never a folder-level one."""
-    run = tmp_path / "fits" / "cfg-cafef00d"
-    _leaf(run, "pgas-aaaa1111", "long", "sweep\tR0\n0\t1.1\n1\t1.2\n")
-    _leaf(run, "pgas-bbbb2222", "short", "")  # empty sibling: not the one shown
-    # An older camdl's folder-level label: camdl no longer reads it, nor do we.
-    (run / "fit.meta.json").write_text(json.dumps({"label": "stale"}))
-    m = {r.run_id: r for r in ingest.discover_runs(tmp_path / "fits")}["cfg-cafef00d"]
-    assert m.posterior_dir.parent.name == "pgas-aaaa1111"
-    assert m.user_label == "long"
-    assert m.leaf_run_id == "pgas-aaaa1111"
-    assert m.display_label == "long"
+def test_a_label_moves_to_the_latest_invocation_that_carried_it(kit):
+    """camdl's ``@L`` names the latest completed invocation labelled ``L``: a
+    re-run with the same label takes it, and the earlier run loses it."""
+    problem = kit.problem("sir", name="cfg-beadfeed")
+    first = _labelled_run(kit, problem, 1, "best")
+    second = _labelled_run(kit, problem, 2, "best")
+    by_leaf = {m.leaf_dir: m for m in ingest.discover_runs(kit.root)}
+    assert by_leaf[second].user_label == "best"
+    assert by_leaf[first].user_label is None
+    assert by_leaf[first].display_label == by_leaf[first].derived_label
 
 
-def test_unlabelled_leaf_falls_back_to_derived(tmp_path: Path):
-    run = tmp_path / "fits" / "cfg-deadbeef"
-    _leaf(run, "pgas-aaaa1111", None, "sweep\tR0\n0\t1.1\n")
-    m = ingest.discover_runs(tmp_path / "fits")[0]
+def test_a_running_invocations_label_is_not_yet_current(kit):
+    """A labelled command that has not ended is not ``@L`` yet (camdl counts
+    only invocations whose results all completed)."""
+    leaf = kit.fit_run(kit.problem("sir"), algorithm="pgas", status="running", label="wip")
+    _trace(leaf, 0, "sweep\tR0\n0\t1.1\n")
+    (m,) = ingest.discover_runs(kit.root)
     assert m.user_label is None
-    assert m.display_label == m.derived_label
-    assert ingest._read_leaf_identity(tmp_path / "absent") == (None, None)
 
 
-def test_fit_toml_stem_fallback_to_dirname(tmp_path: Path):
-    # When fit.meta.json lacks fit_toml_path, fall back to the dir-name prefix.
-    run_dir = tmp_path / "my_cfg_stem-deadbeef"
-    stem = ingest._fit_toml_stem({}, run_dir)
-    assert stem == "my_cfg_stem"
-    # And prefers fit_toml_path when present.
-    stem2 = ingest._fit_toml_stem({"fit_toml_path": "other_cfg.toml"}, run_dir)
-    assert stem2 == "other_cfg"
+def test_unlabelled_run_falls_back_to_derived(kit):
+    _labelled_run(kit, kit.problem("sir"), 1, None)
+    (m,) = ingest.discover_runs(kit.root)
+    assert m.user_label is None
+    assert m.display_label == m.derived_label == "fit · pgas/ode"
 
 
 def test_read_chain_summary_pgas(tmp_path: Path):
@@ -352,63 +357,71 @@ def test_read_chain_summary_absent_is_none(tmp_path: Path):
     assert ingest.read_chain_summary(seed) is None
 
 
+def _run_inputs(seed: Path, body: object) -> None:
+    seed.mkdir(parents=True, exist_ok=True)
+    (seed / "run_inputs.json").write_text(body if isinstance(body, str) else json.dumps(body))
+
+
 def test_read_algorithm_config_pgas(tmp_path: Path):
     """PGAS records the particle count and sweep budget; every key passes
     through, including the ones the header strip won't end up showing."""
     seed = tmp_path / "seed_1"
-    seed.mkdir()
-    (seed / "run.json").write_text(json.dumps({
-        "inputs": {
-            "algorithm": {"algorithm": "pgas", "backend": "chain_binomial",
-                          "chains": 8, "particles": 1200, "sweeps": 40000},
-            "wall_time_seconds": 13426.3,
-        },
-    }))
+    _run_inputs(seed, {"algorithm": {
+        "algorithm": "pgas", "backend": "chain_binomial", "chains": 8,
+        "particles": 1200, "sweeps": 40000, "adaptive": True,
+    }})
     cfg = ingest._read_algorithm_config(seed)
     assert cfg["particles"] == 1200
     assert cfg["sweeps"] == 40000
     assert cfg["algorithm"] == "pgas" and cfg["chains"] == 8
+    assert cfg["adaptive"] == "true"  # a bool stays a word, not 1
 
 
 def test_read_algorithm_config_keys_are_algorithm_specific(tmp_path: Path):
-    """An MH stage has no particles and counts `iterations`; an NLopt scout
+    """An MH run has no particles and counts `iterations`; an NLopt scout
     carries `max_evals`/`tolerance`. Nothing is invented or dropped."""
     mh = tmp_path / "mh"
-    mh.mkdir()
-    (mh / "run.json").write_text(json.dumps({"inputs": {"algorithm": {
+    _run_inputs(mh, {"algorithm": {
         "algorithm": "mh", "backend": "ode", "chains": 8, "iterations": 60000,
-    }}}))
+    }})
     cfg = ingest._read_algorithm_config(mh)
     assert "particles" not in cfg
     assert cfg["iterations"] == 60000
 
     scout = tmp_path / "scout"
-    scout.mkdir()
-    (scout / "run.json").write_text(json.dumps({"inputs": {"algorithm": {
+    _run_inputs(scout, {"algorithm": {
         "algorithm": "nl-sbplx", "backend": "ode", "chains": 600,
         "max_evals": 60000, "tolerance": 1e-6,
-    }}}))
+    }})
     cfg = ingest._read_algorithm_config(scout)
     assert cfg["max_evals"] == 60000
     assert cfg["tolerance"] == pytest.approx(1e-6)
 
 
 def test_read_algorithm_config_degrades_to_empty(tmp_path: Path):
-    """No run.json, unparseable bytes, or a run predating the field — all read
-    as "nothing recorded" rather than raising and taking the run down."""
+    """No run_inputs.json, unparseable bytes, or one without the block — all
+    read as "nothing recorded" rather than raising and taking the run down."""
     seed = tmp_path / "seed_1"
     seed.mkdir()
     assert ingest._read_algorithm_config(seed) == {}
 
-    (seed / "run.json").write_text("{not json")
+    _run_inputs(seed, "{not json")
     assert ingest._read_algorithm_config(seed) == {}
 
-    (seed / "run.json").write_text(json.dumps({"inputs": {"seed": 1}}))
+    _run_inputs(seed, {"seed": 1})
     assert ingest._read_algorithm_config(seed) == {}
 
     # Present but the wrong shape (a bare string where the block should be).
-    (seed / "run.json").write_text(json.dumps({"inputs": {"algorithm": "pgas"}}))
+    _run_inputs(seed, {"algorithm": "pgas"})
     assert ingest._read_algorithm_config(seed) == {}
+
+
+def test_discovered_run_carries_its_algorithm_config(kit):
+    leaf = kit.fit_run(kit.problem("sir"), algorithm="pgas")
+    _trace(leaf, 0, "sweep\tR0\n0\t1.1\n")
+    _run_inputs(leaf, {"algorithm": {"algorithm": "pgas", "particles": 400}})
+    (m,) = ingest.discover_runs(kit.root)
+    assert m.algorithm_config == {"algorithm": "pgas", "particles": 400}
 
 
 def test_sample_prior_respects_bounds():
@@ -570,163 +583,82 @@ def test_unknown_toml_prior_family_is_recorded(tmp_path: Path):
     assert ok.unsupported is None
 
 
-def test_sampler_telemetry_is_diagnostic_without_a_declared_schema():
-    """A stage whose ``run.json`` declares no column roles falls back to
-    AUX_COLUMNS. When that list omitted the HMC/NUTS block, `n_divergent` was
-    filed as a *parameter* — a bucket nothing reads, since RunState.params comes
-    from the fit's declared estimands — so divergences were parsed off disk
-    every refresh and silently dropped, and the run read as clean."""
-    from camdl_scope.state import ChainBuffer
-
-    buf = ChainBuffer(cid=1, path=Path("/tmp"))  # no diagnostic_cols declared
+def test_sampler_telemetry_is_diagnostic():
+    """HMC/NUTS telemetry columns are diagnostics, not parameters. When
+    AUX_COLUMNS omitted that block, `n_divergent` was filed as a *parameter* —
+    a bucket nothing reads, since RunState.params comes from the fit's declared
+    estimands — so divergences were parsed off disk every refresh and silently
+    dropped, and the run read as clean."""
+    buf = ChainBuffer(cid=1, path=Path("unused"))
     for col in ("n_divergent", "step_size", "tree_depth", "n_leapfrog",
                 "accept_stat", "energy"):
         assert buf.is_diagnostic(col), f"{col} must not be filed as a parameter"
-    # A declared schema still wins over the fallback, in both directions.
-    declared = ChainBuffer(cid=1, path=Path("/tmp"),
-                           diagnostic_cols=frozenset({"custom_metric"}))
-    assert declared.is_diagnostic("custom_metric")
-    assert not declared.is_diagnostic("n_divergent")
+    assert not buf.is_diagnostic("beta")
 
 
 # ----------------------------------------------------------------------------
-# The [stages] -> [method] split: one algorithm per config, and a method
-# directory named for it with no ordinal and no stage name.
+# A run's settings come from its own folder: method.toml for the [method]
+# table, the identity for the algorithm.
 # ----------------------------------------------------------------------------
 
 
-def _method_leaf(
-    run_dir: Path, method_dir: str, *, toml: str, sweeps_ran: int | None = None
-) -> Path:
-    """A finished posterior leaf under ``run_dir/method_dir``: two chains with
-    rows, ``draws.tsv``, and (when ``sweeps_ran`` is given) the leaf's own
-    ``run.json`` record of what it ran."""
-    seed = run_dir / method_dir / "seed_1-06cbd6b3"
-    for cid in (1, 2):
-        (seed / f"chain_{cid}").mkdir(parents=True)
-        (seed / f"chain_{cid}" / "trace.tsv").write_text(
-            "sweep\tbeta\n0\t0.5\n1\t0.52\n"
-        )
-    (seed / "draws.tsv").write_text("beta\n0.5\n0.52\n")
-    (run_dir / "fit.meta.json").write_text(
-        json.dumps({"model_path": "models/m.camdl", "estimated": ["beta"]})
+def test_method_settings_are_read_from_the_runs_method_toml(kit):
+    leaf = kit.fit_run(
+        kit.problem("pgas_demo"), algorithm="pgas",
+        method={"backend": "chain_binomial", "chains": 2, "sweeps": 300,
+                "burn_in": 50, "thin": 2},
     )
-    (run_dir / "fit.toml.original").write_text(toml)
-    if sweeps_ran is not None:
-        (seed / "run.json").write_text(json.dumps({
-            "kind": "fit_method",
-            "levels": [{"name": "fit"}, {"name": "method"}, {"name": "seed"}],
-            "inputs": {"algorithm": {
-                "algorithm": "pgas", "backend": "chain_binomial",
-                "chains": 2, "particles": 100, "sweeps": sweeps_ran,
-            }},
-        }))
-    return seed
-
-
-_METHOD_TOML = (
-    '[method]\nalgorithm = "pgas"\nbackend = "chain_binomial"\n'
-    "chains = 2\nsweeps = 300\nburn_in = 50\nthin = 2\n"
-)
-
-
-def test_method_layout_is_discovered(tmp_path: Path):
-    """The current layout: ``[method]`` in the config and a method directory
-    named for the algorithm. The old reader globbed ``[0-9]*-posterior-*`` and
-    matched nothing here, so a fit written by a current camdl was invisible."""
-    run = tmp_path / "fits" / "pgas_demo-62fdd451"
-    _method_leaf(run, "pgas-dd1b21fd", toml=_METHOD_TOML)
-
-    runs = ingest.discover_runs(tmp_path / "fits")
-    assert len(runs) == 1
-    m = runs[0]
-    assert m.posterior_dir.parent.name == "pgas-dd1b21fd"
+    for cid in (0, 1):
+        _trace(leaf, cid, "sweep\tbeta\n0\t0.5\n1\t0.52\n")
+    (m,) = ingest.discover_runs(kit.root)
+    assert m.leaf_dir == leaf
     assert (m.algorithm, m.backend.value) == ("pgas", "chain_binomial")
     assert (m.target_sweeps, m.declared_burn_in, m.thin) == (300, 50, 2)
+    assert m.estimated == ["beta", "gamma"]  # from the run's fit.meta.json
 
 
-def test_stage_named_anything_but_posterior_is_discovered(tmp_path: Path):
-    """A pre-split stage the user called something other than ``posterior``.
-    Both ``01-post-*`` and ``01-fit-*`` exist in real stores; the name glob
-    skipped them and said nothing, so the fit simply never appeared."""
-    run = tmp_path / "fits" / "m1-48d2340a"
-    _method_leaf(
-        run,
-        "01-post-1be97327",
-        toml=('[stages.post]\nalgorithm = "pgas"\nbackend = "chain_binomial"\n'
-              "sweeps = 900\nburn_in = 100\n"),
-    )
-
-    runs = ingest.discover_runs(tmp_path / "fits")
-    assert len(runs) == 1
-    # …and the stage's own name resolves its [stages.<name>] entry, so the
-    # settings come through instead of defaulting to "unknown".
-    assert runs[0].algorithm == "pgas"
-    assert (runs[0].target_sweeps, runs[0].declared_burn_in) == (900, 100)
-
-
-def test_config_describing_a_sibling_leaf_is_not_attributed(tmp_path: Path):
-    """``fit.toml.original`` belongs to the segment, not the leaf. Re-running one
-    config after editing it leaves several leaves under a file describing only
-    the last, and reporting its sweep budget against an earlier leaf makes a
-    finished fit read as half-done forever."""
-    run = tmp_path / "fits" / "fit_base-abde5fe0"
-    # The config on disk says 40000 sweeps; this leaf ran 20000.
-    seed = _method_leaf(
-        run, "01-posterior-dd00a557",
-        toml=('[stages.posterior]\nalgorithm = "pgas"\nbackend = "chain_binomial"\n'
-              "sweeps = 40000\nburn_in = 2000\nthin = 5\n"),
-        sweeps_ran=20000,
-    )
-    assert seed.exists()
-
-    m = ingest.discover_runs(tmp_path / "fits")[0]
-    assert m.target_sweeps == 20000, "the leaf's own record must win"
-    # Same algorithm, so the config is still attributable for what the leaf's
-    # record does not carry.
-    assert (m.declared_burn_in, m.thin) == (2000, 5)
+def test_each_run_reports_its_own_settings_not_a_siblings(kit):
+    """Re-running a problem under edited settings, or another algorithm,
+    leaves several runs in one folder. Each reports its own budget: reporting
+    a sibling's sweep count against a run makes a finished fit read as
+    half-done forever, and an IF2 run's numbers describe no PGAS run."""
+    problem = kit.problem("fit_base")
+    short = kit.fit_run(problem, algorithm="pgas", seed=1,
+                        method={"sweeps": 20000, "burn_in": 2000, "thin": 5})
+    long = kit.fit_run(problem, algorithm="pgas", seed=2,
+                       method={"sweeps": 40000, "burn_in": 4000})
+    if2 = kit.fit_run(problem, algorithm="if2", seed=3, method={"iterations": 25})
+    for leaf in (short, long):
+        _trace(leaf, 0, "sweep\tbeta\n0\t0.5\n")
+    by_leaf = {m.leaf_dir: m for m in ingest.discover_runs(kit.root)}
+    assert (by_leaf[short].target_sweeps, by_leaf[short].declared_burn_in,
+            by_leaf[short].thin) == (20000, 2000, 5)
+    assert (by_leaf[long].target_sweeps, by_leaf[long].declared_burn_in,
+            by_leaf[long].thin) == (40000, 4000, 1)
+    assert by_leaf[if2].algorithm == "if2" and by_leaf[if2].fit_kind == "mle"
+    assert (by_leaf[if2].target_sweeps, by_leaf[if2].declared_burn_in) == (25, None)
 
 
-def test_config_for_a_different_algorithm_is_refused(tmp_path: Path):
-    """Switching a config's algorithm and re-running lands an IF2 leaf beside
-    the PGAS one under a config now describing only IF2. None of its numbers
-    describe the PGAS leaf, so none of them are reported against it."""
-    run = tmp_path / "fits" / "pgas_demo-62fdd451"
-    _method_leaf(
-        run, "pgas-969fb88c",
-        toml=('[method]\nalgorithm = "if2"\nbackend = "chain_binomial"\n'
-              "iterations = 25\ncooling = 0.7\n"),
-        sweeps_ran=120,
-    )
-
-    m = ingest.discover_runs(tmp_path / "fits")[0]
-    assert m.algorithm == "pgas"          # from the leaf, not the config
-    assert m.target_sweeps == 120         # not the config's 25 iterations
-    assert m.declared_burn_in is None     # unknown beats a sibling's number
-
-
-def test_point_estimate_leaf_is_classified_by_its_artifact(tmp_path: Path):
-    """``mle_params.toml`` marks a point estimate. The reader used to find it by
-    globbing for a non-``posterior`` stage name; a current optimizer leaf is
-    ``if2-<hash>``, which that glob missed."""
-    run = tmp_path / "fits" / "if2_demo-62fdd451"
-    seed = run / "if2-802e7013" / "seed_1-06cbd6b3"
-    seed.mkdir(parents=True)
-    (run / "fit.meta.json").write_text(
-        json.dumps({"model_path": "models/m.camdl", "estimated": ["beta"]})
-    )
-    (run / "fit.toml.original").write_text(
-        '[method]\nalgorithm = "if2"\nbackend = "chain_binomial"\niterations = 25\n'
-    )
-    (seed / "mle_params.toml").write_text(
+def test_point_estimate_run_is_classified_by_its_algorithm(kit):
+    """An optimizer's run is a point estimate (``fit_kind == "mle"``)."""
+    leaf = kit.fit_run(kit.problem("if2_demo"), algorithm="if2",
+                       method={"backend": "chain_binomial", "iterations": 25})
+    (leaf / "mle_params.toml").write_text(
         "beta = 0.61\n\n[provenance]\nlog_likelihood = -543.4\nmethod = \"if2\"\n"
     )
+    (m,) = ingest.discover_runs(kit.root)
+    assert m.fit_kind == "mle"
+    assert m.algorithm == "if2"
+    assert m.leaf_dir == leaf
 
-    runs = ingest.discover_runs(tmp_path / "fits")
-    assert len(runs) == 1
-    assert runs[0].fit_kind == "mle"
-    assert runs[0].algorithm == "if2"
-    assert runs[0].posterior_dir == seed
+
+def test_scoring_runs_are_not_listed_as_fits(kit):
+    """A particle-filter scoring run belongs to Compare, not the fit list."""
+    problem = kit.problem("sir")
+    kit.fit_run(problem, algorithm="pfilter")
+    fit = kit.fit_run(problem, algorithm="mh")
+    _trace(fit, 0, "step\tbeta\n0\t0.5\n")
+    assert [m.leaf_dir for m in ingest.discover_runs(kit.root)] == [fit]
 
 
 def test_summary_is_found_for_any_sampler(tmp_path: Path):
@@ -771,66 +703,77 @@ def test_bad_init_chain_ids_follow_camdl_and_the_directories(tmp_path: Path):
     assert [f.detail["chain_id"] for f in cs.findings] == [0, 1]
 
 
-def _seed_leaf(run: Path, n: int, label: str, mtime: float,
-               method: str = "pmmh-83841c1b") -> Path:
-    """A finished seed run: draws.tsv, a non-empty trace, its own label."""
-    seed = run / method / f"seed_{n}-{n:08x}"
-    (seed / "chain_1").mkdir(parents=True)
-    (seed / "chain_1" / "trace.tsv").write_text("step\tR0\n0\t1.1\n10\t1.2\n")
-    (seed / "draws.tsv").write_text("chain\tdraw\tR0\n1\t0\t1.2\n")
-    (seed / "run.json").write_text(json.dumps(
-        {"run_id": f"{n}" * 64, "provenance": {"label": label}}))
-    for p in seed.rglob("*"):
+def _seed_run(kit: StoreKit, problem: Path, n: int, label: str, mtime: float,
+              method: str = "pmmh-83841c1b") -> Path:
+    """A finished seed run with a non-empty trace and its own label."""
+    leaf = kit.fit_run(problem, algorithm="pmmh", seed=n, label=label,
+                       method_dir=method, seed_dir=f"seed_{n}-{n:012x}")
+    _trace(leaf, 0, "step\tR0\n0\t1.1\n10\t1.2\n")
+    for p in leaf.rglob("*"):
         os.utime(p, (mtime, mtime))
-    return seed
+    return leaf
 
 
-def test_each_seed_run_is_its_own_entry_lowest_seed_default(tmp_path):
-    """A fit run with seeds 1-6 used to open as one entry showing whichever
-    seed finished last (seed 6, "synthetic-s6"), with nothing saying so. Each
-    seed run is now an entry; the folder name opens seed 1."""
-    run = tmp_path / "fits" / "fit_synthetic-02e1fdff"
-    for n in (1, 2, 3):
-        # Seed 3 finished last: the old pick.
-        _seed_leaf(run, n, "synthetic" if n == 1 else f"synthetic-s{n}", 1_000 + n)
-    metas = ingest.discover_runs(tmp_path / "fits")
+def test_each_seed_run_is_its_own_entry_lowest_seed_default(kit):
+    """A fit with seeds 1-3: each seed run is an entry with its own label,
+    and the folder name opens seed 1 — not whichever seed finished last."""
+    problem = kit.problem("sir", name="fit_synthetic-02e1fdff0000")
+    for n in (3, 1, 2):
+        # Seed 3 finished last (newest mtime) and was written first.
+        _seed_run(kit, problem, n, "synthetic" if n == 1 else f"synthetic-s{n}",
+                  1_000 + 10 * n)
+    metas = ingest.discover_runs(kit.root)
     assert [(m.run_id, m.seed, m.folder_default, m.user_label) for m in metas] == [
-        ("fit_synthetic-02e1fdff~seed_1-00000001", 1, True, "synthetic"),
-        ("fit_synthetic-02e1fdff~seed_2-00000002", 2, False, "synthetic-s2"),
-        ("fit_synthetic-02e1fdff~seed_3-00000003", 3, False, "synthetic-s3"),
+        ("fit_synthetic-02e1fdff0000~seed_1-000000000001", 1, True, "synthetic"),
+        ("fit_synthetic-02e1fdff0000~seed_2-000000000002", 2, False, "synthetic-s2"),
+        ("fit_synthetic-02e1fdff0000~seed_3-000000000003", 3, False, "synthetic-s3"),
     ]
-    assert ingest.resolve_run(metas, "fit_synthetic-02e1fdff").seed == 1
-    assert ingest.resolve_run(metas, "fit_synthetic-02e1fdff~seed_3-00000003").seed == 3
+    assert ingest.resolve_run(metas, "fit_synthetic-02e1fdff0000").seed == 1
+    assert ingest.resolve_run(metas, "fit_synthetic-02e1fdff0000~seed_3-000000000003").seed == 3
     # The folder's hash still reads from the folder, not the seed suffix.
-    assert {m.hash for m in metas} == {"02e1fdff"}
+    assert {m.hash for m in metas} == {"02e1fdff0000"}
 
 
-def test_runs_under_different_method_dirs_are_not_replicates(tmp_path):
-    """The measles guide's ``m0_mh`` folder: one plain run (seed 2) and one
-    warm-started from its posterior (seed 1, ``--starts from_posterior=...``).
-    The starts change camdl's method hash, so they sit in different method
-    dirs. Each method dir has its own default, and ``folder~method`` opens it."""
-    run = tmp_path / "fits" / "m0_mh-76aecea7"
-    _seed_leaf(run, 2, "m0_mh", 1_000, method="mh-92946094")
-    _seed_leaf(run, 1, "m0_mh_mode_a", 1_100, method="mh-97f0a52f")
-    _seed_leaf(run, 3, "m0_mh_mode_a-s3", 1_200, method="mh-97f0a52f")
-    metas = ingest.discover_runs(tmp_path / "fits")
+def test_runs_under_different_method_dirs_are_not_replicates(kit):
+    """One plain run (seed 2) and one warm-started from its posterior (seed 1,
+    ``--starts from_posterior=...``). The starts change camdl's method hash, so
+    they sit in different method dirs. Each method dir has its own default,
+    and ``folder~method`` opens it."""
+    problem = kit.problem("sir", name="m0_mh-76aecea70000")
+    _seed_run(kit, problem, 2, "m0_mh", 1_000, method="mh-92946094")
+    _seed_run(kit, problem, 1, "m0_mh_mode_a", 1_100, method="mh-97f0a52f")
+    _seed_run(kit, problem, 3, "m0_mh_mode_a-s3", 1_200, method="mh-97f0a52f")
+    metas = ingest.discover_runs(kit.root)
     got = {(m.method, m.seed): (m.folder_default, m.method_default) for m in metas}
     assert got == {
         ("mh-92946094", 2): (False, True),
         ("mh-97f0a52f", 1): (True, True),
         ("mh-97f0a52f", 3): (False, False),
     }
-    assert ingest.resolve_run(metas, "m0_mh-76aecea7~mh-97f0a52f").seed == 1
-    assert ingest.resolve_run(metas, "m0_mh-76aecea7~mh-92946094").seed == 2
-    assert ingest.resolve_run(metas, "m0_mh-76aecea7~mh-00000000") is None
+    assert ingest.resolve_run(metas, "m0_mh-76aecea70000~mh-97f0a52f").seed == 1
+    assert ingest.resolve_run(metas, "m0_mh-76aecea70000~mh-92946094").seed == 2
+    assert ingest.resolve_run(metas, "m0_mh-76aecea70000~mh-00000000") is None
 
 
-def test_a_single_run_folder_keeps_the_folder_name_as_its_id(tmp_path):
-    run = tmp_path / "fits" / "fit_r0-84761258"
-    _seed_leaf(run, 4, "r0", 1_000)
-    (m,) = ingest.discover_runs(tmp_path / "fits")
-    assert m.run_id == "fit_r0-84761258" and m.seed == 4 and m.folder_default
+def test_the_same_seed_dir_under_two_method_dirs_gets_the_method_in_its_id(kit):
+    """The same seed under two method settings has the same seed dir name; the
+    entry id then includes the method dir so the two stay distinct."""
+    problem = kit.problem("sir", name="twin-0000aaaa0000")
+    a = kit.fit_run(problem, algorithm="mh", method_dir="mh-aaaa", seed_dir="seed_1-000000000001")
+    b = kit.fit_run(problem, algorithm="mh", method_dir="mh-bbbb", seed_dir="seed_1-000000000001")
+    for leaf in (a, b):
+        _trace(leaf, 0, "step\tR0\n0\t1.1\n")
+    ids = {m.leaf_dir: m.run_id for m in ingest.discover_runs(kit.root)}
+    assert ids == {
+        a: "twin-0000aaaa0000~mh-aaaa~seed_1-000000000001",
+        b: "twin-0000aaaa0000~mh-bbbb~seed_1-000000000001",
+    }
+
+
+def test_a_single_run_folder_keeps_the_folder_name_as_its_id(kit):
+    _seed_run(kit, kit.problem("sir", name="fit_r0-847612580000"), 4, "r0", 1_000)
+    (m,) = ingest.discover_runs(kit.root)
+    assert m.run_id == "fit_r0-847612580000" and m.seed == 4 and m.folder_default
 
 
 def _summary_with(tmp_path: Path, extra: dict) -> "ingest.ChainSummary":
@@ -861,15 +804,15 @@ def test_summary_carries_camdls_reason_for_a_missing_rhat(tmp_path):
     assert s.stage == "pgas"  # the method names the stage when no stage is written
 
 
-def test_wall_time_reads_execution_record_then_run_json(tmp_path: Path):
-    """camdl records wall time per execution in execution.json; older leaves
-    carry it in run.json's inputs. The execution record wins."""
+def test_wall_time_reads_the_execution_record(tmp_path: Path):
+    """camdl records wall time per execution in execution.json; until the run
+    has written it there is no wall time."""
     seed = tmp_path / "seed_1"
     seed.mkdir()
-    (seed / "run.json").write_text(json.dumps({"inputs": {"wall_time_seconds": 8.0}}))
-    assert ingest._read_wall_time_secs(seed) == 8.0
+    assert ingest._read_wall_time_secs(seed) is None
     (seed / "execution.json").write_text(json.dumps(
         {"schema": "camdl.execution/v1", "wall_time_seconds": 33.25}))
     assert ingest._read_wall_time_secs(seed) == 33.25
-    (seed / "run.json").unlink()
-    assert ingest._read_wall_time_secs(seed) == 33.25
+    # It reaches the summary as the ESS/second denominator.
+    (seed / "mh_summary.json").write_text(json.dumps({"n_chains": 1, "rhat": {}, "ess": {}}))
+    assert ingest.read_chain_summary(seed).wall_time_secs == 33.25

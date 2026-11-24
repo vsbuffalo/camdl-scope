@@ -626,7 +626,7 @@ function ScalarTable({
 // ── Tab ─────────────────────────────────────────────────────────────────────
 
 /**
- * Generated quantities (`camdl fit predict`'s `quantities/` sidecar): named,
+ * Generated quantities (`camdl predict`'s `quantities/` sidecar): named,
  * non-scored reductions of what the model produces, banded over draws and — for
  * a scenario-aware predict — overlaid by scenario. The manifest's `shape` drives
  * the layout: `scalar` quantities collapse into one table (a row per scenario),
@@ -740,7 +740,7 @@ export function QuantitiesTab({ runId }: { runId: string }) {
             <>
               This fit has no <span className="font-mono">quantities</span> sidecar.
               Add a <span className="font-mono">quantities {'{}'}</span> block to the
-              model and run <span className="font-mono">camdl fit predict</span>.
+              model and run <span className="font-mono">camdl predict &lt;run&gt;</span>.
             </>
           ),
         }}

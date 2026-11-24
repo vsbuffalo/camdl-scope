@@ -1,88 +1,58 @@
-"""A running profile: pending grid values, partial values, progress and liveness,
-read from camdl's per-invocation record (``invocations/<id>/invocation.json``)
-and heartbeat (``progress.json``)."""
+"""A profile command in progress: pending grid values, partial values, starts
+progress and liveness, read from its invocation record (``.invocations/<seq>.json``),
+its points' ``run.json`` ``invocation``, its owner's beat file and its
+progress snapshot (``.invocations/<seq>.progress.json``)."""
 
 from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from camdl_scope.profiles import discover_profiles, load_profile
+from tests.storekit import StoreKit
 
-BASE = "sir-aa"
 GRID = [0.018, 0.05, 0.10, 0.15]
+SWEEP = [{"name": "leave_s", "grid": {"list": GRID}}]
+N_STARTS = 10
 
 
-def _dir(v: float) -> str:
-    return f"leave_s_{v:.4f}-{int(v * 1e4):04d}"
+def _iso(t: float) -> str:
+    return datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _store(tmp_path: Path) -> Path:
-    store = tmp_path / "results" / "fits"
-    store.mkdir(parents=True)
-    return store
+def _progress(age: float = 0.0, step: int = 21) -> dict:
+    return {"at": _iso(time.time() - age), "phase": "profiling", "step": step, "total": 40}
 
 
-def _base(store: Path) -> Path:
-    b = store.parent / "profiles" / BASE
-    b.mkdir(parents=True, exist_ok=True)
-    return b
+def _start(v: float, loglik: float) -> dict:
+    return {"focal": {"leave_s": v}, "loglik": loglik, "mle": {"beta": 0.9}}
 
 
-def _start(store: Path, v: float, k: int, loglik: float, method: str = "nlopt_sbplx_-mm") -> None:
-    leaf = _base(store) / _dir(v) / method / "seed_1-ss" / f"start_{k}-kk"
-    leaf.mkdir(parents=True)
-    (leaf / "run.json").write_text(json.dumps({
-        "kind": "profile_point",
-        "levels": [{"name": "profile", "label": "sir"},
-                   {"name": "point", "label": f"leave_s={v:.4f}"}],
-        "inputs": {"best_loglik": loglik, "method": "nl-sbplx", "loglik_type": "ode_marginal"},
-    }))
-    (leaf / "mle.toml").write_text(f"[focal]\nleave_s = {v}\n\n[mle]\nbeta = 0.9\n")
-
-
-def _invocation(store: Path, *, state: object = None, age: float = 0.0,
-                n_starts: int = 10, inv_id: str = "1700000000-42") -> None:
-    d = _base(store) / "invocations" / inv_id
-    d.mkdir(parents=True)
-    (d / "invocation.json").write_text(json.dumps({
-        "schema": "camdl.profile-invocation/v1", "invocation_id": inv_id,
-        "started_at": time.time() - 600, "label": "m4l_profile", "algorithm": "nl-sbplx",
-        "focal": [{"name": "leave_s", "values": GRID}],
-        "n_starts": n_starts, "seeds": [1],
-        "points": [{"coords": {"leave_s": v}, "dir": _dir(v)} for v in GRID],
-        "method_dir": "nlopt_sbplx_-mm",
-        "total_jobs": n_starts * len(GRID),
-    }))
-    if state is not None:
-        (d / "progress.json").write_text(json.dumps({
-            "updated_at": int(time.time() - age), "pid": 7, "state": state}))
-
-
-def _mid_run(store: Path) -> None:
+def _mid_run_points() -> list[dict]:
     """0.05 has no finished start; 0.018 has 1 of 10 (and the highest loglik so
     far); 0.10 and 0.15 are complete."""
-    _start(store, 0.018, 0, -4620.0)
-    for k in range(10):
-        _start(store, 0.10, k, -4631.8 - 0.1 * k)
-        _start(store, 0.15, k, -4628.2 - 0.01 * k)
+    return ([_start(0.018, -4620.0)]
+            + [_start(0.10, -4631.8 - 0.1 * k) for k in range(N_STARTS)]
+            + [_start(0.15, -4628.2 - 0.01 * k) for k in range(N_STARTS)])
 
 
-RUNNING = {"running": {"phase": "profiling", "step": 21, "total": 40}}
+def _mid_run(kit: StoreKit, **kw) -> int:
+    kw.setdefault("progress", _progress())
+    return kit.profile(SWEEP, _mid_run_points(), n_starts=N_STARTS, status="running",
+                       label="m4l_profile", **kw)
 
 
 def test_unstarted_value_is_pending_and_partial_value_is_marked(tmp_path):
-    store = _store(tmp_path)
-    _mid_run(store)
-    _invocation(store, state=RUNNING)
-    c = load_profile(store, BASE)
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    seq = _mid_run(kit)
+    c = load_profile(kit.root, str(seq))
     assert c is not None
     assert [p.coords for p in c.pending] == [(0.05,)]
-    assert c.pending[0].n_expected == 10
+    assert c.pending[0].n_expected == N_STARTS
     by = {p.coords[0]: p for p in c.points}
     assert (by[0.018].n_starts, by[0.018].n_expected, by[0.018].complete) == (1, 10, False)
     assert by[0.10].complete and by[0.15].complete
@@ -93,125 +63,155 @@ def test_unstarted_value_is_pending_and_partial_value_is_marked(tmp_path):
 def test_mle_and_interval_ignore_partial_values(tmp_path):
     """0.018's single start has the highest loglik so far, but a partial value
     is only a lower bound; the MLE comes from the complete values."""
-    store = _store(tmp_path)
-    _mid_run(store)
-    _invocation(store, state=RUNNING)
-    c = load_profile(store, BASE)
-    assert c is not None and c.mle is not None
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    c = load_profile(kit.root, str(_mid_run(kit)))
+    assert [p.coords for p in c.estimate_points] == [(0.10,), (0.15,)]
     assert c.mle.coords == (0.15,)
+    # The interval is read off 0.10 and 0.15 only: 0.10 lies 3.6 below the
+    # MLE, so the lower limit is interpolated on [0.10, 0.15]; the upper side
+    # is open because the grid's complete values end at the MLE.
+    thresh = -4628.2 - 1.9207
+    lo, hi = c.ci_bounds_1d()
+    assert lo == pytest.approx(0.10 + (thresh + 4631.8) / (3.6) * 0.05, abs=1e-9)
+    assert hi is None
 
 
 def test_spread_of_finished_starts_is_reported(tmp_path):
-    store = _store(tmp_path)
-    _mid_run(store)
-    _invocation(store, state=RUNNING)
-    by = {p.coords[0]: p for p in load_profile(store, BASE).points}
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    by = {p.coords[0]: p for p in load_profile(kit.root, str(_mid_run(kit))).points}
     assert by[0.10].loglik_spread == pytest.approx(0.9)
+    assert by[0.15].loglik_spread == pytest.approx(0.09)
     assert by[0.018].loglik_spread is None  # one start
 
 
-def test_stale_heartbeat_reads_as_stalled_with_its_finished_starts(tmp_path):
-    store = _store(tmp_path)
-    _mid_run(store)
-    _invocation(store, state=RUNNING, age=3600)
-    c = load_profile(store, BASE)
+def test_seeds_multiply_the_expected_starts(tmp_path):
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    seq = kit.profile(SWEEP, [_start(0.10, -1.0), _start(0.10, -2.0)], n_starts=2,
+                      seeds=[1, 2, 3], status="running", progress=_progress())
+    c = load_profile(kit.root, str(seq))
+    [p] = c.points
+    assert (p.n_starts, p.n_expected, p.complete) == (2, 6, False)
+    assert [q.n_expected for q in c.pending] == [6, 6, 6]
+    assert c.starts_progress() == (2, 24)
+
+
+def test_dead_owner_reads_as_stalled_with_its_finished_starts(tmp_path):
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    c = load_profile(kit.root, str(_mid_run(kit, alive=False)))
     assert c.status() == "stalled"
     assert len(c.points) == 3 and len(c.pending) == 1
+    assert c.starts_progress() == (21, 40)
 
 
-def test_profile_with_only_pending_values_is_listed(tmp_path):
-    store = _store(tmp_path)
-    _invocation(store, state={"running": {"phase": "profiling", "step": 0, "total": 40}})
-    [c] = discover_profiles(store)
-    assert c.points == [] and len(c.pending) == 4
-    assert c.params == ("leave_s",) and c.mle is None and c.status() == "running"
-
-
-def test_finished_profile_is_complete_and_done(tmp_path):
-    store = _store(tmp_path)
-    for v in GRID:
-        for k in range(10):
-            _start(store, v, k, -4630.0 + v * 10 - 0.01 * k)
-    _invocation(store, state="done")
-    c = load_profile(store, BASE)
-    assert c.status() == "done" and not c.provisional and c.pending == []
-    assert all(p.complete for p in c.points)
-    assert c.starts_progress() == (40, 40)
-
-
-def test_profile_without_an_invocation_record_reads_as_before(tmp_path):
-    store = _store(tmp_path)
-    _start(store, 0.10, 0, -10.0)
-    _start(store, 0.15, 0, -9.0)
-    c = load_profile(store, BASE)
-    assert c.status() == "unknown" and not c.provisional
-    assert c.starts_progress() is None
-    assert all(p.complete and p.n_expected is None for p in c.points)
-    assert c.mle.coords == (0.15,)
-
-
-def test_invocations_dir_is_not_a_grid_value(tmp_path):
-    store = _store(tmp_path)
-    _mid_run(store)
-    _invocation(store, state="done")
-    c = load_profile(store, BASE)
+def test_interrupted_command_reads_as_stalled(tmp_path):
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    seq = kit.profile(SWEEP, _mid_run_points(), n_starts=N_STARTS, status="interrupted")
+    c = load_profile(kit.root, str(seq))
+    assert c.status() == "stalled" and c.provisional
     assert {p.coords[0] for p in c.points} == {0.018, 0.10, 0.15}
 
 
-def test_unknown_invocation_schema_is_skipped(tmp_path):
-    store = _store(tmp_path)
-    _start(store, 0.10, 0, -10.0)
-    d = _base(store) / "invocations" / "x"
-    d.mkdir(parents=True)
-    (d / "invocation.json").write_text(json.dumps({"schema": "camdl.profile-invocation/v9"}))
-    c = load_profile(store, BASE)
-    assert c.invocations == [] and c.status() == "unknown"
+def _move_owner_to_another_host(kit: StoreKit, seq: int) -> None:
+    """Rewrite the command's owner as a process on another host, with its beat
+    file present: this reader cannot see that process, so the progress
+    snapshot's freshness decides. (StoreKit's owners are all on this host.)"""
+    path = kit.root / ".invocations" / f"{seq}.json"
+    rec = json.loads(path.read_text())
+    rec["owner"] = {"host": "elsewhere.example", "pid": 4242, "started": "2026-11-24T00:00:00.000Z"}
+    path.write_text(json.dumps(rec, indent=1))
+    (kit.root / ".owners" / "elsewhere.example-4242.json").write_text(
+        json.dumps({"format": 1, **rec["owner"], "beat": 1}))
+
+
+@pytest.mark.parametrize(("age", "status"), [(1.0, "running"), (3600.0, "stalled")])
+def test_owner_on_another_host_is_judged_by_its_progress(tmp_path, age, status):
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    seq = _mid_run(kit, progress=_progress(age=age))
+    _move_owner_to_another_host(kit, seq)
+    assert load_profile(kit.root, str(seq)).status() == status
+
+
+def test_profile_with_only_pending_values_is_listed(tmp_path):
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    kit.profile(SWEEP, [], n_starts=N_STARTS, status="running", progress=_progress(step=0))
+    [c] = discover_profiles(kit.root)
+    assert c.points == [] and [p.coords for p in c.pending] == [(v,) for v in GRID]
+    assert c.params == ("leave_s",) and c.mle is None and c.status() == "running"
+    assert c.starts_progress() == (0, 40)
+
+
+def test_finished_profile_is_complete_and_done(tmp_path):
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    seq = kit.profile(SWEEP, [_start(v, -4630.0 + v * 10 - 0.01 * k)
+                              for v in GRID for k in range(N_STARTS)], n_starts=N_STARTS)
+    c = load_profile(kit.root, str(seq))
+    assert c.status() == "done" and not c.provisional and c.pending == []
+    assert all(p.complete for p in c.points)
+    assert c.starts_progress() == (40, 40)
+    assert c.heartbeat_at is None
+    assert c.mle.coords == (0.15,)
+
+
+def test_ended_command_with_partial_cells_is_done_but_provisional(tmp_path):
+    """A command that ended before every start finished (camdl stopped early)
+    is done, yet its incomplete cells still keep the estimate provisional."""
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    seq = kit.profile(SWEEP, _mid_run_points(), n_starts=N_STARTS)
+    c = load_profile(kit.root, str(seq))
+    assert c.status() == "done" and c.provisional
+    assert c.mle.coords == (0.15,)
+
+
+def test_heartbeat_is_the_progress_snapshots_time(tmp_path):
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    seq = _mid_run(kit, progress={**_progress(), "at": "2026-11-24T00:00:05.000Z"})
+    c = load_profile(kit.root, str(seq))
+    assert c.heartbeat_at == datetime(2026, 11, 24, 0, 0, 5, tzinfo=timezone.utc).timestamp()
+
+
+def test_no_interval_is_drawn_from_partial_values_alone(tmp_path):
+    """Two values with 1 of 10 starts each, none complete: the best so far is
+    reported, but no interval is computed from two lower bounds."""
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    seq = kit.profile(SWEEP, [_start(0.018, -4620.0), _start(0.15, -4630.0)],
+                      n_starts=N_STARTS, status="running", progress=_progress())
+    c = load_profile(kit.root, str(seq))
+    assert c.estimate_points == []
+    assert c.mle.coords == (0.018,) and c.provisional
+    assert c.ci_bounds_1d() == (None, None)
+
+
+def test_starts_of_an_earlier_command_do_not_count_as_this_ones(tmp_path):
+    """An earlier command left 10 starts at 0.10; this running command has
+    finished 2 of its 10 there. Its cell is partial, and its log-likelihood is
+    the best of its own two starts."""
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    kit.profile(SWEEP, [_start(0.10, -4600.0) for _ in range(N_STARTS)], n_starts=N_STARTS)
+    seq = kit.profile(SWEEP, [_start(0.10, -4631.8), _start(0.10, -4632.0)],
+                      n_starts=N_STARTS, status="running", progress=_progress())
+    p = next(p for p in load_profile(kit.root, str(seq)).points if p.coords == (0.10,))
+    assert (p.n_starts, p.n_expected, p.complete) == (2, 10, False)
+    assert p.loglik == -4631.8
 
 
 def test_endpoints_carry_status_counts_pending_and_partial(tmp_path, monkeypatch):
-    store = _store(tmp_path)
-    _mid_run(store)
-    _invocation(store, state=RUNNING)
-    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(store))
+    kit = StoreKit.create(tmp_path / "camdl-store")
+    seq = _mid_run(kit)
+    monkeypatch.setenv("CAMDL_STORE", str(kit.root))
     from camdl_scope.api.app import app
 
     c = TestClient(app)
     [s] = c.get("/api/profiles").json()
+    assert s["base_id"] == str(seq) and s["label"] == "m4l_profile"
     assert s["status"] == "running" and s["n_points"] == 4
     assert (s["n_starts_finished"], s["n_starts_expected"]) == (21, 40)
-    d = c.get(f"/api/profiles/{BASE}").json()
+    r = c.get(f"/api/profiles/{seq}")
+    assert r.status_code == 200, r.text
+    d = r.json()
     assert d["provisional"] is True and d["status"] == "running"
     assert d["pending"] == [{"coords": [0.05], "n_expected": 10}]
     partial = next(p for p in d["points"] if p["coords"] == [0.018])
     assert partial["complete"] is False and partial["n_expected"] == 10
     assert d["mle_coords"] == [0.15]
     assert d["n_estimate_points"] == 2  # 0.10 and 0.15; the partial 0.018 is not one
-    assert d["heartbeat_at"] is not None
-
-
-def test_no_interval_is_drawn_from_partial_values_alone(tmp_path):
-    """Two values with 1 of 10 starts each, none complete: the best so far is
-    reported, but no interval is computed from two lower bounds."""
-    store = _store(tmp_path)
-    _start(store, 0.018, 0, -4620.0)
-    _start(store, 0.15, 0, -4630.0)
-    _invocation(store, state=RUNNING)
-    c = load_profile(store, BASE)
-    assert c.estimate_points == []
-    assert c.mle.coords == (0.018,) and c.provisional
-    assert c.ci_bounds_1d() == (None, None)
-
-
-def test_leaves_of_another_method_do_not_count_as_this_invocations_starts(tmp_path):
-    """An earlier run with other method settings left 10 starts at 0.10; this
-    invocation (method nlopt_sbplx_-mm) has finished 2 of its 10 there. The cell
-    is partial, but its log-likelihood is still the best over every leaf."""
-    store = _store(tmp_path)
-    for k in range(10):
-        _start(store, 0.10, k, -4700.0, method="nlopt_sbplx_-old")
-    _start(store, 0.10, 0, -4631.8)
-    _start(store, 0.10, 1, -4632.0)
-    _invocation(store, state=RUNNING)
-    p = next(p for p in load_profile(store, BASE).points if p.coords == (0.10,))
-    assert (p.n_starts, p.n_expected, p.complete) == (2, 10, False)
-    assert p.loglik == -4631.8
+    assert d["heartbeat_at"] == pytest.approx(load_profile(kit.root, str(seq)).heartbeat_at)

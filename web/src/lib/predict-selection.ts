@@ -2,11 +2,11 @@ import { useCallback, useSyncExternalStore } from 'react'
 import { loadJson, saveJson } from '@/lib/persist'
 
 /**
- * Which `camdl fit predict` output of a run the viewer reads, remembered per run.
+ * Which `camdl predict` output of a run the viewer reads, remembered per run.
  *
- * camdl files predict output per run and per option set (gh#896):
- * `predict/<run_id12>/` for the default options, `predict/<run_id12>-<opts8>/`
- * for any other `--horizon`, `--stream`, `--n-draws`, …. One choice drives every
+ * Each prediction is a result stored inside the run it predicts from,
+ * `predict/<mode>-<12 hex>/`, one per mode and option set (`--horizon`,
+ * `--stream`, `--n-draws`, …). One choice drives every
  * tab that reads predict output (Predictive, Quantities, the Posterior tab's
  * scalar quantities), so it lives here rather than in one tab's state.
  *

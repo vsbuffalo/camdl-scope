@@ -27,18 +27,14 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import ingest, store
+
 # The camdl binary to shell out to; override for a non-PATH install / tests.
 CAMDL_BIN = os.environ.get("CAMDL_BIN", "camdl")
 
-# Search depths under a run dir for a pfilter stage's prequential.json. Bounded
-# (no full-tree rglob) so listing many runs stays cheap; camdl writes the stage
-# as a child of the run dir, so depth ≤4 covers stage/seed/chain layouts.
-_PREQUENTIAL_GLOBS = (
-    "prequential.json",
-    "*/prequential.json",
-    "*/*/prequential.json",
-    "*/*/*/prequential.json",
-)
+#: The score a particle-filter run (or a fit run with ``record_prequential``)
+#: writes in its own folder.
+PREQUENTIAL_FILE = "prequential.json"
 
 
 class CompareError(RuntimeError):
@@ -59,56 +55,46 @@ def camdl_available() -> bool:
     return shutil.which(CAMDL_BIN) is not None
 
 
-def find_prequential(run_dir: Path) -> Path | None:
-    """The run's ``prequential.json`` (from a pfilter stage); newest wins, or
-    ``None`` if the run never scored one. Bounded-depth search (see globs)."""
-    for pat in _PREQUENTIAL_GLOBS:
-        try:
-            cands = sorted(
-                run_dir.glob(pat), key=lambda p: p.stat().st_mtime, reverse=True
-            )
-        except OSError:
-            continue
-        if cands:
-            return cands[0]
-    return None
-
-
-_HASH_SUFFIX = re.compile(r"-[0-9a-f]{8}$")
+def find_prequential(leaf: Path) -> Path | None:
+    """The fit run's ``prequential.json``, or ``None`` if it scored none."""
+    p = Path(leaf) / PREQUENTIAL_FILE
+    return p if p.is_file() else None
 
 
 @dataclass(frozen=True)
 class ScoredRun:
-    """A run folder that carries a ``prequential.json``. Since camdl writes one
-    ``[method]`` per config, a particle-filter scoring run is a run folder of its
-    own (``<label>-<hash>/pfilter-<hash>/seed_*/prequential.json``) with no
-    draws and no point estimate, so the run list never shows it; this finds it
-    by its score artifact alone. ``run_id`` is the folder name."""
+    """A scoring run: a fit run whose method is the particle filter, which has
+    a ``prequential.json`` and neither draws nor a point estimate, so the run
+    list never shows it; this finds it by its score. ``run_id`` is
+    ``<problem folder>~<run folder>``, the form the run list's ids take."""
 
     run_id: str
     label: str
-    run_dir: Path
+    leaf: Path
     path: Path
     mtime: float
 
 
-def discover_scored(store: Path) -> list[ScoredRun]:
-    """Every run folder directly under ``store`` with a ``prequential.json``
-    (newest first)."""
+def discover_scored(root: Path) -> list[ScoredRun]:
+    """Every scoring run in the store (newest first). Its label is the stem of
+    the fit file that made it."""
     out: list[ScoredRun] = []
-    try:
-        dirs = [d for d in store.iterdir() if d.is_dir()]
-    except OSError:
-        return out
-    for d in dirs:
-        pq = find_prequential(d)
-        if pq is None:
-            continue
-        try:
-            mtime = pq.stat().st_mtime
-        except OSError:
-            continue
-        out.append(ScoredRun(d.name, _HASH_SUFFIX.sub("", d.name), d, pq, mtime))
+    for kind_dir in store.kind_dirs(root, ingest.FIT_KIND):
+        for problem in store.walk(kind_dir, 1):
+            for leaf in store.walk(problem / ingest.RUNS_DIR, ingest.RUN_DEPTH):
+                pq = find_prequential(leaf)
+                ident = store.read_identity(leaf)
+                record = store.read_run_record(leaf)
+                if pq is None or ident is None or record is None:
+                    continue
+                method = ident.body.get("chain", {}).get("method", {})
+                if method.get("algorithm") not in ingest.SCORING_ALGORITHMS:
+                    continue
+                config = record.given.get("config")
+                stem = Path(config["path"]).stem if isinstance(config, dict) and config.get("path") else problem.name
+                out.append(ScoredRun(
+                    f"{problem.name}{ingest.LEAF_SEP}{leaf.name}", stem, leaf, pq, pq.stat().st_mtime,
+                ))
     return sorted(out, key=lambda r: r.mtime, reverse=True)
 
 

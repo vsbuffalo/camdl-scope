@@ -2,30 +2,24 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from camdl_scope import ingest
 from camdl_scope.mle import read_mle
+from tests.storekit import StoreKit
 
 
-def _scout_run(store: Path, run: str = "opt-aa") -> Path:
-    """A pure MLE run: fit.meta.json + fit.toml + one scout seed leaf with an
-    mle_params.toml (θ̂) and chain_results.tsv (per-restart optima)."""
-    run_dir = store / run
-    seed = run_dir / "01-scout-hh" / "seed_1-hh"
-    seed.mkdir(parents=True)
-    (run_dir / "fit.meta.json").write_text(json.dumps({
-        "model_path": "models/opt.camdl",
-        "estimated": ["a", "b"],
-    }))
-    (run_dir / "fit.toml.original").write_text(
-        '[stages.scout]\nalgorithm = "nl-sbplx"\nbackend = "ode"\n'
-    )
+def _scout_run(store: Path, problem: str = "opt-aa") -> Path:
+    """A completed pure MLE run: one ``nl-sbplx`` fit run whose folder holds
+    ``mle_params.toml`` (θ̂) and ``chain_results.tsv`` (per-restart optima).
+    Returns the run's own folder."""
+    kit = StoreKit.create(store)
+    seed = kit.fit_run(kit.problem("opt", name=problem), algorithm="nl-sbplx",
+                       estimated=["a", "b"])
     (seed / "mle_params.toml").write_text(
-        "a = 1.5\nb = 2.5\n\n[provenance]\nlog_likelihood = -10.0\nstage = \"scout\"\n"
+        "a = 1.5\nb = 2.5\n\n[provenance]\nlog_likelihood = -10.0\n"
     )
     # 3 restarts: two converged (best a=1.5), one failed (sentinel).
     (seed / "chain_results.tsv").write_text(
@@ -34,12 +28,11 @@ def _scout_run(store: Path, run: str = "opt-aa") -> Path:
         "2\t-12.0\txtol_reached\t480\t1.2\t2.9\n"
         "3\t-1e100\txtol_reached\t100\t9.9\t9.9\n"
     )
-    return run_dir
+    return seed
 
 
 def test_read_mle_estimate_and_restarts(tmp_path):
-    run_dir = _scout_run(tmp_path / "fits")
-    seed = run_dir / "01-scout-hh" / "seed_1-hh"
+    seed = _scout_run(tmp_path / "camdl-store")
     fit = read_mle(seed, ["a", "b"])
     assert fit is not None
     assert fit.loglik == -10.0
@@ -53,8 +46,8 @@ def test_read_mle_estimate_and_restarts(tmp_path):
 
 
 def test_mle_run_is_discovered_and_kind_tagged(tmp_path):
-    _scout_run(tmp_path / "fits")
-    runs = ingest.discover_runs(tmp_path / "fits")
+    _scout_run(tmp_path / "camdl-store")
+    runs = ingest.discover_runs(tmp_path / "camdl-store")
     assert len(runs) == 1
     meta = runs[0]
     assert meta.fit_kind == "mle"
@@ -63,10 +56,9 @@ def test_mle_run_is_discovered_and_kind_tagged(tmp_path):
 
 
 def test_mle_endpoints(tmp_path, monkeypatch):
-    store = tmp_path / "results" / "fits"
-    store.mkdir(parents=True)
+    store = tmp_path / "camdl-store"
     _scout_run(store, "opt-bb")
-    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(store))
+    monkeypatch.setenv("CAMDL_STORE", str(store))
     from camdl_scope.api.app import app
 
     c = TestClient(app)

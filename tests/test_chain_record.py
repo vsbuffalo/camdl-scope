@@ -16,7 +16,8 @@ from fastapi.testclient import TestClient
 
 from camdl_scope import chainrecord as CR
 from camdl_scope import verdict as V
-from tests.fixtures.make_golden_store import POSTERIOR_DIR, RUN_DIR, SEED_DIR, build
+from tests.fixtures.make_golden_store import RUN_DIR, build, leaf_path
+from tests.storekit import events_jsonl
 
 EV = {"schema": "camdl.events/v1"}
 
@@ -48,19 +49,19 @@ def _write_events(leaf: Path, verdict: dict, diagnostics: dict | None = None) ->
               "verdict": verdict, "method_result": {"diagnostics": diagnostics or {}}}
     lines = [{**EV, "seq": 0, "elapsed": 1.0, "event": "method_report",
               "outcome": "completed", "report": report}]
-    (leaf / "events.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))
+    (leaf / "events.jsonl").write_text(events_jsonl(lines))
 
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     build(tmp_path)
-    monkeypatch.setenv("CAMDL_SCOPE_STORE", str(tmp_path))
+    monkeypatch.setenv("CAMDL_STORE", str(tmp_path))
     return tmp_path
 
 
 @pytest.fixture
 def leaf(store) -> Path:
-    return store / RUN_DIR / POSTERIOR_DIR / SEED_DIR
+    return leaf_path(store)
 
 
 def _client() -> TestClient:

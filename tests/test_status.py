@@ -1,17 +1,19 @@
-"""Status classification: liveness (the sampler `.lock` PID / heartbeat), not
-trace mtime.
+"""Status classification: the run's ``run.json`` record and its owner's
+liveness, not trace mtime.
 
 A slow / write-buffered sampler (PGAS on a spatial model can take minutes per
 sweep) legitimately goes a long time between trace writes. Status must come from
-whether the process is alive, never from file staleness — otherwise a live run
-is mislabeled "done". The classification core is :func:`camdl_scope.assembly`,
-exercised here against synthetic on-disk stores the way the API assembles them.
+the run's record and whether the process that owns it is alive, never from file
+staleness — otherwise a live run is mislabeled "done". The classification core
+is :func:`camdl_scope.assembly.classify_from`, exercised here against stores
+built with :class:`tests.storekit.StoreKit` the way the API assembles them.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 from pathlib import Path
 
@@ -19,6 +21,7 @@ import pytest
 
 from camdl_scope import assembly, ingest
 from camdl_scope.state import RunState
+from tests.storekit import StoreKit
 
 
 def _trace(rows: int) -> str:
@@ -28,270 +31,264 @@ def _trace(rows: int) -> str:
     )
 
 
-def _mkrun(
-    store: Path, name: str, *, rows: int, lock_pid: int, draws: bool = True
-) -> Path:
-    seed = store / name / "01-posterior-aaaa1111" / "seed_1-bbbb2222"
-    (seed / "chain_1").mkdir(parents=True)
-    tp = seed / "chain_1" / "trace.tsv"
-    if rows:
-        tp.write_text(_trace(rows))
-        # A finished stage writes the pooled posterior; a killed one (draws=False)
-        # leaves only the partial per-chain trace above.
-        if draws:
-            (seed / "draws.tsv").write_text(
-                "R0\n" + "".join(f"1.{i}\n" for i in range(rows))
-            )
-    else:
-        tp.write_text("")  # burn-in: empty
-    (seed / ".lock").write_text(str(lock_pid))
-    (store / name / "fit.meta.json").write_text(
-        json.dumps({"estimated": ["R0"], "resolved_priors": []})
-    )
-    (store / name / "fit.toml.original").write_text(
-        '[stages.posterior]\nalgorithm="pgas"\nbackend="chain_binomial"\nburn_in=2000\n'
-    )
+def _write_trace(leaf: Path, rows: int) -> Path:
+    """One chain's trace in ``leaf``; ``rows=0`` is a burn-in chain that has
+    created its trace but written nothing to it."""
+    tp = leaf / "chain_0" / "trace.tsv"
+    tp.parent.mkdir(parents=True, exist_ok=True)
+    tp.write_text(_trace(rows) if rows else "")
     return tp
 
 
-_DEAD_PID = 2147483646  # almost certainly not a live process
+def _run(
+    kit: StoreKit, problem: Path, *, rows: int, status: str = "completed",
+    alive: bool = True,
+) -> Path:
+    """A PGAS fit run of ``problem`` with one chain of ``rows`` trace rows."""
+    leaf = kit.fit_run(
+        problem, algorithm="pgas", status=status, alive=alive,
+        method={"backend": "chain_binomial", "burn_in": 2000},
+        estimated=["R0"], meta={"estimated": ["R0"], "resolved_priors": []},
+    )
+    _write_trace(leaf, rows)
+    return leaf
 
 
-def _registry(store: Path) -> dict[str, RunState]:
-    """Discover + assemble every run the way the API does — the v2 equivalent of
-    the old Shiny registry."""
+def _mkrun(kit: StoreKit, name: str, **kw) -> Path:
+    """A problem folder named ``name`` holding one run (see :func:`_run`)."""
+    return _run(kit, kit.problem(name=name), **kw)
+
+
+def _kill(kit: StoreKit, leaf: Path) -> None:
+    """The run's owner dies without ending its claim: ``run.json`` keeps
+    ``running`` but names a process that has exited, as a killed camdl leaves it."""
+    rec = json.loads((leaf / "run.json").read_text())
+    rec["owner"] = kit.owner(alive=False)
+    (leaf / "run.json").write_text(json.dumps(rec))
+
+
+def _move_owner_to_another_host(kit: StoreKit, leaf: Path) -> None:
+    """Give the run an owner on another machine, with its beat file present.
+    This reader cannot see that process, so the run's heartbeat decides.
+    (StoreKit only makes owners on this host.)"""
+    owner = {"host": "elsewhere-node", "pid": 4242, "started": "2026-11-24T00:00:00.000Z"}
+    (kit.root / ".owners" / "elsewhere-node-4242.json").write_text(
+        json.dumps({"format": 1, **owner, "beat": 7}))
+    rec = json.loads((leaf / "run.json").read_text())
+    rec["owner"] = owner
+    (leaf / "run.json").write_text(json.dumps(rec))
+
+
+def _failed_beat(leaf: Path, reason: str) -> None:
+    """A terminal ``failed`` heartbeat with its reason (StoreKit's ``beat``
+    writes only ``running`` or a bare unit state)."""
+    (leaf / "progress.json").write_text(json.dumps({
+        "format": 1, "at": "2026-11-24T00:00:05.000Z",
+        "snapshot": {"updated_at": int(time.time()), "pid": os.getpid(),
+                     "state": {"failed": {"reason": reason}}},
+    }))
+
+
+def _registry(root: Path) -> dict[str, RunState]:
+    """Discover + assemble every run the way the API does."""
     return {
         m.run_id: assembly.build_run_state(m)
-        for m in ingest.discover_runs(store, include_warming=True)
+        for m in ingest.discover_runs(root, include_warming=True)
     }
 
 
-def test_live_slow_sampler_with_ancient_trace_is_running(tmp_path):
-    store = tmp_path / "fits"
-    tp = _mkrun(store, "slow-aaaa", rows=72, lock_pid=os.getpid())
+def _by_folder(root: Path, folder: str) -> list[RunState]:
+    """Every entry of one problem folder, its default first."""
+    return [rs for rs in _registry(root).values() if rs.meta.problem_dir.name == folder]
+
+
+@pytest.fixture
+def kit(tmp_path: Path) -> StoreKit:
+    return StoreKit.create(tmp_path / "camdl-store")
+
+
+def test_live_slow_sampler_with_ancient_trace_is_running(kit):
+    leaf = _mkrun(kit, "slow-aaaa", rows=72, status="running")
     ancient = time.time() - 3600  # 1 hour since last write — the bug trigger
-    os.utime(tp, (ancient, ancient))
-    assert _registry(store)["slow-aaaa"].status.value == "running"
+    os.utime(leaf / "chain_0" / "trace.tsv", (ancient, ancient))
+    assert _registry(kit.root)["slow-aaaa"].status.value == "running"
 
 
-def test_finished_run_with_draws_is_done(tmp_path):
-    store = tmp_path / "fits"
-    _mkrun(store, "fin-bbbb", rows=72, lock_pid=_DEAD_PID)  # writes draws.tsv
-    assert _registry(store)["fin-bbbb"].status.value == "done"
+def test_live_owner_with_stale_heartbeat_is_still_running(kit):
+    # On this host the owner's process is visible, so a heartbeat that has not
+    # been rewritten for minutes (a long sweep) does not make the run stalled.
+    leaf = _mkrun(kit, "slowbeat-aaaa", rows=50, status="running")
+    kit.beat(leaf, phase="sampling", step=600, total=1000, age=600)
+    assert _registry(kit.root)["slowbeat-aaaa"].status.value == "running"
 
 
-def test_killed_partial_run_is_stalled_not_done(tmp_path):
-    # No heartbeat, dead PID, trace rows present but NO draws.tsv: a stage that
-    # was killed / crashed / OOM'd mid-sampling. It must NOT read as done —
-    # there is no pooled posterior to predict from.
-    store = tmp_path / "fits"
-    _mkrun(store, "killed-eeee", rows=72, lock_pid=_DEAD_PID, draws=False)
-    assert _registry(store)["killed-eeee"].status.value == "stalled"
+def test_finished_run_is_done(kit):
+    # Completed by its record, whatever its owner is doing now.
+    _mkrun(kit, "fin-bbbb", rows=72, status="completed", alive=False)
+    rs = _registry(kit.root)["fin-bbbb"]
+    assert rs.status.value == "done"
+    assert sum(b.n for b in rs.chains.values()) == 72
 
 
-def _seed(store: Path, name: str) -> Path:
-    return store / name / "01-posterior-aaaa1111" / "seed_1-bbbb2222"
+def test_killed_partial_run_is_stalled_not_done(kit):
+    # The record still says running, the owner is dead, trace rows present: a
+    # run killed / crashed / OOM'd mid-sampling. It must NOT read as done.
+    _mkrun(kit, "killed-eeee", rows=72, status="running", alive=False)
+    assert _registry(kit.root)["killed-eeee"].status.value == "stalled"
 
 
-def _write_progress(seed: Path, state, *, updated_at: float, pid: int = 12345) -> None:
-    seed.mkdir(parents=True, exist_ok=True)
-    (seed / "progress.json").write_text(
-        json.dumps({"updated_at": int(updated_at), "pid": pid, "state": state})
-    )
-
-
-def _classify_one(store: Path, name: str) -> RunState:
-    return _registry(store)[name]
-
-
-def test_heartbeat_burn_in_is_warming(tmp_path):
-    # Heartbeat wins over the .lock: dead PID but a FRESH burn-in heartbeat.
-    store = tmp_path / "fits"
-    _mkrun(store, "hb-warm", rows=0, lock_pid=_DEAD_PID)
-    _write_progress(_seed(store, "hb-warm"),
-                    {"running": {"phase": "burn_in", "step": 130, "total": 1000}},
-                    updated_at=time.time())
-    rs = _classify_one(store, "hb-warm")
+def test_heartbeat_burn_in_is_warming(kit):
+    leaf = _mkrun(kit, "hb-warm", rows=0, status="running")
+    kit.beat(leaf, phase="burn_in", step=130, total=1000)
+    rs = _registry(kit.root)["hb-warm"]
     assert rs.status.value == "warming"
     assert (rs.progress.step, rs.progress.total) == (130, 1000)
 
 
-def test_heartbeat_sampling_is_running(tmp_path):
-    store = tmp_path / "fits"
-    _mkrun(store, "hb-run", rows=50, lock_pid=_DEAD_PID)
-    _write_progress(_seed(store, "hb-run"),
-                    {"running": {"phase": "sampling", "step": 600, "total": 1000}},
-                    updated_at=time.time())
-    assert _classify_one(store, "hb-run").status.value == "running"
+def test_heartbeat_sampling_is_running(kit):
+    leaf = _mkrun(kit, "hb-run", rows=50, status="running")
+    kit.beat(leaf, phase="sampling", step=600, total=1000)
+    assert _registry(kit.root)["hb-run"].status.value == "running"
 
 
-def test_heartbeat_stale_running_is_stalled(tmp_path):
-    # Stale heartbeat -> presumed dead, even though the .lock PID is alive.
-    store = tmp_path / "fits"
-    _mkrun(store, "hb-stale", rows=50, lock_pid=os.getpid())
-    _write_progress(_seed(store, "hb-stale"),
-                    {"running": {"phase": "sampling", "step": 600, "total": 1000}},
-                    updated_at=time.time() - 120)
-    assert _classify_one(store, "hb-stale").status.value == "stalled"
+def test_owner_on_another_host_is_judged_by_its_heartbeat(kit):
+    # The owner's process cannot be seen from here: a fresh running heartbeat
+    # counts as alive, a stale one as stalled.
+    fresh = _mkrun(kit, "remote-fresh", rows=50, status="running")
+    _move_owner_to_another_host(kit, fresh)
+    kit.beat(fresh, phase="sampling", step=600, total=1000)
+    stale = _mkrun(kit, "remote-stale", rows=50, status="running")
+    _move_owner_to_another_host(kit, stale)
+    kit.beat(stale, phase="sampling", step=600, total=1000,
+             age=ingest.PROGRESS_STALE_S + 90)
+    reg = _registry(kit.root)
+    assert reg["remote-fresh"].meta.owner_alive is None
+    assert reg["remote-fresh"].status.value == "running"
+    assert reg["remote-stale"].status.value == "stalled"
 
 
-def test_heartbeat_terminal_done_and_failed(tmp_path):
-    # Terminal states win regardless of a live .lock / freshness.
-    store = tmp_path / "fits"
-    _mkrun(store, "hb-done", rows=50, lock_pid=os.getpid())
-    _write_progress(_seed(store, "hb-done"), "done", updated_at=time.time())
-    assert _classify_one(store, "hb-done").status.value == "done"
-
-    store2 = tmp_path / "fits2"
-    _mkrun(store2, "hb-fail", rows=50, lock_pid=os.getpid())
-    _write_progress(_seed(store2, "hb-fail"),
-                    {"failed": {"reason": "nan in likelihood"}}, updated_at=time.time())
-    rs = _classify_one(store2, "hb-fail")
-    assert rs.status.value == "failed"
-    assert rs.progress.reason == "nan in likelihood"
+def test_record_terminal_states_win_over_a_live_owner_and_heartbeat(kit):
+    done = _mkrun(kit, "hb-done", rows=50, status="completed")
+    kit.beat(done, phase="sampling", step=600, total=1000)  # a leftover beat
+    failed = _mkrun(kit, "hb-fail", rows=50, status="failed", alive=True)
+    _failed_beat(failed, "nan in likelihood")
+    reg = _registry(kit.root)
+    assert reg["hb-done"].status.value == "done"
+    assert reg["hb-fail"].status.value == "failed"
+    assert reg["hb-fail"].progress.reason == "nan in likelihood"
 
 
-def test_burn_in_death_is_hidden_not_zombied(tmp_path):
-    # No heartbeat (e.g. mh/ode): a run seen live in burn-in, then its sampler
-    # dies with zero draws. v2 hides the empty dead stub (no clutter), rather
-    # than the v1 behavior of keeping it as a "stalled" zombie.
-    store = tmp_path / "fits"
-    _mkrun(store, "die-aaaa", rows=0, lock_pid=os.getpid())
-    assert _registry(store)["die-aaaa"].status.value == "warming"
-    (_seed(store, "die-aaaa") / ".lock").write_text(str(_DEAD_PID))  # sampler dies
-    assert "die-aaaa" not in _registry(store)  # empty + dead -> hidden
+def test_burn_in_death_is_hidden_not_zombied(kit):
+    # A run seen live in burn-in, then its owner dies with zero draws: the
+    # empty dead run is hidden rather than kept as a "stalled" zombie.
+    leaf = _mkrun(kit, "die-aaaa", rows=0, status="running")
+    kit.beat(leaf, phase="burn_in", step=40, total=1000)
+    assert _registry(kit.root)["die-aaaa"].status.value == "warming"
+    _kill(kit, leaf)
+    assert "die-aaaa" not in _registry(kit.root)
 
 
-def test_deleted_run_dir_is_dropped_not_zombied(tmp_path):
-    # A live run whose dir is pruned off disk must leave the listing entirely.
-    store = tmp_path / "fits"
-    _mkrun(store, "prune-aaaa", rows=72, lock_pid=os.getpid())
-    assert _registry(store)["prune-aaaa"].status.value == "running"
-    import shutil
-
-    shutil.rmtree(store / "prune-aaaa")
-    assert "prune-aaaa" not in _registry(store)
+def test_deleted_run_dir_is_dropped_not_zombied(kit):
+    # A live run whose folder is pruned off disk must leave the listing entirely.
+    leaf = _mkrun(kit, "prune-aaaa", rows=72, status="running")
+    assert _registry(kit.root)["prune-aaaa"].status.value == "running"
+    shutil.rmtree(leaf)
+    assert "prune-aaaa" not in _registry(kit.root)
 
 
-def test_pick_prefers_live_stage_among_empty_siblings(tmp_path):
-    # Two empty stage dirs (a relaunch): even when the dead one sorts first by
-    # mtime, the live one is surfaced.
-    run = tmp_path / "cfg-deadbeef"
-    dead = run / "02-posterior-bbbb2222" / "seed_1-bbbb"
-    live = run / "01-posterior-aaaa1111" / "seed_1-aaaa"
-    for sd, pid in ((dead, _DEAD_PID), (live, os.getpid())):
-        (sd / "chain_1").mkdir(parents=True)
-        (sd / "chain_1" / "trace.tsv").write_text("")
-        (sd / ".lock").write_text(str(pid))
+def test_live_empty_run_is_listed_and_its_dead_sibling_hidden(kit):
+    # Two empty runs of one problem (a relaunch beside a killed attempt): even
+    # with the dead one's trace newer, the live one is the folder's entry.
+    problem = kit.problem(name="cfg-deadbeef")
+    dead = _run(kit, problem, rows=0, status="running", alive=False)
+    live = _run(kit, problem, rows=0, status="running")
+    for leaf in (dead, live):
+        kit.beat(leaf, phase="burn_in", step=40, total=1000)
     newer = time.time() + 100
-    os.utime(dead / "chain_1" / "trace.tsv", (newer, newer))
-    picked = ingest._pick_posterior_dir(run, include_warming=True)
-    assert picked is not None and picked[1] == live  # the live seed dir
+    os.utime(dead / "chain_0" / "trace.tsv", (newer, newer))
+    reg = _registry(kit.root)
+    assert list(reg) == ["cfg-deadbeef"]  # one run listed: the folder's name
+    assert reg["cfg-deadbeef"].meta.leaf_dir == live
+    assert reg["cfg-deadbeef"].status.value == "warming"
 
 
-def test_pick_prefers_completed_stage_over_newer_stub(tmp_path):
-    # A crashed relaunch leaves a stub with as many started chains as the real
-    # run and a *newer* mtime. Without the completion key it would win the
-    # (chains, mtime) tie-break and mask the finished stage; the completed stage
-    # (draws.tsv) must still be the one surfaced.
-    run = tmp_path / "cfg-feedface"
-    done_stage = run / "01-posterior-aaaa1111" / "seed_1-aaaa"
-    stub_stage = run / "02-posterior-bbbb2222" / "seed_1-bbbb"
-    trace = (
-        "step\tlog_posterior\tR0\n"
-        + "".join(f"{i}\t-5.0\t1.{i}\n" for i in range(50))
-    )
-    for sd in (done_stage, stub_stage):
-        (sd / "chain_1").mkdir(parents=True)
-        (sd / "chain_1" / "trace.tsv").write_text(trace)
-    (done_stage / "draws.tsv").write_text("R0\n1.0\n1.1\n")
-    newer = time.time() + 100  # the stub is more recent
-    os.utime(stub_stage / "chain_1" / "trace.tsv", (newer, newer))
-    picked = ingest._pick_posterior_dir(run)
-    assert picked is not None and picked[1] == done_stage
-
-
-def _relaunch_stage(store: Path, name: str, *, rows: int) -> Path:
-    """A second posterior stage in an existing run dir, newer than the first —
-    what re-running a fit under revised sampler settings leaves behind (camdl
-    hashes the settings into the stage name, so it is a new dir, not an
-    overwrite). Returns the new seed dir."""
-    seed = store / name / "01-posterior-cccc3333" / "seed_1-bbbb2222"
-    (seed / "chain_1").mkdir(parents=True)
-    tp = seed / "chain_1" / "trace.tsv"
-    tp.write_text(_trace(rows) if rows else "")
+def test_completed_run_is_default_over_a_newer_dead_stub(kit):
+    # A crashed relaunch leaves a stub with as many rows as the real run and a
+    # *newer* mtime. The completed run is still the one the folder opens.
+    problem = kit.problem(name="cfg-feedface")
+    done = _run(kit, problem, rows=50, status="completed")
+    stub = _run(kit, problem, rows=50, status="running", alive=False)
     newer = time.time() + 100
-    os.utime(tp, (newer, newer))
-    return seed
+    os.utime(stub / "chain_0" / "trace.tsv", (newer, newer))
+    default, other = _by_folder(kit.root, "cfg-feedface")
+    assert default.meta.folder_default and default.meta.leaf_dir == done
+    assert default.status.value == "done"
+    assert other.meta.leaf_dir == stub and other.status.value == "stalled"
+    metas = ingest.discover_runs(kit.root)
+    assert ingest.resolve_run(metas, "cfg-feedface").leaf_dir == done
 
 
-def _by_folder(store: Path, folder: str) -> list[RunState]:
-    """Every entry of one problem folder, its default first."""
-    return [rs for rid, rs in _registry(store).items() if rs.meta.run_dir.name == folder]
-
-
-def test_relaunch_beside_completed_stage_reads_live_not_done(tmp_path):
-    # The friction case: a re-run adds a stage next to the finished one and is
-    # still in burn-in. Each is its own run. The folder opens the finished one,
-    # whose draws are the ones to show, and the re-run is listed beside it as
-    # warming — not hidden behind a "done" folder.
-    store = tmp_path / "fits"
-    _mkrun(store, "relaunch-aaaa", rows=72, lock_pid=_DEAD_PID)
-    _write_progress(_seed(store, "relaunch-aaaa"), "done", updated_at=time.time())
-    new = _relaunch_stage(store, "relaunch-aaaa", rows=0)
-    _write_progress(new, {"running": {"phase": "burn_in", "step": 319, "total": 40000}},
-                    updated_at=time.time())
-    default, rerun = _by_folder(store, "relaunch-aaaa")
-    assert default.meta.folder_default and default.meta.posterior_dir == _seed(store, "relaunch-aaaa")
+def test_relaunch_beside_completed_run_reads_live_not_done(kit):
+    # A re-run adds a run next to the finished one and is still in burn-in.
+    # Each is its own entry. The folder opens the finished one, whose draws
+    # are the ones to show, and the re-run is listed beside it as warming.
+    problem = kit.problem(name="relaunch-aaaa")
+    finished = _run(kit, problem, rows=72)
+    kit.beat(finished, state="done")
+    new = _run(kit, problem, rows=0, status="running")
+    kit.beat(new, phase="burn_in", step=319, total=40000)
+    default, rerun = _by_folder(kit.root, "relaunch-aaaa")
+    assert default.meta.folder_default and default.meta.leaf_dir == finished
     assert default.status.value == "done"
     assert sum(b.n for b in default.chains.values()) == 72
-    assert rerun.meta.posterior_dir == new
+    assert rerun.meta.leaf_dir == new and not rerun.meta.folder_default
     assert rerun.status.value == "warming"
     assert (rerun.progress.step, rerun.progress.total) == (319, 40000)
-    metas = ingest.discover_runs(store, include_warming=True)
-    assert ingest.resolve_run(metas, "relaunch-aaaa").posterior_dir == _seed(store, "relaunch-aaaa")
+    metas = ingest.discover_runs(kit.root, include_warming=True)
+    assert ingest.resolve_run(metas, "relaunch-aaaa").leaf_dir == finished
+    # Without include_warming the burn-in re-run is not listed, so the folder
+    # holds one entry and keeps its plain name.
+    assert [m.run_id for m in ingest.discover_runs(kit.root)] == ["relaunch-aaaa"]
 
 
-def test_relaunch_with_rows_is_the_stage_we_read(tmp_path):
-    # Once the live stage has rows it is what the folder opens: reporting
-    # "running" over the superseded stage's traces would pass off the old fit's
+def test_relaunch_with_rows_is_the_run_we_read(kit):
+    # Once the live run has rows it is what the folder opens: reporting
+    # "running" over the superseded run's traces would pass off the old fit's
     # sweep count and mixing as the new sampler's.
-    store = tmp_path / "fits"
-    _mkrun(store, "relaunch-bbbb", rows=72, lock_pid=_DEAD_PID)
-    _write_progress(_seed(store, "relaunch-bbbb"), "done", updated_at=time.time())
-    new = _relaunch_stage(store, "relaunch-bbbb", rows=9)
-    _write_progress(new, {"running": {"phase": "sampling", "step": 9, "total": 40000}},
-                    updated_at=time.time())
-    default, older = _by_folder(store, "relaunch-bbbb")
-    assert default.meta.posterior_dir == new
+    problem = kit.problem(name="relaunch-bbbb")
+    finished = _run(kit, problem, rows=72)
+    new = _run(kit, problem, rows=9, status="running")
+    kit.beat(new, phase="sampling", step=9, total=40000)
+    default, older = _by_folder(kit.root, "relaunch-bbbb")
+    assert default.meta.leaf_dir == new
     assert default.status.value == "running"
     assert sum(b.n for b in default.chains.values()) == 9
-    assert older.status.value == "done"
+    assert older.meta.leaf_dir == finished and older.status.value == "done"
 
 
-def test_dead_relaunch_stub_keeps_the_completed_stage(tmp_path):
-    # The mirror image (and the shape the ebola store is in today): the newest
-    # stage started as many chains as the finished one and has a newer mtime,
-    # but its "running" heartbeat went stale and it never wrote draws.tsv. A
-    # dead stub speaks for neither the draws nor the status.
-    store = tmp_path / "fits"
-    _mkrun(store, "relaunch-cccc", rows=72, lock_pid=_DEAD_PID)
-    _write_progress(_seed(store, "relaunch-cccc"), "done", updated_at=time.time())
-    dead = _relaunch_stage(store, "relaunch-cccc", rows=40)
-    _write_progress(dead, {"running": {"phase": "burn_in", "step": 319, "total": 40000}},
-                    updated_at=time.time() - 600)
-    rs = _registry(store)["relaunch-cccc"]
+def test_dead_relaunch_stub_keeps_the_completed_run(kit):
+    # The mirror image: the newer run's owner died partway with rows written
+    # and a stale heartbeat. A dead stub speaks for neither the draws nor the
+    # status of the folder.
+    problem = kit.problem(name="relaunch-cccc")
+    finished = _run(kit, problem, rows=72)
+    dead = _run(kit, problem, rows=40, status="running", alive=False)
+    kit.beat(dead, phase="burn_in", step=319, total=40000, age=600)
+    metas = ingest.discover_runs(kit.root, include_warming=True)
+    rs = assembly.build_run_state(ingest.resolve_run(metas, "relaunch-cccc"))
     assert rs.status.value == "done"
-    assert rs.meta.live_stage_dir is None
-    assert rs.meta.posterior_dir == _seed(store, "relaunch-cccc")
+    assert rs.meta.leaf_dir == finished
     assert sum(b.n for b in rs.chains.values()) == 72
+    stub = next(m for m in metas if m.leaf_dir == dead)
+    assert assembly.build_run_state(stub).status.value == "stalled"
 
 
-def test_live_burn_in_is_warming_dead_burn_in_hidden(tmp_path):
-    store = tmp_path / "fits"
-    _mkrun(store, "warm-cccc", rows=0, lock_pid=os.getpid())   # live, no draws
-    _mkrun(store, "dead-dddd", rows=0, lock_pid=_DEAD_PID)     # dead, no draws
-    reg = _registry(store)
+def test_live_burn_in_is_warming_dead_burn_in_hidden(kit):
+    warm = _mkrun(kit, "warm-cccc", rows=0, status="running")             # live, no draws
+    dead = _mkrun(kit, "dead-dddd", rows=0, status="running", alive=False)  # dead, no draws
+    for leaf in (warm, dead):
+        kit.beat(leaf, phase="burn_in", step=40, total=1000)
+    reg = _registry(kit.root)
     assert reg["warm-cccc"].status.value == "warming"
     assert "dead-dddd" not in reg  # empty + dead stays hidden
 

@@ -1,12 +1,12 @@
 {
  "status": 200,
  "body": {
-  "base_id": "sir-98e2de85",
+  "base_id": "12",
   "ci_drop": 2.9957,
   "ci_hi": null,
   "ci_level": 0.95,
   "ci_lo": null,
-  "heartbeat_at": "<volatile>",
+  "heartbeat_at": null,
   "label": "sir",
   "loglik_type": "ode_marginal",
   "method": "nl-sbplx",
@@ -41,6 +41,62 @@
    {
     "complete": true,
     "coords": [
+     0.2925,
+     0.84
+    ],
+    "loglik": -48.6888,
+    "loglik_spread": 5.68434e-13,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 9399.6
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.325,
+     0.84
+    ],
+    "loglik": -48.1322,
+    "loglik_spread": 8.5123e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 9109.76
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.3575,
+     0.84
+    ],
+    "loglik": -52.227,
+    "loglik_spread": 1.54188e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 8839.37
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.39,
+     0.84
+    ],
+    "loglik": -61.1969,
+    "loglik_spread": 6.35936e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 8585.88
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
      0.26,
      0.88
     ],
@@ -50,6 +106,62 @@
     "n_starts": 2,
     "nuisance": {
      "N0": 10174.6
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.2925,
+     0.88
+    ],
+    "loglik": -48.6888,
+    "loglik_spread": 4.9738e-14,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 9847.2
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.325,
+     0.88
+    ],
+    "loglik": -48.1322,
+    "loglik_spread": 1.53477e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 9543.56
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.3575,
+     0.88
+    ],
+    "loglik": -52.227,
+    "loglik_spread": 1.54898e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 9260.29
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.39,
+     0.88
+    ],
+    "loglik": -61.1969,
+    "loglik_spread": 4.59721e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 8994.73
     }
    },
    {
@@ -69,6 +181,62 @@
    {
     "complete": true,
     "coords": [
+     0.2925,
+     0.92
+    ],
+    "loglik": -48.6888,
+    "loglik_spread": 5.32197e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 10294.8
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.325,
+     0.92
+    ],
+    "loglik": -48.1322,
+    "loglik_spread": 4.83169e-13,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 9977.36
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.3575,
+     0.92
+    ],
+    "loglik": -52.227,
+    "loglik_spread": 1.89004e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 9681.21
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.39,
+     0.92
+    ],
+    "loglik": -61.1969,
+    "loglik_spread": 4.08562e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 9403.58
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
      0.26,
      0.96
     ],
@@ -78,6 +246,62 @@
     "n_starts": 2,
     "nuisance": {
      "N0": 11099.6
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.2925,
+     0.96
+    ],
+    "loglik": -48.6888,
+    "loglik_spread": 4.33431e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 10742.4
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.325,
+     0.96
+    ],
+    "loglik": -48.1322,
+    "loglik_spread": 7.3257e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 10411.2
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.3575,
+     0.96
+    ],
+    "loglik": -52.227,
+    "loglik_spread": 1.66267e-12,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 10102.1
+    }
+   },
+   {
+    "complete": true,
+    "coords": [
+     0.39,
+     0.96
+    ],
+    "loglik": -61.1969,
+    "loglik_spread": 4.9738e-13,
+    "n_expected": 2,
+    "n_starts": 2,
+    "nuisance": {
+     "N0": 9812.43
     }
    },
    {
@@ -98,62 +322,6 @@
     "complete": true,
     "coords": [
      0.2925,
-     0.84
-    ],
-    "loglik": -48.6888,
-    "loglik_spread": 5.68434e-13,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 9399.6
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.2925,
-     0.88
-    ],
-    "loglik": -48.6888,
-    "loglik_spread": 4.9738e-14,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 9847.2
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.2925,
-     0.92
-    ],
-    "loglik": -48.6888,
-    "loglik_spread": 5.32197e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 10294.8
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.2925,
-     0.96
-    ],
-    "loglik": -48.6888,
-    "loglik_spread": 4.33431e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 10742.4
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.2925,
      1.0
     ],
     "loglik": -48.6888,
@@ -162,62 +330,6 @@
     "n_starts": 2,
     "nuisance": {
      "N0": 11190.0
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.325,
-     0.84
-    ],
-    "loglik": -48.1322,
-    "loglik_spread": 8.5123e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 9109.76
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.325,
-     0.88
-    ],
-    "loglik": -48.1322,
-    "loglik_spread": 1.53477e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 9543.56
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.325,
-     0.92
-    ],
-    "loglik": -48.1322,
-    "loglik_spread": 4.83169e-13,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 9977.36
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.325,
-     0.96
-    ],
-    "loglik": -48.1322,
-    "loglik_spread": 7.3257e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 10411.2
     }
    },
    {
@@ -238,62 +350,6 @@
     "complete": true,
     "coords": [
      0.3575,
-     0.84
-    ],
-    "loglik": -52.227,
-    "loglik_spread": 1.54188e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 8839.37
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.3575,
-     0.88
-    ],
-    "loglik": -52.227,
-    "loglik_spread": 1.54898e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 9260.29
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.3575,
-     0.92
-    ],
-    "loglik": -52.227,
-    "loglik_spread": 1.89004e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 9681.21
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.3575,
-     0.96
-    ],
-    "loglik": -52.227,
-    "loglik_spread": 1.66267e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 10102.1
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.3575,
      1.0
     ],
     "loglik": -52.227,
@@ -302,62 +358,6 @@
     "n_starts": 2,
     "nuisance": {
      "N0": 10523.1
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.39,
-     0.84
-    ],
-    "loglik": -61.1969,
-    "loglik_spread": 6.35936e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 8585.88
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.39,
-     0.88
-    ],
-    "loglik": -61.1969,
-    "loglik_spread": 4.59721e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 8994.73
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.39,
-     0.92
-    ],
-    "loglik": -61.1969,
-    "loglik_spread": 4.08562e-12,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 9403.58
-    }
-   },
-   {
-    "complete": true,
-    "coords": [
-     0.39,
-     0.96
-    ],
-    "loglik": -61.1969,
-    "loglik_spread": 4.9738e-13,
-    "n_expected": 2,
-    "n_starts": 2,
-    "nuisance": {
-     "N0": 9812.43
     }
    },
    {

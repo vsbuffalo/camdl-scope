@@ -1,12 +1,12 @@
 {
  "status": 200,
  "body": {
-  "base_id": "sir-133eb3b0",
+  "base_id": "11",
   "ci_drop": 1.9207,
   "ci_hi": 0.335632,
   "ci_level": 0.95,
   "ci_lo": 0.287739,
-  "heartbeat_at": "<volatile>",
+  "heartbeat_at": null,
   "label": "sir",
   "loglik_type": "ode_marginal",
   "method": "nl-sbplx",

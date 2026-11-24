@@ -1,18 +1,17 @@
 """Generated-quantities sidecar — the ``camdl fit predict`` quantities output.
 
-A fit has these once ``camdl fit predict`` ran on a model with a ``quantities {}``
-block. They are written sibling to predictive/observed, inside the run's predict
-directory (``<run_dir>/predict/<run_id12>[-<opts8>]/``, found by
-:func:`camdl_scope.predictive.predict_dirs`); every reader here takes that
-directory as ``run_dir``::
+A prediction has these once ``camdl predict`` ran on a model with a
+``quantities {}`` block. They sit beside predictive/observed in the prediction's
+folder (found by :func:`camdl_scope.predictive.predict_dirs`); every reader here
+takes that folder as ``run_dir``::
 
-    <predict dir>/quantities.json         # manifest (schema camdl.quantities/v1)
-    <predict dir>/quantities/<name>.tsv   # one banded TSV per logical quantity
+    <prediction>/quantities.json               # manifest (schema camdl.quantities/v1)
+    <prediction>/quantities-model/<name>.tsv   # one banded TSV per logical quantity
 
-The MANIFEST is the authoritative index. The ``quantities/`` dir can also hold
-stale TSVs from a prior predict whose block named quantities differently (a
-renamed quantity leaves its old file behind), so we read only what the manifest
-lists — never the directory glob.
+The store keeps the name ``quantities`` for a kind, so the model's own block's
+tables are in ``quantities-model/`` (camdl ``quantities_file.rs``,
+``stored_quantities_dir_name``). The manifest is the authoritative index: only
+what it lists is read, never the directory glob.
 
 Each entry's ``shape`` drives the rendering:
 
@@ -35,7 +34,7 @@ from pathlib import Path
 
 import polars as pl
 
-QUANTITIES_DIR = "quantities"
+QUANTITIES_DIR = "quantities-model"
 MANIFEST = "quantities.json"
 
 

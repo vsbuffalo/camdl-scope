@@ -6,7 +6,7 @@
 API_HOST ?= 127.0.0.1
 API_PORT ?= 8800
 
-.PHONY: dev dev-api dev-web build serve test fixture types demo demo-bundle
+.PHONY: dev dev-api dev-web build serve test fixture types demo demo-bundle legacy
 
 ## dev: run API (reload) + Vite dev server together; Ctrl-C stops both
 dev:
@@ -30,6 +30,15 @@ build:
 ## serve: build the frontend, then serve API + SPA on one port
 serve: build
 	uv run camdl-scope --host $(API_HOST) --port $(API_PORT)
+
+## legacy: serve an old `results/fits` store with the last camdl-scope that reads it
+##   make legacy STORE=../project/results/fits   (checks out tag results-layout into build/legacy)
+LEGACY_REF ?= results-layout
+legacy:
+	@test -n "$(STORE)" || { echo "usage: make legacy STORE=path/to/results/fits"; exit 2; }
+	@test -d build/legacy || git worktree add --detach build/legacy $(LEGACY_REF)
+	@test -d build/legacy/web/dist || (cd build/legacy/web && npm ci && npm run build)
+	cd build/legacy && uv run camdl-scope --store "$(abspath $(STORE))" --host $(API_HOST) --port $(API_PORT)
 
 ## test: Python test suite
 test:

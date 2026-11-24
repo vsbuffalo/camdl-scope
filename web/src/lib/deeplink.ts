@@ -9,9 +9,9 @@
  * whatever the app would otherwise have opened.
  *
  * The token is deliberately forgiving, because whoever writes the link usually
- * has something *other* than the run id to hand. camdl prints a leaf path
- * (`results/fits/fit_x-1344469c/pgas-79d6825a/seed_1-…`); `run.json` carries the
- * full 64-hex fit hash; the viewer's ticker copies the 8-hex run id. All three
+ * has something *other* than the run id to hand. camdl prints a run's folder
+ * (`0.1.0_…/fit/sir-15ab2c77febb/runs/pgas-79d6825a…/seed_1-…`); `identity.json`
+ * carries the full 64-hex run id; the viewer's ticker copies the short one. All three
  * resolve, along with a stem when the store holds only one fit of it. A problem
  * folder holding several runs opens its default run unless the token names
  * one: a leaf path, a seed run's id, camdl's run_id, or its label. A method
@@ -135,7 +135,7 @@ function matchToken(token: string, runs: RunRef[]): RunResolution {
  * Resolve a run token against the runs in the store.
  *
  * A token containing `/` is treated as a path, so a leaf path pasted straight
- * out of camdl's stdout (`results/fits/fit_x-…/pmmh-…/seed_6-…`) opens that
+ * out of camdl's stdout (`<build>/fit/sir-…/runs/pmmh-…/seed_6-…`) opens that
  * seed's run, and a path that stops at the folder opens the folder's default.
  * Otherwise each segment is tried in order.
  */
@@ -149,7 +149,7 @@ export function resolveRunToken(token: string, runs: RunRef[]): RunResolution {
     if (byLeaf.length) return result(byLeaf.map((r) => r.run_id))
     // A path that stops at the method directory opens that configuration.
     const byMethod = runs.filter(
-      (r) => r.method_default && path.endsWith(`/${r.folder}/${r.method}/`),
+      (r) => r.method_default && path.endsWith(`/${r.folder}/runs/${r.method}/`),
     )
     if (byMethod.length) return result(byMethod.map((r) => r.run_id))
   }
